@@ -8,6 +8,7 @@
  * into place to prevent partial writes on crash.
  */
 
+import { randomBytes } from "node:crypto";
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -84,7 +85,7 @@ export class FsCas implements ContentStore {
     await mkdir(dir, { recursive: true });
 
     // Atomic write: write to temp file, then rename
-    const tmpFile = `${blobFile}.tmp.${Date.now()}`;
+    const tmpFile = `${blobFile}.tmp.${Date.now()}.${randomBytes(4).toString("hex")}`;
     await Bun.write(tmpFile, data);
     await rename(tmpFile, blobFile);
 

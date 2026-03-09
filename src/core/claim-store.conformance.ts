@@ -75,6 +75,34 @@ export function runClaimStoreTests(factory: ClaimStoreFactory): void {
       await expect(store.createClaim(claim)).rejects.toThrow();
     });
 
+    test("createClaim throws when target already has an active claim", async () => {
+      const claim1 = makeClaim({ claimId: "first", targetRef: "shared-target" });
+      await store.createClaim(claim1);
+      const claim2 = makeClaim({ claimId: "second", targetRef: "shared-target" });
+      await expect(store.createClaim(claim2)).rejects.toThrow(/active claim/);
+    });
+
+    test("createClaim allows claiming target after previous claim released", async () => {
+      const claim1 = makeClaim({ claimId: "released-claim", targetRef: "shared-target" });
+      await store.createClaim(claim1);
+      await store.release(claim1.claimId);
+      const claim2 = makeClaim({ claimId: "new-claim", targetRef: "shared-target" });
+      const result = await store.createClaim(claim2);
+      expect(result.claimId).toBe("new-claim");
+    });
+
+    test("createClaim allows claiming target after previous claim lease expired", async () => {
+      const expired = makeClaim({
+        claimId: "expired-claim",
+        targetRef: "shared-target",
+        leaseExpiresAt: new Date(Date.now() - 10_000).toISOString(),
+      });
+      await store.createClaim(expired);
+      const claim2 = makeClaim({ claimId: "fresh-claim", targetRef: "shared-target" });
+      const result = await store.createClaim(claim2);
+      expect(result.claimId).toBe("fresh-claim");
+    });
+
     test("getClaim returns stored claim", async () => {
       const claim = makeClaim();
       await store.createClaim(claim);
@@ -242,8 +270,8 @@ export function runClaimStoreTests(factory: ClaimStoreFactory): void {
     // ------------------------------------------------------------------
 
     test("activeClaims returns only active claims", async () => {
-      const active = makeClaim({ claimId: "active-1" });
-      const released = makeClaim({ claimId: "released-1" });
+      const active = makeClaim({ claimId: "active-1", targetRef: "target-active" });
+      const released = makeClaim({ claimId: "released-1", targetRef: "target-released" });
       await store.createClaim(active);
       await store.createClaim(released);
       await store.release(released.claimId);

@@ -150,11 +150,11 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     this.dbPath = dbPath;
     this.db = new Database(dbPath);
 
-    // Configure pragmas
+    // Configure pragmas — busy_timeout first to handle concurrent opens during WAL switch
+    this.db.run("PRAGMA busy_timeout = 5000");
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA synchronous = NORMAL");
     this.db.run("PRAGMA foreign_keys = ON");
-    this.db.run("PRAGMA busy_timeout = 5000");
 
     // Initialize schema
     this.db.run("BEGIN");
@@ -226,9 +226,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     }
 
     const rows = this.db.prepare(sql).all(...allParams) as readonly { manifest_json: string }[];
-    return rows.map((row) =>
-      fromManifest(JSON.parse(row.manifest_json) as unknown, { verify: false }),
-    );
+    return rows.map((row) => fromManifest(JSON.parse(row.manifest_json) as unknown));
   };
 
   children = async (cid: string): Promise<readonly Contribution[]> => {
@@ -239,9 +237,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
       WHERE r.target_cid = ?
     `;
     const rows = this.db.prepare(sql).all(cid) as readonly { manifest_json: string }[];
-    return rows.map((row) =>
-      fromManifest(JSON.parse(row.manifest_json) as unknown, { verify: false }),
-    );
+    return rows.map((row) => fromManifest(JSON.parse(row.manifest_json) as unknown));
   };
 
   ancestors = async (cid: string): Promise<readonly Contribution[]> => {
@@ -252,9 +248,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
       WHERE r.source_cid = ?
     `;
     const rows = this.db.prepare(sql).all(cid) as readonly { manifest_json: string }[];
-    return rows.map((row) =>
-      fromManifest(JSON.parse(row.manifest_json) as unknown, { verify: false }),
-    );
+    return rows.map((row) => fromManifest(JSON.parse(row.manifest_json) as unknown));
   };
 
   relationsOf = async (cid: string, relationType?: RelationType): Promise<readonly Relation[]> => {
@@ -304,9 +298,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     }
 
     const rows = this.db.prepare(sql).all(...params) as readonly { manifest_json: string }[];
-    return rows.map((row) =>
-      fromManifest(JSON.parse(row.manifest_json) as unknown, { verify: false }),
-    );
+    return rows.map((row) => fromManifest(JSON.parse(row.manifest_json) as unknown));
   };
 
   search = async (query: string, filters?: ContributionQuery): Promise<readonly Contribution[]> => {
@@ -350,9 +342,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     }
 
     const rows = this.db.prepare(sql).all(...allParams) as readonly { manifest_json: string }[];
-    return rows.map((row) =>
-      fromManifest(JSON.parse(row.manifest_json) as unknown, { verify: false }),
-    );
+    return rows.map((row) => fromManifest(JSON.parse(row.manifest_json) as unknown));
   };
 
   count = async (query?: ContributionQuery): Promise<number> => {
@@ -386,6 +376,20 @@ export class SqliteStore implements ContributionStore, ClaimStore {
 
     if (existing !== null) {
       throw new Error(`Claim with id '${claim.claimId}' already exists`);
+    }
+
+    // Prevent duplicate active claims on the same target
+    const now = new Date().toISOString();
+    const activeOnTarget = this.db
+      .prepare(
+        "SELECT claim_id FROM claims WHERE target_ref = ? AND status = 'active' AND lease_expires_at >= ?",
+      )
+      .get(claim.targetRef, now) as { claim_id: string } | null;
+
+    if (activeOnTarget !== null) {
+      throw new Error(
+        `Target '${claim.targetRef}' already has an active claim '${activeOnTarget.claim_id}'`,
+      );
     }
 
     this.db
@@ -585,7 +589,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
       return undefined;
     }
 
-    return fromManifest(JSON.parse(row.manifest_json) as unknown, { verify: false });
+    return fromManifest(JSON.parse(row.manifest_json) as unknown);
   }
 
   /** Read a claim row and convert to a Claim object. */
