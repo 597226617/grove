@@ -27,21 +27,20 @@ function deepFreeze<T extends object>(obj: T): T {
 }
 
 /**
- * Recursively strip keys whose values are `undefined` from a plain object.
- * JSON serialization drops undefined values, but structuredClone preserves
- * the keys. Stripping them ensures the created object matches what was hashed.
+ * Normalize an arbitrary JS value to its JSON-safe equivalent.
+ *
+ * Round-trips through JSON.parse(JSON.stringify(...)) to ensure the hash
+ * input matches what JSON serialization would produce. This handles:
+ * - undefined keys are dropped
+ * - NaN → null
+ * - Infinity / -Infinity → null
+ * - functions / symbols are dropped
+ *
+ * Without this, two observably different JS objects (e.g. { val: NaN }
+ * vs { val: null }) could share the same CID.
  */
-function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) continue;
-    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      result[key] = stripUndefined(value as Record<string, unknown>);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
+function jsonNormalize<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 /**
@@ -92,7 +91,7 @@ function scoreToWire(score: Score): Record<string, unknown> {
 
 /**
  * Convert a camelCase Relation to snake_case wire format.
- * Strips undefined values from metadata to ensure hash consistency.
+ * Normalizes metadata through JSON round-trip for hash consistency.
  */
 function relationToWire(relation: Relation): Record<string, unknown> {
   const wire: Record<string, unknown> = {
@@ -100,7 +99,7 @@ function relationToWire(relation: Relation): Record<string, unknown> {
     relation_type: relation.relationType,
   };
   if (relation.metadata !== undefined) {
-    wire.metadata = stripUndefined(relation.metadata as Record<string, unknown>);
+    wire.metadata = jsonNormalize(relation.metadata);
   }
   return wire;
 }
@@ -133,14 +132,14 @@ export function toWireFormat(input: ContributionInput): Record<string, unknown> 
     summary: input.summary,
     artifacts: input.artifacts,
     relations: input.relations.map(relationToWire),
-    tags: [...input.tags],
+    tags: [...input.tags].sort(),
     agent: agentToWire(input.agent),
     created_at: normalizeTimestamp(input.createdAt),
   };
   if (input.description !== undefined) wire.description = input.description;
   if (input.scores !== undefined) wire.scores = scoresToWire(input.scores);
   if (input.context !== undefined) {
-    wire.context = stripUndefined(input.context as Record<string, unknown>);
+    wire.context = jsonNormalize(input.context);
   }
   return wire;
 }

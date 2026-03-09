@@ -36,12 +36,13 @@ computed as follows:
 2. **Exclude** the `cid` field from the manifest
 3. **Normalize** `created_at` to UTC (Z suffix) so equivalent instants
    produce the same CID regardless of timezone representation
-4. **Strip** `undefined` values from `context` and relation `metadata`
-   (JSON has no `undefined`; keys with undefined values are omitted)
-5. Serialize using **RFC 8785 (JSON Canonicalization Scheme)** for
+4. **JSON-normalize** `context` and relation `metadata` via JSON round-trip
+   (drops `undefined` keys; collapses `NaN`/`Infinity` to `null`)
+5. **Sort** `tags` lexicographically — tag sets are order-independent
+6. Serialize using **RFC 8785 (JSON Canonicalization Scheme)** for
    deterministic key ordering and value formatting
-6. Hash the canonical JSON bytes with **BLAKE3** (256-bit)
-7. Encode as `blake3:<hex64>` (lowercase hexadecimal, 64 characters)
+7. Hash the canonical JSON bytes with **BLAKE3** (256-bit)
+8. Encode as `blake3:<hex64>` (lowercase hexadecimal, 64 characters)
 
 **Example**: `blake3:a1b2c3d4e5f6...` (64 hex characters after prefix)
 

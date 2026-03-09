@@ -159,6 +159,24 @@ describe("computeCid", () => {
     expect(cid1).toBe(cid2);
   });
 
+  test("NaN in context produces different CID from null", () => {
+    // NaN → null in JSON, so they SHOULD produce the same CID
+    // (both serialize to {"val":null})
+    const cidNaN = computeCid(
+      makeInput({ context: { val: Number.NaN } as Record<string, unknown> }),
+    );
+    const cidNull = computeCid(makeInput({ context: { val: null } }));
+    expect(cidNaN).toBe(cidNull);
+  });
+
+  test("Infinity in context produces same CID as null", () => {
+    const cidInf = computeCid(
+      makeInput({ context: { val: Number.POSITIVE_INFINITY } as Record<string, unknown> }),
+    );
+    const cidNull = computeCid(makeInput({ context: { val: null } }));
+    expect(cidInf).toBe(cidNull);
+  });
+
   test("undefined values in relation metadata do not affect CID", () => {
     const baseRelation: { targetCid: string; relationType: typeof RelationType.DerivesFrom } = {
       targetCid: `blake3:${"a".repeat(64)}`,
@@ -170,6 +188,12 @@ describe("computeCid", () => {
         relations: [{ ...baseRelation, metadata: { gone: undefined } as Record<string, unknown> }],
       }),
     );
+    expect(cid1).toBe(cid2);
+  });
+
+  test("tag ordering does not affect CID", () => {
+    const cid1 = computeCid(makeInput({ tags: ["optimizer", "benchmark"] }));
+    const cid2 = computeCid(makeInput({ tags: ["benchmark", "optimizer"] }));
     expect(cid1).toBe(cid2);
   });
 
