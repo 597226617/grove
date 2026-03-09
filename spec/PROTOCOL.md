@@ -229,11 +229,22 @@ contribution manifest uses the name as the key and the content hash as
 the value. The same blob may be referenced under different names by
 different contributions.
 
-**Media type inference**: Implementations SHOULD infer `media_type` from
-the artifact's source filename extension when available and SHOULD
-normalize values to lowercase for consistency (IANA registers types in
-lowercase). Parameters (e.g., `; charset=utf-8`) are not permitted —
-use the base type only. When the type cannot be determined,
+**Media type**: The `media_type` field is **advisory, not authoritative**.
+Because artifacts are globally deduplicated, the same blob may be
+referenced from different contributions via different filenames. This
+means filename-based inference can produce different media types for the
+same content hash depending on which reference is seen first.
+
+Implementations SHOULD determine `media_type` using the following
+priority order:
+
+1. Explicit caller-provided value (highest priority)
+2. Content-based detection (magic bytes / file signatures)
+3. Filename extension inference (lowest priority)
+
+Values SHOULD be normalized to lowercase for consistency (IANA registers
+types in lowercase). Parameters (e.g., `; charset=utf-8`) are not
+permitted — use the base type only. When the type cannot be determined,
 implementations MAY omit the field or use `application/octet-stream`.
 
 ### Artifact Types
@@ -275,7 +286,14 @@ Contributions reference artifacts via the `artifacts` field:
 Keys are human-readable names chosen by the contributor. Values are
 content hashes pointing to blobs in the CAS. This keeps contribution
 manifests lightweight — artifact metadata (size, media type) is
-available from the CAS without bloating the manifest.
+available from the CAS via `stat()` without bloating the manifest.
+
+**Artifact name constraints**: Keys must start with an alphanumeric
+character, contain only `a-zA-Z0-9._/ -`, and be 1-256 characters long.
+Forward slashes are permitted for relative paths (e.g., `src/main.py`).
+Implementations MUST reject names containing `..` path components and
+MUST NOT use artifact names directly as filesystem paths without
+sanitizing for path traversal.
 
 ---
 

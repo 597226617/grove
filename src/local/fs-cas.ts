@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { hash } from "blake3";
 
 import type { ContentStore } from "../core/cas.js";
+import type { Artifact } from "../core/models.js";
 
 /** Prefix for BLAKE3 content hashes. */
 const HASH_PREFIX = "blake3:";
@@ -156,6 +157,26 @@ export class FsCas implements ContentStore {
     }
     await Bun.write(path, data);
     return true;
+  };
+
+  /**
+   * Get artifact metadata without downloading the blob bytes.
+   * Returns content hash, size, and media type (undefined — FsCas
+   * does not track media type; callers should supply it).
+   */
+  stat = async (contentHash: string): Promise<Artifact | undefined> => {
+    const hex = hexFromHash(contentHash);
+    const blobFile = this.blobPath(hex);
+    const file = Bun.file(blobFile);
+
+    if (!(await file.exists())) {
+      return undefined;
+    }
+
+    return {
+      contentHash,
+      sizeBytes: file.size,
+    };
   };
 
   /**

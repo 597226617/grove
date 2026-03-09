@@ -5,6 +5,8 @@
  * Implementations handle deduplication automatically.
  */
 
+import type { Artifact } from "./models.js";
+
 /**
  * Abstract content store — storage backends implement this.
  *
@@ -42,6 +44,12 @@ export interface ContentStore {
 
   /** Retrieve content to a file. Returns true if found and written. */
   getToFile(contentHash: string, path: string): Promise<boolean>;
+
+  /**
+   * Get artifact metadata without downloading the blob bytes.
+   * Returns content hash, size, and optional media type.
+   */
+  stat(contentHash: string): Promise<Artifact | undefined>;
 
   /** Release resources (e.g., clean up temp files). */
   close(): void;

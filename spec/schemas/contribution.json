@@ -40,7 +40,12 @@
     },
     "artifacts": {
       "type": "object",
-      "description": "Named artifact references. Keys are artifact names, values are content hashes (e.g., blake3:<hex64>).",
+      "description": "Named artifact references. Keys are artifact names (human-readable, no path traversal), values are content hashes (e.g., blake3:<hex64>).",
+      "propertyNames": {
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/ -]*$",
+        "minLength": 1,
+        "maxLength": 256
+      },
       "additionalProperties": {
         "type": "string",
         "pattern": "^blake3:[a-f0-9]{64}$"
