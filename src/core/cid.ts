@@ -27,12 +27,44 @@ function deepFreeze<T extends object>(obj: T): T {
 }
 
 /**
+ * Recursively strip keys whose values are `undefined` from a plain object.
+ * JSON serialization drops undefined values, but structuredClone preserves
+ * the keys. Stripping them ensures the created object matches what was hashed.
+ */
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      result[key] = stripUndefined(value as Record<string, unknown>);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Normalize an RFC 3339 timestamp to UTC with Z suffix.
+ * Ensures that equivalent instants (e.g. "10:00:00+05:30" and "04:30:00Z")
+ * produce the same canonical form and therefore the same CID.
+ */
+function normalizeTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError(`Invalid timestamp: ${timestamp}`);
+  }
+  return date.toISOString();
+}
+
+/**
  * Convert a camelCase AgentIdentity to snake_case wire format.
  */
 function agentToWire(agent: AgentIdentity): Record<string, unknown> {
   const wire: Record<string, unknown> = {
     agent_name: agent.agentName,
   };
+  if (agent.agentId !== undefined) wire.agent_id = agent.agentId;
   if (agent.provider !== undefined) wire.provider = agent.provider;
   if (agent.model !== undefined) wire.model = agent.model;
   if (agent.version !== undefined) wire.version = agent.version;
@@ -60,13 +92,16 @@ function scoreToWire(score: Score): Record<string, unknown> {
 
 /**
  * Convert a camelCase Relation to snake_case wire format.
+ * Strips undefined values from metadata to ensure hash consistency.
  */
 function relationToWire(relation: Relation): Record<string, unknown> {
   const wire: Record<string, unknown> = {
     target_cid: relation.targetCid,
     relation_type: relation.relationType,
   };
-  if (relation.metadata !== undefined) wire.metadata = relation.metadata;
+  if (relation.metadata !== undefined) {
+    wire.metadata = stripUndefined(relation.metadata as Record<string, unknown>);
+  }
   return wire;
 }
 
@@ -87,6 +122,9 @@ function scoresToWire(
 /**
  * Convert a ContributionInput to the snake_case wire format object
  * used for canonical serialization. Excludes the `cid` field.
+ *
+ * Normalizes timestamps to UTC and strips undefined values from
+ * context/metadata to ensure consistent CID computation.
  */
 export function toWireFormat(input: ContributionInput): Record<string, unknown> {
   const wire: Record<string, unknown> = {
@@ -97,11 +135,13 @@ export function toWireFormat(input: ContributionInput): Record<string, unknown> 
     relations: input.relations.map(relationToWire),
     tags: [...input.tags],
     agent: agentToWire(input.agent),
-    created_at: input.createdAt,
+    created_at: normalizeTimestamp(input.createdAt),
   };
   if (input.description !== undefined) wire.description = input.description;
   if (input.scores !== undefined) wire.scores = scoresToWire(input.scores);
-  if (input.context !== undefined) wire.context = input.context;
+  if (input.context !== undefined) {
+    wire.context = stripUndefined(input.context as Record<string, unknown>);
+  }
   return wire;
 }
 
@@ -142,11 +182,18 @@ export function createContribution(input: ContributionInput): Contribution {
 /**
  * Verify that a contribution's CID matches its content.
  *
+ * Returns false for both tampered content and malformed input
+ * (e.g., non-finite score values). Never throws.
+ *
  * @param contribution - The contribution to verify
  * @returns true if the CID is valid
  */
 export function verifyCid(contribution: Contribution): boolean {
-  const { cid: _cid, ...rest } = contribution;
-  const input: ContributionInput = rest;
-  return computeCid(input) === contribution.cid;
+  try {
+    const { cid: _cid, ...rest } = contribution;
+    const input: ContributionInput = rest;
+    return computeCid(input) === contribution.cid;
+  } catch {
+    return false;
+  }
 }

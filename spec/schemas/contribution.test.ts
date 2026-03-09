@@ -130,6 +130,14 @@ describe("contribution schema — valid manifests", () => {
     expect(result).toBe(true);
   });
 
+  test("accepts agent with agent_id", () => {
+    const manifest = validManifest({
+      agent: { agent_name: "Alice", agent_id: "alice-stable-001" },
+    });
+    const result = validate(manifest);
+    expect(result).toBe(true);
+  });
+
   test("accepts empty artifacts and relations", () => {
     const manifest = validManifest({
       artifacts: {},

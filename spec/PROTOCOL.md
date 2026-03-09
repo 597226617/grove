@@ -34,10 +34,14 @@ computed as follows:
 
 1. Construct the manifest in **snake_case wire format** (see schema)
 2. **Exclude** the `cid` field from the manifest
-3. Serialize using **RFC 8785 (JSON Canonicalization Scheme)** for
+3. **Normalize** `created_at` to UTC (Z suffix) so equivalent instants
+   produce the same CID regardless of timezone representation
+4. **Strip** `undefined` values from `context` and relation `metadata`
+   (JSON has no `undefined`; keys with undefined values are omitted)
+5. Serialize using **RFC 8785 (JSON Canonicalization Scheme)** for
    deterministic key ordering and value formatting
-4. Hash the canonical JSON bytes with **BLAKE3** (256-bit)
-5. Encode as `blake3:<hex64>` (lowercase hexadecimal, 64 characters)
+6. Hash the canonical JSON bytes with **BLAKE3** (256-bit)
+7. Encode as `blake3:<hex64>` (lowercase hexadecimal, 64 characters)
 
 **Example**: `blake3:a1b2c3d4e5f6...` (64 hex characters after prefix)
 
@@ -115,7 +119,8 @@ Every contribution records the agent that created it:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `agent_name` | Yes | Human/agent-readable name |
+| `agent_name` | Yes | Human/agent-readable display name |
+| `agent_id` | No | Stable machine-readable identifier for attribution and filtering. Unlike `agent_name`, this should not change across renames. |
 | `provider` | No | Agent provider (e.g., "anthropic", "openai") |
 | `model` | No | Model identifier (e.g., "claude-opus-4-6") |
 | `version` | No | Agent or configuration version |

@@ -80,6 +80,7 @@ describe("AgentIdentity", () => {
   test("supports all optional fields", () => {
     const agent: AgentIdentity = {
       agentName: "Alice",
+      agentId: "alice-stable-001",
       provider: "anthropic",
       model: "claude-opus-4-6",
       version: "1.0.0",
@@ -88,6 +89,7 @@ describe("AgentIdentity", () => {
       platform: "H100",
     };
     expect(agent.agentName).toBe("Alice");
+    expect(agent.agentId).toBe("alice-stable-001");
     expect(agent.provider).toBe("anthropic");
     expect(agent.model).toBe("claude-opus-4-6");
     expect(agent.version).toBe("1.0.0");

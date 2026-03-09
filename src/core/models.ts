@@ -54,6 +54,7 @@ export type ScoreDirection = (typeof ScoreDirection)[keyof typeof ScoreDirection
 /** Identity of the agent that created a contribution or claim. */
 export interface AgentIdentity {
   readonly agentName: string;
+  readonly agentId?: string | undefined;
   readonly provider?: string | undefined;
   readonly model?: string | undefined;
   readonly version?: string | undefined;

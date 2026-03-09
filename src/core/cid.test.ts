@@ -55,6 +55,12 @@ describe("computeCid", () => {
     expect(cid1).not.toBe(cid2);
   });
 
+  test("equivalent timestamps in different timezones produce same CID", () => {
+    const cid1 = computeCid(makeInput({ createdAt: "2026-03-08T04:30:00Z" }));
+    const cid2 = computeCid(makeInput({ createdAt: "2026-03-08T10:00:00+05:30" }));
+    expect(cid1).toBe(cid2);
+  });
+
   test("different agents produce different CIDs", () => {
     const cid1 = computeCid(makeInput({ agent: { agentName: "alice" } }));
     const cid2 = computeCid(makeInput({ agent: { agentName: "bob" } }));
@@ -119,6 +125,10 @@ describe("computeCid", () => {
     expect(cid).toHaveLength(71); // "blake3:" (7) + 64 hex chars
   });
 
+  test("throws RangeError for invalid timestamp", () => {
+    expect(() => computeCid(makeInput({ createdAt: "not-a-date" }))).toThrow(RangeError);
+  });
+
   test("throws RangeError for NaN score value", () => {
     expect(() =>
       computeCid(
@@ -139,6 +149,34 @@ describe("computeCid", () => {
         }),
       ),
     ).toThrow(RangeError);
+  });
+
+  test("undefined values in context do not affect CID", () => {
+    const cid1 = computeCid(makeInput({ context: {} }));
+    const cid2 = computeCid(
+      makeInput({ context: { ignored: undefined } as Record<string, unknown> }),
+    );
+    expect(cid1).toBe(cid2);
+  });
+
+  test("undefined values in relation metadata do not affect CID", () => {
+    const baseRelation: { targetCid: string; relationType: typeof RelationType.DerivesFrom } = {
+      targetCid: `blake3:${"a".repeat(64)}`,
+      relationType: RelationType.DerivesFrom,
+    };
+    const cid1 = computeCid(makeInput({ relations: [{ ...baseRelation, metadata: {} }] }));
+    const cid2 = computeCid(
+      makeInput({
+        relations: [{ ...baseRelation, metadata: { gone: undefined } as Record<string, unknown> }],
+      }),
+    );
+    expect(cid1).toBe(cid2);
+  });
+
+  test("different agentId values produce different CIDs", () => {
+    const cid1 = computeCid(makeInput({ agent: { agentName: "a", agentId: "id-1" } }));
+    const cid2 = computeCid(makeInput({ agent: { agentName: "a", agentId: "id-2" } }));
+    expect(cid1).not.toBe(cid2);
   });
 });
 
@@ -320,6 +358,24 @@ describe("verifyCid", () => {
   test("returns false for tampered agent", () => {
     const contribution = createContribution(makeInput());
     const tampered = { ...contribution, agent: { agentName: "impersonator" } };
+    expect(verifyCid(tampered)).toBe(false);
+  });
+
+  test("returns false (not throw) for NaN score value", () => {
+    const contribution = createContribution(makeInput());
+    const tampered = {
+      ...contribution,
+      scores: { broken: { value: Number.NaN, direction: ScoreDirection.Maximize } },
+    };
+    expect(verifyCid(tampered)).toBe(false);
+  });
+
+  test("returns false (not throw) for Infinity score value", () => {
+    const contribution = createContribution(makeInput());
+    const tampered = {
+      ...contribution,
+      scores: { broken: { value: Number.POSITIVE_INFINITY, direction: ScoreDirection.Minimize } },
+    };
     expect(verifyCid(tampered)).toBe(false);
   });
 });
