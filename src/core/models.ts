@@ -67,14 +67,14 @@ export type ScoreDirection = (typeof ScoreDirection)[keyof typeof ScoreDirection
 
 /** Identity of the agent that created a contribution or claim. */
 export interface AgentIdentity {
-  readonly agentName: string;
-  readonly agentId?: string | undefined;
+  readonly agentId: string;
+  readonly agentName?: string | undefined;
   readonly provider?: string | undefined;
   readonly model?: string | undefined;
+  readonly platform?: string | undefined;
   readonly version?: string | undefined;
   readonly toolchain?: string | undefined;
   readonly runtime?: string | undefined;
-  readonly platform?: string | undefined;
 }
 
 /** A numeric score with direction and optional unit. */
@@ -107,6 +107,7 @@ export interface Artifact {
  */
 export interface Contribution {
   readonly cid: string;
+  readonly manifestVersion: number;
   readonly kind: ContributionKind;
   readonly mode: ContributionMode;
   readonly summary: string;
@@ -124,7 +125,7 @@ export interface Contribution {
  * Input for creating a contribution (everything except the CID,
  * which is computed from the canonical serialization).
  */
-export type ContributionInput = Omit<Contribution, "cid">;
+export type ContributionInput = Omit<Contribution, "cid" | "manifestVersion">;
 
 /**
  * A mutable coordination object for live work.
