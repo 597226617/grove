@@ -167,20 +167,68 @@ export function computeCid(input: ContributionInput): string {
 }
 
 /**
+ * Validate a ContributionInput against the protocol's schema constraints.
+ * Throws RangeError for any violation so callers cannot silently mint
+ * contributions that would fail schema validation on the wire.
+ */
+function validateInput(input: ContributionInput): void {
+  if (input.summary.length < 1 || input.summary.length > 256) {
+    throw new RangeError(`summary must be 1-256 characters, got ${input.summary.length}`);
+  }
+  if (input.description !== undefined && input.description.length > 65_536) {
+    throw new RangeError(
+      `description must be at most 65536 characters, got ${input.description.length}`,
+    );
+  }
+  if (new Set(input.tags).size !== input.tags.length) {
+    throw new RangeError("tags must be unique");
+  }
+  if (input.tags.length > 100) {
+    throw new RangeError(`tags must have at most 100 items, got ${input.tags.length}`);
+  }
+  if (Object.keys(input.artifacts).length > 1000) {
+    throw new RangeError(
+      `artifacts must have at most 1000 entries, got ${Object.keys(input.artifacts).length}`,
+    );
+  }
+  if (input.relations.length > 1000) {
+    throw new RangeError(`relations must have at most 1000 items, got ${input.relations.length}`);
+  }
+  if (input.scores !== undefined && Object.keys(input.scores).length > 100) {
+    throw new RangeError(
+      `scores must have at most 100 entries, got ${Object.keys(input.scores).length}`,
+    );
+  }
+}
+
+/**
  * Create an immutable Contribution from input fields.
  *
- * Computes the CID automatically from the canonical serialization
- * and returns a deeply frozen Contribution object.
+ * Validates the input against protocol schema constraints, computes the
+ * CID from the canonical serialization, normalizes context/metadata to
+ * match the hashed representation, and returns a deeply frozen object.
  *
  * @param input - The contribution fields (everything except cid)
  * @returns A deeply frozen Contribution with computed CID
+ * @throws RangeError if the input violates schema constraints
  */
 export function createContribution(input: ContributionInput): Contribution {
+  validateInput(input);
   const cid = computeCid(input);
-  const contribution: Contribution = {
-    cid,
-    ...structuredClone(input),
-  };
+  const cloned = structuredClone(input);
+  // Normalize context and metadata so stored values match what was hashed.
+  // Without this, NaN/Infinity would survive structuredClone but the CID
+  // was computed from their JSON-normalized equivalents (null).
+  const normalized: Record<string, unknown> = { ...cloned };
+  if (cloned.context !== undefined) {
+    normalized.context = jsonNormalize(cloned.context);
+  }
+  if (cloned.relations.length > 0) {
+    normalized.relations = cloned.relations.map((r) =>
+      r.metadata !== undefined ? { ...r, metadata: jsonNormalize(r.metadata) } : r,
+    );
+  }
+  const contribution: Contribution = { cid, ...normalized } as Contribution;
   return deepFreeze(contribution);
 }
 

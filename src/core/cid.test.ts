@@ -383,6 +383,57 @@ describe("createContribution", () => {
     expect(contribution.agent.version).toBe("2.0");
     expect(contribution.createdAt).toBe("2026-03-08T15:30:00Z");
   });
+
+  test("normalizes NaN in context so stored value matches hash input", () => {
+    const contribution = createContribution(makeInput({ context: { val: Number.NaN } }));
+    // NaN should be normalized to null in the stored contribution
+    expect(contribution.context?.val).toBeNull();
+    expect(verifyCid(contribution)).toBe(true);
+  });
+
+  test("normalizes Infinity in relation metadata so stored value matches hash input", () => {
+    const contribution = createContribution(
+      makeInput({
+        relations: [
+          {
+            targetCid: `blake3:${"a".repeat(64)}`,
+            relationType: RelationType.DerivesFrom,
+            metadata: { val: Number.POSITIVE_INFINITY },
+          },
+        ],
+      }),
+    );
+    expect(contribution.relations[0]?.metadata?.val).toBeNull();
+    expect(verifyCid(contribution)).toBe(true);
+  });
+
+  test("throws RangeError for empty summary", () => {
+    expect(() => createContribution(makeInput({ summary: "" }))).toThrow(RangeError);
+  });
+
+  test("throws RangeError for summary exceeding 256 characters", () => {
+    expect(() => createContribution(makeInput({ summary: "x".repeat(257) }))).toThrow(RangeError);
+  });
+
+  test("accepts summary at exactly 256 characters", () => {
+    const contribution = createContribution(makeInput({ summary: "x".repeat(256) }));
+    expect(contribution.summary).toHaveLength(256);
+  });
+
+  test("throws RangeError for description exceeding 65536 characters", () => {
+    expect(() => createContribution(makeInput({ description: "x".repeat(65_537) }))).toThrow(
+      RangeError,
+    );
+  });
+
+  test("throws RangeError for duplicate tags", () => {
+    expect(() => createContribution(makeInput({ tags: ["dup", "dup"] }))).toThrow(RangeError);
+  });
+
+  test("throws RangeError for more than 100 tags", () => {
+    const tags = Array.from({ length: 101 }, (_, i) => `tag-${i}`);
+    expect(() => createContribution(makeInput({ tags }))).toThrow(RangeError);
+  });
 });
 
 describe("verifyCid", () => {
