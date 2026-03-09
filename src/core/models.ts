@@ -3,6 +3,9 @@
  *
  * All models except Claim are immutable (frozen objects).
  * Claims are the only mutable coordination objects in the protocol.
+ *
+ * Wire format uses snake_case (JSON Schema). TypeScript uses camelCase.
+ * See spec/schemas/contribution.json for the canonical wire format.
  */
 
 /** Contribution kinds — the type of work being contributed. */
@@ -50,10 +53,12 @@ export type ScoreDirection = (typeof ScoreDirection)[keyof typeof ScoreDirection
 
 /** Identity of the agent that created a contribution or claim. */
 export interface AgentIdentity {
-  readonly agentId: string;
-  readonly agentName?: string | undefined;
+  readonly agentName: string;
   readonly provider?: string | undefined;
   readonly model?: string | undefined;
+  readonly version?: string | undefined;
+  readonly toolchain?: string | undefined;
+  readonly runtime?: string | undefined;
   readonly platform?: string | undefined;
 }
 
@@ -83,7 +88,7 @@ export interface Artifact {
  * An immutable unit of published work in the contribution graph.
  *
  * The CID is derived from the BLAKE3 hash of the canonical manifest
- * serialization (excluding the CID field itself).
+ * serialization (RFC 8785, excluding the CID field itself).
  */
 export interface Contribution {
   readonly cid: string;
@@ -99,6 +104,12 @@ export interface Contribution {
   readonly agent: AgentIdentity;
   readonly createdAt: string;
 }
+
+/**
+ * Input for creating a contribution (everything except the CID,
+ * which is computed from the canonical serialization).
+ */
+export type ContributionInput = Omit<Contribution, "cid">;
 
 /**
  * A mutable coordination object for live work.
