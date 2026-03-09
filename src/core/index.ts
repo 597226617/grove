@@ -1,4 +1,4 @@
-export type { ContentStore } from "./cas.js";
+export type { ContentStore, PutOptions } from "./cas.js";
 export type {
   Frontier,
   FrontierCalculator,
@@ -26,6 +26,7 @@ export {
   ContributionKind,
   ContributionMode,
   type JsonValue,
+  type NamedArtifact,
   type Relation,
   RelationType,
   type Score,

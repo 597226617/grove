@@ -7,6 +7,15 @@
 
 import type { Artifact } from "./models.js";
 
+/** Options for storing artifacts. */
+export interface PutOptions {
+  /**
+   * Advisory media type for the blob (e.g., "application/json").
+   * Persisted alongside the content for retrieval via `stat()`.
+   */
+  readonly mediaType?: string | undefined;
+}
+
 /**
  * Abstract content store — storage backends implement this.
  *
@@ -23,7 +32,7 @@ export interface ContentStore {
    * Store bytes and return the content hash.
    * @returns Content hash in `blake3:<hex64>` format.
    */
-  put(data: Uint8Array): Promise<string>;
+  put(data: Uint8Array, options?: PutOptions): Promise<string>;
 
   /** Retrieve bytes by content hash. Returns undefined if not found. */
   get(contentHash: string): Promise<Uint8Array | undefined>;
@@ -40,7 +49,7 @@ export interface ContentStore {
    * use streaming I/O and incremental BLAKE3 hashing.
    * @returns Content hash in `blake3:<hex64>` format.
    */
-  putFile(path: string): Promise<string>;
+  putFile(path: string, options?: PutOptions): Promise<string>;
 
   /** Retrieve content to a file. Returns true if found and written. */
   getToFile(contentHash: string, path: string): Promise<boolean>;

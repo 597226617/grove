@@ -253,6 +253,62 @@ describe("relation type enum sync", () => {
     expect(relationEnum).toEqual(contributionEnum);
   });
 
+  test("contribution.json accepts valid artifact names", () => {
+    const validate = createContributionValidator();
+    const manifest = {
+      cid: validCid(0),
+      kind: "work",
+      mode: "evaluation",
+      summary: "Artifact name test",
+      artifacts: {
+        "train.py": validCid(1),
+        "src/models/bert.py": validCid(2),
+        "results/run-01/metrics.json": validCid(3),
+        "file..with..dots.txt": validCid(4),
+      },
+      relations: [],
+      tags: [],
+      agent: { agent_name: "test" },
+      created_at: "2026-03-08T10:00:00Z",
+    };
+    expect(validate(manifest)).toBe(true);
+  });
+
+  test("contribution.json rejects artifact names with path traversal (..)", () => {
+    const validate = createContributionValidator();
+    const traversalNames = ["src/../secret.txt", "a/../../etc/passwd", "models/.."];
+    for (const name of traversalNames) {
+      const manifest = {
+        cid: validCid(0),
+        kind: "work",
+        mode: "evaluation",
+        summary: "Traversal test",
+        artifacts: { [name]: validCid(1) },
+        relations: [],
+        tags: [],
+        agent: { agent_name: "test" },
+        created_at: "2026-03-08T10:00:00Z",
+      };
+      expect(validate(manifest)).toBe(false);
+    }
+  });
+
+  test("contribution.json rejects empty artifact name", () => {
+    const validate = createContributionValidator();
+    const manifest = {
+      cid: validCid(0),
+      kind: "work",
+      mode: "evaluation",
+      summary: "Empty name test",
+      artifacts: { "": validCid(1) },
+      relations: [],
+      tags: [],
+      agent: { agent_name: "test" },
+      created_at: "2026-03-08T10:00:00Z",
+    };
+    expect(validate(manifest)).toBe(false);
+  });
+
   test("contribution.json compiles standalone without relation.json", () => {
     const ajv = new Ajv2020({ allErrors: true });
     addFormats(ajv);

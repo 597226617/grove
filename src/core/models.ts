@@ -109,6 +109,17 @@ export interface Artifact {
 }
 
 /**
+ * An artifact paired with its contribution-assigned name.
+ *
+ * Artifact metadata (contentHash, sizeBytes, mediaType) lives in the CAS.
+ * The name lives in the contribution's artifacts map key. This convenience
+ * type combines both for use in API responses and UI rendering.
+ */
+export interface NamedArtifact extends Artifact {
+  readonly name: string;
+}
+
+/**
  * An immutable unit of published work in the contribution graph.
  *
  * The CID is derived from the BLAKE3 hash of the canonical manifest

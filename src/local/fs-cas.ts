@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 
 import { hash } from "blake3";
 
-import type { ContentStore } from "../core/cas.js";
+import type { ContentStore, PutOptions } from "../core/cas.js";
 import type { Artifact } from "../core/models.js";
 
 /** Prefix for BLAKE3 content hashes. */
@@ -67,10 +67,37 @@ export class FsCas implements ContentStore {
   }
 
   /**
+   * Build the filesystem path for a metadata sidecar file.
+   */
+  private metaPath(hex: string): string {
+    return `${this.blobPath(hex)}.meta`;
+  }
+
+  /**
+   * Write a metadata sidecar JSON file if mediaType is provided.
+   */
+  private async writeMeta(hex: string, options?: PutOptions): Promise<void> {
+    if (!options?.mediaType) return;
+    const metaFile = this.metaPath(hex);
+    await Bun.write(metaFile, JSON.stringify({ mediaType: options.mediaType }));
+  }
+
+  /**
+   * Read a metadata sidecar JSON file, if it exists.
+   */
+  private async readMeta(hex: string): Promise<string | undefined> {
+    const metaFile = this.metaPath(hex);
+    const file = Bun.file(metaFile);
+    if (!(await file.exists())) return undefined;
+    const data = JSON.parse(await file.text()) as { mediaType?: string };
+    return data.mediaType;
+  }
+
+  /**
    * Store bytes and return the content hash.
    * Uses atomic write (temp file + rename) for crash safety.
    */
-  put = async (data: Uint8Array): Promise<string> => {
+  put = async (data: Uint8Array, options?: PutOptions): Promise<string> => {
     const contentHash = computeHash(data);
     const hex = hexFromHash(contentHash);
     const blobFile = this.blobPath(hex);
@@ -78,6 +105,8 @@ export class FsCas implements ContentStore {
     // Skip write if content already exists
     const file = Bun.file(blobFile);
     if (await file.exists()) {
+      // Still persist metadata if newly provided
+      await this.writeMeta(hex, options);
       return contentHash;
     }
 
@@ -89,6 +118,8 @@ export class FsCas implements ContentStore {
     const tmpFile = `${blobFile}.tmp.${Date.now()}.${randomBytes(4).toString("hex")}`;
     await Bun.write(tmpFile, data);
     await rename(tmpFile, blobFile);
+
+    await this.writeMeta(hex, options);
 
     return contentHash;
   };
@@ -140,10 +171,10 @@ export class FsCas implements ContentStore {
    * Store a file's contents and return the content hash.
    * Reads the file, hashes it, and stores via put().
    */
-  putFile = async (path: string): Promise<string> => {
+  putFile = async (path: string, options?: PutOptions): Promise<string> => {
     const file = Bun.file(path);
     const data = new Uint8Array(await file.arrayBuffer());
-    return this.put(data);
+    return this.put(data, options);
   };
 
   /**
@@ -161,8 +192,7 @@ export class FsCas implements ContentStore {
 
   /**
    * Get artifact metadata without downloading the blob bytes.
-   * Returns content hash, size, and media type (undefined — FsCas
-   * does not track media type; callers should supply it).
+   * Returns content hash, size, and optional media type from sidecar.
    */
   stat = async (contentHash: string): Promise<Artifact | undefined> => {
     const hex = hexFromHash(contentHash);
@@ -173,9 +203,11 @@ export class FsCas implements ContentStore {
       return undefined;
     }
 
+    const mediaType = await this.readMeta(hex);
     return {
       contentHash,
       sizeBytes: file.size,
+      ...(mediaType !== undefined && { mediaType }),
     };
   };
 
