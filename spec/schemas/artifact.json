@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grove.dev/schemas/artifact.json",
+  "title": "Grove Artifact Metadata",
+  "description": "Content-addressed artifact metadata. Describes an opaque blob stored in the Grove CAS (Content-Addressable Storage). Artifacts are immutable and globally deduplicated — the same content always produces the same content_hash. The artifact name is not part of this schema; naming is the contribution's responsibility (via the artifacts map key).",
+  "type": "object",
+  "required": ["content_hash", "size_bytes"],
+  "properties": {
+    "content_hash": {
+      "type": "string",
+      "description": "BLAKE3 content hash of the artifact bytes. This is both the unique identifier and the integrity check for the blob.",
+      "pattern": "^blake3:[a-f0-9]{64}$"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "description": "Size of the artifact in bytes. Recorded at ingest time to avoid CAS round-trips for size queries.",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "media_type": {
+      "type": "string",
+      "description": "IANA media type of the artifact content (e.g., 'application/json', 'text/plain', 'application/octet-stream'). Implementations SHOULD infer this from the source filename extension when available and SHOULD normalize to lowercase. When the type cannot be determined, implementations MAY omit this field or use 'application/octet-stream'. Parameters (e.g., '; charset=utf-8') are not permitted — use the base type only.",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9!#$&\\-^_.+]*\\/[a-zA-Z0-9][a-zA-Z0-9!#$&\\-^_.+]*$",
+      "maxLength": 256
+    }
+  },
+  "unevaluatedProperties": false
+}

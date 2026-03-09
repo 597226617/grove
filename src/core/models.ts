@@ -96,12 +96,14 @@ export interface Relation {
  *
  * This type is used by the CAS layer (ContentStore) to track storage metadata.
  * Contributions reference artifacts only by content hash via the `artifacts`
- * field (Record<name, contentHash>). The full Artifact metadata (size, media
- * type) lives in the CAS, not in the contribution manifest.
+ * field (Record<name, contentHash>). The artifact name is NOT part of this
+ * interface — naming is the contribution's responsibility (via the
+ * Contribution.artifacts map key).
+ *
+ * Mirrors spec/schemas/artifact.json — keep in sync.
  */
 export interface Artifact {
   readonly contentHash: string;
-  readonly name: string;
   readonly sizeBytes: number;
   readonly mediaType?: string | undefined;
 }
