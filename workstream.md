@@ -5,26 +5,35 @@ independently, with explicit sync points where one stream needs output
 from another.
 
 ```
-            ┌─────────────────────────────────────────────────┐
-            │  Stream 1: Protocol & Spec (7 issues)           │
-            │  Pure docs + JSON schemas — no code deps        │
-            │  #1 → #2 → #3 → #4 → #5 → #23 → #26           │
-            └──────────────┬──────────────────────────────────┘
-                           │ schemas inform implementation
-            ┌──────────────▼──────────────────────────────────┐
-            │  Stream 2: Core Engine (7 issues)               │
-            │  Models, store, CAS, frontier, Symphony ops     │
-            │  #7 → #8 → #9 → #10 → #24 → #25 → #27         │
-            └──────┬───────────────────────┬──────────────────┘
-                   │ core ready            │ core ready
-            ┌──────▼──────────────┐ ┌──────▼──────────────────┐
-            │  Stream 3: CLI &    │ │  Stream 4: Network,     │
-            │  Agent Surface      │ │  Integration & Scale    │
-            │  (6 issues)         │ │  (7 issues)             │
-            │  #11→#12→#13→#14    │ │  #15→#17→#18            │
-            │  #16, #28           │ │  #19→#20→#21→#22        │
-            └─────────────────────┘ └─────────────────────────┘
+  ┌───────────────────────────┐   ┌───────────────────────────┐
+  │  Stream 1: Protocol/Spec  │   │  Stream 2: Core Engine    │
+  │  (7 issues)               │   │  (7 issues)               │
+  │  Schemas + contracts      │   │  Models, store, CAS,      │
+  │  #1,#2,#3,#4 (parallel)   │   │  frontier, Symphony ops   │
+  │  → #5 → #23 → #26        │   │  #7 → #8,#9 → #10        │
+  │                           │   │  → #24, #25, #27          │
+  └─────────┬─────────────────┘   └──────┬──────────┬─────────┘
+            │ reconcile schemas          │          │
+            └──────────┐                 │          │
+                       ▼                 │          │
+                  (one-time sync)        │          │
+                                         │          │
+              ┌──────────────────────────▼┐  ┌──────▼──────────────────┐
+              │  Stream 3: CLI &          │  │  Stream 4: Network,     │
+              │  Agent Surface (6 issues) │  │  Integration & Scale    │
+              │  #11→#12→#13→#14          │  │  (7 issues)             │
+              │  #16, #28                 │  │  #15→#17→#18            │
+              └───────────────────────────┘  │  #19→#20→#21→#22        │
+                                             └─────────────────────────┘
 ```
+
+**Streams 1 & 2 run fully in parallel.** Stream 2 works from the proposal
+document (which already defines all fields, types, and semantics). Stream 1
+formalizes those into JSON schemas and spec docs. A one-time reconciliation
+sync ensures the TypeScript interfaces match the finalized schemas.
+
+**Streams 3 & 4 also run in parallel** once the core engine (Stream 2
+#7-#10) is functional.
 
 **Total: 27 issues + #6 (done) = 28**
 
@@ -46,7 +55,7 @@ Can start immediately and inform all other streams.
 | 1.6 | [#23](https://github.com/windoliver/grove/issues/23) | GROVE.md as repo-owned workflow contract | P1 |
 | 1.7 | [#26](https://github.com/windoliver/grove/issues/26) | Explicit handoff states and stop conditions | P1 |
 
-**Dependencies:** None — this stream starts first.
+**Dependencies:** None — starts immediately, runs in parallel with Stream 2.
 
 **Deliverables:**
 - `spec/schemas/contribution.json`, `relation.json`, `artifact.json`, `claim.json`
@@ -60,9 +69,10 @@ Can start immediately and inform all other streams.
 - #23 depends on #5 (GROVE.md references metrics, stop conditions)
 - #26 depends on #4, #23 (handoff states reference claims and GROVE.md)
 
-**Sync point → Stream 2:** Schemas from #1-#4 inform the TypeScript
-interfaces in #7. Stream 2 can start from the proposal while specs
-formalize, but must reconcile once schemas are final.
+**Reconciliation with Stream 2:** Once schemas are finalized, a one-time
+check ensures Stream 2's TypeScript interfaces match. This is a lightweight
+sync — not a blocker. Stream 2 works from the proposal (which already has
+all field definitions) and is already underway (#6 done, #7 partial).
 
 ---
 
@@ -83,7 +93,9 @@ filesystem I/O. No network, no CLI parsing.
 | 2.6 | [#25](https://github.com/windoliver/grove/issues/25) | Reconciliation and idempotency | P1 |
 | 2.7 | [#27](https://github.com/windoliver/grove/issues/27) | Bounded concurrency and execution limits | P1 |
 
-**Dependencies:** Informed by Stream 1 schemas (can start from proposal).
+**Dependencies:** None — starts immediately, in parallel with Stream 1.
+Works from the proposal document. Reconciles with Stream 1 schemas once
+they're finalized (lightweight, not blocking).
 
 **Deliverables:**
 - `src/core/models.ts` — complete with `computeCid()`, serialization
@@ -216,27 +228,29 @@ with Stream 3.
 Week   Stream 1         Stream 2         Stream 3         Stream 4
        Protocol         Core Engine      CLI/Agent        Network/Scale
 ─────  ───────────────  ───────────────  ───────────────  ──────────────
- 1-2   #1,#2,#3,#4      #7 (models)      (blocked)        (blocked)
-       (parallel)       (extend stubs)
-
- 3-4   #5 (frontier)    #8,#9 (parallel) (blocked)        (blocked)
-       #23 (GROVE.md)   store + CAS
-
-  ──── SYNC: schemas finalized, reconcile models ─────────────────────
-
- 5-6   #26 (handoff)    #10 (frontier)   #11 (init +      #15 (server)
-                        #24 (workspace)  contribute)       #17 (github)
-
- 7-8   (done)           #25 (reconcile)  #12 (claim)       (continues)
+ 1-2   #1,#2,#3,#4  ║   #7 (models)      —                —
+       (parallel)   ║   (extend stubs)
+                    ║
+ 3-4   #5 (frontier)║   #8,#9 (parallel)  —                —
+       #23 (GROVE)  ║   store + CAS
+                    ║
+  ─── RECONCILE: check TS interfaces match finalized schemas ─────────
+                    ║
+ 5-6   #26 (handoff)║   #10 (frontier)   #11 (init +      #15 (server)
+                    ║   #24 (workspace)  contribute)       #17 (github)
+                    ║
+ 7-8   (done)       ║   #25 (reconcile)  #12 (claim)       (continues)
                         #27 (concurrency) #13 (query CLIs)
 
-  ──── SYNC: core + CLI stable, ready for integration ────────────────
+  ─── SYNC: core + CLI functional ────────────────────────────────────
 
  9-10                   (done)           #14 (E2E local)   #18 (multi-
                                          #16 (MCP)         agent E2E)
 
  11+                                     #28 (TUI)         #19→#20→#21
                                                            →#22
+
+║ = Streams 1 & 2 run in parallel throughout
 ```
 
 ---
