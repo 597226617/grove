@@ -766,3 +766,141 @@ describe("MANIFEST_VERSION", () => {
     expect(MANIFEST_VERSION).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Deep freeze (Codex fix 1)
+// ---------------------------------------------------------------------------
+
+describe("deep freeze", () => {
+  test("nested tags array is frozen after createContribution", () => {
+    const contribution = createContribution(MINIMAL_INPUT);
+    expect(Object.isFrozen(contribution.tags)).toBe(true);
+    expect(() => (contribution.tags as string[]).push("mutated")).toThrow();
+  });
+
+  test("nested agent object is frozen after createContribution", () => {
+    const contribution = createContribution(FULL_INPUT);
+    expect(Object.isFrozen(contribution.agent)).toBe(true);
+    expect(() => {
+      (contribution.agent as { agentId: string }).agentId = "hacked";
+    }).toThrow();
+  });
+
+  test("nested relations array is frozen after createContribution", () => {
+    const contribution = createContribution(FULL_INPUT);
+    expect(Object.isFrozen(contribution.relations)).toBe(true);
+    expect(() =>
+      (contribution.relations as { targetCid: string; relationType: string }[]).push({
+        targetCid: "blake3:0000000000000000000000000000000000000000000000000000000000000000",
+        relationType: "derives_from",
+      }),
+    ).toThrow();
+  });
+
+  test("nested scores object is frozen after createContribution", () => {
+    const contribution = createContribution(FULL_INPUT);
+    expect(contribution.scores).toBeDefined();
+    expect(Object.isFrozen(contribution.scores)).toBe(true);
+  });
+
+  test("nested artifacts object is frozen after createContribution", () => {
+    const contribution = createContribution(FULL_INPUT);
+    expect(Object.isFrozen(contribution.artifacts)).toBe(true);
+  });
+
+  test("fromManifest returns deeply frozen object", () => {
+    const original = createContribution(FULL_INPUT);
+    const manifest = toManifest(original);
+    const restored = fromManifest(manifest);
+    expect(Object.isFrozen(restored.tags)).toBe(true);
+    expect(Object.isFrozen(restored.agent)).toBe(true);
+    expect(Object.isFrozen(restored.relations)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timezone offset support (Codex fix 2)
+// ---------------------------------------------------------------------------
+
+describe("timezone offset support", () => {
+  test("createContribution accepts ISO 8601 with positive offset", () => {
+    const input = { ...MINIMAL_INPUT, createdAt: "2026-03-08T10:00:00+05:30" };
+    const contribution = createContribution(input);
+    expect(contribution.createdAt).toBe("2026-03-08T10:00:00+05:30");
+  });
+
+  test("createContribution accepts ISO 8601 with negative offset", () => {
+    const input = { ...MINIMAL_INPUT, createdAt: "2026-03-08T10:00:00-08:00" };
+    const contribution = createContribution(input);
+    expect(contribution.createdAt).toBe("2026-03-08T10:00:00-08:00");
+  });
+
+  test("fromManifest accepts ISO 8601 with offset", () => {
+    const input = { ...MINIMAL_INPUT, createdAt: "2026-03-08T10:00:00+09:00" };
+    const original = createContribution(input);
+    const manifest = toManifest(original);
+    const restored = fromManifest(manifest);
+    expect(restored.createdAt).toBe("2026-03-08T10:00:00+09:00");
+  });
+
+  test("offset timestamps produce different CID than UTC", () => {
+    const utcInput = { ...MINIMAL_INPUT, createdAt: "2026-03-08T10:00:00Z" };
+    const offsetInput = { ...MINIMAL_INPUT, createdAt: "2026-03-08T10:00:00+05:00" };
+    expect(computeCid(utcInput)).not.toBe(computeCid(offsetInput));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Input validation in createContribution (Codex fix 3)
+// ---------------------------------------------------------------------------
+
+describe("createContribution input validation", () => {
+  test("rejects empty summary", () => {
+    const input = { ...MINIMAL_INPUT, summary: "" };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("rejects invalid kind", () => {
+    const input = { ...MINIMAL_INPUT, kind: "invalid" as ContributionKind };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("rejects invalid mode", () => {
+    const input = { ...MINIMAL_INPUT, mode: "invalid" as ContributionMode };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("rejects invalid createdAt format", () => {
+    const input = { ...MINIMAL_INPUT, createdAt: "not-a-date" };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("rejects empty agentId", () => {
+    const input = { ...MINIMAL_INPUT, agent: { agentId: "" } };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("rejects NaN score value", () => {
+    const input = {
+      ...MINIMAL_INPUT,
+      scores: { metric: { value: Number.NaN, direction: ScoreDirection.Maximize } },
+    };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("rejects Infinity score value", () => {
+    const input = {
+      ...MINIMAL_INPUT,
+      scores: { metric: { value: Number.POSITIVE_INFINITY, direction: ScoreDirection.Maximize } },
+    };
+    expect(() => createContribution(input)).toThrow();
+  });
+
+  test("accepts valid minimal input", () => {
+    expect(() => createContribution(MINIMAL_INPUT)).not.toThrow();
+  });
+
+  test("accepts valid full input", () => {
+    expect(() => createContribution(FULL_INPUT)).not.toThrow();
+  });
+});

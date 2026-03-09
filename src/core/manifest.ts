@@ -141,6 +141,23 @@ const RelationSchema = z
   })
   .strict();
 
+/** Schema for ContributionInput — validates everything except cid and manifestVersion. */
+const ContributionInputSchema = z
+  .object({
+    kind: ContributionKindSchema,
+    mode: ContributionModeSchema,
+    summary: z.string().min(1),
+    description: z.string().optional(),
+    artifacts: z.record(z.string(), z.string()),
+    relations: z.array(RelationSchema),
+    scores: z.record(z.string(), ScoreSchema).optional(),
+    tags: z.array(z.string()),
+    context: z.record(z.string(), z.unknown()).optional(),
+    agent: AgentIdentitySchema,
+    createdAt: z.string().datetime({ offset: true, message: "createdAt must be ISO 8601" }),
+  })
+  .strict();
+
 const ContributionManifestSchema = z
   .object({
     cid: CidSchema,
@@ -155,9 +172,26 @@ const ContributionManifestSchema = z
     tags: z.array(z.string()),
     context: z.record(z.string(), z.unknown()).optional(),
     agent: AgentIdentitySchema,
-    createdAt: z.string().datetime({ message: "createdAt must be ISO 8601" }),
+    createdAt: z.string().datetime({ offset: true, message: "createdAt must be ISO 8601" }),
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// Deep freeze utility
+// ---------------------------------------------------------------------------
+
+/** Recursively freeze an object and all nested objects/arrays. */
+function deepFreeze<T>(obj: T): T {
+  Object.freeze(obj);
+  if (obj !== null && typeof obj === "object") {
+    for (const value of Object.values(obj as Record<string, unknown>)) {
+      if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+        deepFreeze(value);
+      }
+    }
+  }
+  return obj;
+}
 
 // ---------------------------------------------------------------------------
 // Input type for creating a contribution (everything except CID)
@@ -262,6 +296,7 @@ export function computeCid(input: Contribution | ContributionInput): string {
  * manifest, so two calls with identical input always produce the same CID.
  */
 export function createContribution(input: ContributionInput): Contribution {
+  ContributionInputSchema.parse(input);
   const cid = computeCid(input);
   const contribution: Contribution = {
     cid,
@@ -280,7 +315,7 @@ export function createContribution(input: ContributionInput): Contribution {
     agent: { ...input.agent },
     createdAt: input.createdAt,
   };
-  return Object.freeze(contribution);
+  return deepFreeze(contribution);
 }
 
 /**
@@ -365,7 +400,7 @@ export function fromManifest(data: unknown, options?: FromManifestOptions): Cont
     createdAt: parsed.createdAt,
   };
 
-  const frozen = Object.freeze(contribution);
+  const frozen = deepFreeze(contribution);
 
   if (options?.verify !== false && !verifyCid(frozen)) {
     const expected = computeCid(frozen);
