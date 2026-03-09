@@ -12,14 +12,10 @@ function createValidator() {
   return ajv.compile(relationSchema);
 }
 
-/**
- * Create a configured Ajv validator for the contribution schema.
- * Registers relation.json first so the cross-file $ref resolves.
- */
+/** Create a configured Ajv validator for the contribution schema (standalone). */
 function createContributionValidator() {
   const ajv = new Ajv2020({ allErrors: true });
   addFormats(ajv);
-  ajv.addSchema(relationSchema);
   return ajv.compile(contributionSchema);
 }
 
@@ -231,23 +227,48 @@ describe("relation edge schema — boundary cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("relation type enum sync", () => {
-  const schemaEnum: readonly string[] = relationSchema.$defs.relation_type.enum;
+  const relationEnum: readonly string[] = relationSchema.$defs.relation_type.enum;
+  const contributionEnum: readonly string[] = (
+    contributionSchema.$defs as Record<string, { enum: string[] }>
+  ).relation_type.enum;
   const tsValues = Object.values(RelationType) as readonly string[];
 
-  test("every TypeScript RelationType value exists in JSON Schema enum", () => {
+  test("every TypeScript RelationType value exists in relation.json enum", () => {
     for (const value of tsValues) {
-      expect(schemaEnum).toContain(value);
+      expect(relationEnum).toContain(value);
     }
   });
 
-  test("every JSON Schema enum value exists in TypeScript RelationType", () => {
-    for (const value of schemaEnum) {
+  test("every relation.json enum value exists in TypeScript RelationType", () => {
+    for (const value of relationEnum) {
       expect(tsValues).toContain(value);
     }
   });
 
-  test("enum sets have the same size", () => {
-    expect(tsValues.length).toBe(schemaEnum.length);
+  test("relation.json and TypeScript enum sets have the same size", () => {
+    expect(tsValues.length).toBe(relationEnum.length);
+  });
+
+  test("relation.json and contribution.json relation_type enums are identical", () => {
+    expect(relationEnum).toEqual(contributionEnum);
+  });
+
+  test("contribution.json compiles standalone without relation.json", () => {
+    const ajv = new Ajv2020({ allErrors: true });
+    addFormats(ajv);
+    const validate = ajv.compile(contributionSchema);
+    const manifest = {
+      cid: validCid(0),
+      kind: "work",
+      mode: "evaluation",
+      summary: "Standalone test",
+      artifacts: {},
+      relations: [{ target_cid: validCid(1), relation_type: "derives_from" }],
+      tags: [],
+      agent: { agent_name: "test" },
+      created_at: "2026-03-08T10:00:00Z",
+    };
+    expect(validate(manifest)).toBe(true);
   });
 });
 
@@ -258,7 +279,7 @@ describe("relation type enum sync", () => {
 describe("cross-schema consistency", () => {
   const edgeValidate = createValidator();
 
-  test("contribution.json $ref to relation.json resolves correctly", () => {
+  test("contribution.json validates embedded relations correctly", () => {
     const validate = createContributionValidator();
     const manifest = {
       cid: validCid(0),
@@ -279,7 +300,7 @@ describe("cross-schema consistency", () => {
     expect(validate(manifest)).toBe(true);
   });
 
-  test("contribution.json still rejects invalid relation types via $ref", () => {
+  test("contribution.json rejects invalid relation types", () => {
     const validate = createContributionValidator();
     const manifest = {
       cid: validCid(0),

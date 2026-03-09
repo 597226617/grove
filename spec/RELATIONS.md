@@ -37,6 +37,12 @@ The `source_cid` and `created_at` are denormalized from the containing
 contribution when edges are materialized for storage and queries.
 Defined in `spec/schemas/relation.json`.
 
+> **Note:** The TypeScript core (`src/core/models.ts`) currently only
+> models the embedded form (`Relation` interface). The materialized edge
+> form is a spec-level contract for storage (#8) and API (#15)
+> implementations to fulfill. A typed `RelationEdge` interface will be
+> added when the store layer materializes edges.
+
 ---
 
 ## Relation Types
@@ -234,8 +240,8 @@ following indexes are recommended for efficient querying:
 
 | Query Pattern | Recommended Index |
 |---|---|
-| `children(cid)` — contributions derived from a CID | `(source_cid)` |
-| `ancestors(cid)` — contributions a CID derives from | `(target_cid)` |
+| `children(cid)` — contributions that derive from this CID | `(target_cid)` |
+| `ancestors(cid)` — contributions this CID derives from | `(source_cid)` |
 | `relationsOf(cid, type?)` — outgoing relations | `(source_cid, relation_type)` |
 | `relatedTo(cid, type?)` — incoming relations | `(target_cid, relation_type)` |
 
