@@ -1,12 +1,21 @@
 export type { ContentStore } from "./cas.js";
-export { computeCid, createContribution, toWireFormat, verifyCid } from "./cid.js";
+export {
+  CID_PATTERN,
+  type ContributionInput,
+  computeCid,
+  createContribution,
+  type FromManifestOptions,
+  fromManifest,
+  MANIFEST_VERSION,
+  toManifest,
+  verifyCid,
+} from "./manifest.js";
 export {
   type AgentIdentity,
   type Artifact,
   type Claim,
   ClaimStatus,
   type Contribution,
-  type ContributionInput,
   ContributionKind,
   ContributionMode,
   type JsonValue,
@@ -15,4 +24,4 @@ export {
   type Score,
   ScoreDirection,
 } from "./models.js";
-export type { ClaimStore, ContributionStore } from "./store.js";
+export type { ClaimStore, ContributionQuery, ContributionStore } from "./store.js";
