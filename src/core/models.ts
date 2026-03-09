@@ -91,7 +91,14 @@ export interface Relation {
   readonly metadata?: Readonly<Record<string, JsonValue>> | undefined;
 }
 
-/** Content-addressed artifact metadata. */
+/**
+ * Content-addressed artifact metadata.
+ *
+ * This type is used by the CAS layer (ContentStore) to track storage metadata.
+ * Contributions reference artifacts only by content hash via the `artifacts`
+ * field (Record<name, contentHash>). The full Artifact metadata (size, media
+ * type) lives in the CAS, not in the contribution manifest.
+ */
 export interface Artifact {
   readonly contentHash: string;
   readonly name: string;
@@ -128,17 +135,21 @@ export interface Contribution {
 export type ContributionInput = Omit<Contribution, "cid" | "manifestVersion">;
 
 /**
- * A mutable coordination object for live work.
+ * A coordination object for live work.
  *
- * Claims are the ONLY mutable objects in the protocol.
+ * Claims are the ONLY mutable state in the protocol. However, Claim
+ * objects returned by the store are readonly snapshots. State transitions
+ * (heartbeat, release, complete) return new Claim snapshots rather than
+ * mutating existing ones.
+ *
  * They prevent duplicate work in agent swarms via lease-based coordination.
  */
 export interface Claim {
   readonly claimId: string;
   readonly targetRef: string;
   readonly agent: AgentIdentity;
-  status: ClaimStatus;
-  heartbeatAt: string;
+  readonly status: ClaimStatus;
+  readonly heartbeatAt: string;
   readonly leaseExpiresAt: string;
   readonly intentSummary: string;
 }

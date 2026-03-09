@@ -20,6 +20,7 @@ import { z } from "zod";
 import type {
   AgentIdentity,
   Contribution,
+  ContributionInput,
   ContributionKind,
   ContributionMode,
   JsonValue,
@@ -88,6 +89,24 @@ function canonicalize(value: unknown): string {
       return acc;
     }, []);
   return `{${entries.join(",")}}`;
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove keys with `undefined` values from a plain object.
+ * Returns a new object — the input is not mutated.
+ */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,13 +228,6 @@ function deepFreeze<T>(obj: T): T {
 }
 
 // ---------------------------------------------------------------------------
-// Input type for creating a contribution (everything except CID)
-// ---------------------------------------------------------------------------
-
-/** Input for creating a new contribution. CID is computed automatically. */
-export type ContributionInput = Omit<Contribution, "cid" | "manifestVersion">;
-
-// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -223,28 +235,41 @@ export type ContributionInput = Omit<Contribution, "cid" | "manifestVersion">;
  * Build the manifest dict (plain JSON-safe object) from a contribution,
  * excluding the CID field. This is the hash preimage.
  *
- * Undefined optional fields are omitted entirely (decision 6A).
+ * Undefined optional fields are omitted entirely.
  */
 function toManifestDict(contribution: Contribution | ContributionInput): Record<string, unknown> {
-  const agent: Record<string, unknown> = { agentId: contribution.agent.agentId };
-  if (contribution.agent.agentName !== undefined) agent.agentName = contribution.agent.agentName;
-  if (contribution.agent.provider !== undefined) agent.provider = contribution.agent.provider;
-  if (contribution.agent.model !== undefined) agent.model = contribution.agent.model;
-  if (contribution.agent.platform !== undefined) agent.platform = contribution.agent.platform;
-  if (contribution.agent.version !== undefined) agent.version = contribution.agent.version;
-  if (contribution.agent.toolchain !== undefined) agent.toolchain = contribution.agent.toolchain;
-  if (contribution.agent.runtime !== undefined) agent.runtime = contribution.agent.runtime;
-
-  const relations = contribution.relations.map((r) => {
-    const rel: Record<string, unknown> = {
-      targetCid: r.targetCid,
-      relationType: r.relationType,
-    };
-    if (r.metadata !== undefined) rel.metadata = r.metadata;
-    return rel;
+  const agent = stripUndefined({
+    agentId: contribution.agent.agentId,
+    agentName: contribution.agent.agentName,
+    provider: contribution.agent.provider,
+    model: contribution.agent.model,
+    platform: contribution.agent.platform,
+    version: contribution.agent.version,
+    toolchain: contribution.agent.toolchain,
+    runtime: contribution.agent.runtime,
   });
 
-  const dict: Record<string, unknown> = {
+  const relations = contribution.relations.map((r) =>
+    stripUndefined({
+      targetCid: r.targetCid,
+      relationType: r.relationType,
+      metadata: r.metadata,
+    }),
+  );
+
+  const scores =
+    contribution.scores !== undefined
+      ? Object.fromEntries(
+          Object.entries(contribution.scores)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [
+              k,
+              stripUndefined({ value: v.value, direction: v.direction, unit: v.unit }),
+            ]),
+        )
+      : undefined;
+
+  return stripUndefined({
     manifestVersion:
       "manifestVersion" in contribution
         ? (contribution as Contribution).manifestVersion
@@ -252,35 +277,26 @@ function toManifestDict(contribution: Contribution | ContributionInput): Record<
     kind: contribution.kind,
     mode: contribution.mode,
     summary: contribution.summary,
+    description: contribution.description,
     artifacts: contribution.artifacts,
     relations,
+    scores,
     tags: [...contribution.tags],
+    context: contribution.context,
     agent,
     createdAt: contribution.createdAt,
-  };
+  });
+}
 
-  if (contribution.description !== undefined) {
-    dict.description = contribution.description;
-  }
-  if (contribution.scores !== undefined) {
-    const scores: Record<string, unknown> = {};
-    for (const [key, score] of Object.entries(contribution.scores)) {
-      if (score !== undefined) {
-        const s: Record<string, unknown> = {
-          value: score.value,
-          direction: score.direction,
-        };
-        if (score.unit !== undefined) s.unit = score.unit;
-        scores[key] = s;
-      }
-    }
-    dict.scores = scores;
-  }
-  if (contribution.context !== undefined) {
-    dict.context = contribution.context;
-  }
-
-  return dict;
+/**
+ * Compute CID from an already-built manifest dict.
+ * Skips validation — caller must ensure dict is valid.
+ */
+function computeCidFromDict(dict: Record<string, unknown>): string {
+  const canonical = canonicalize(dict);
+  const bytes = new TextEncoder().encode(canonical);
+  const digest = hash(bytes).toString("hex");
+  return `${CID_PREFIX}${digest}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,10 +319,7 @@ export function computeCid(input: Contribution | ContributionInput): string {
     ContributionInputSchema.parse(input);
   }
   const dict = toManifestDict(input);
-  const canonical = canonicalize(dict);
-  const bytes = new TextEncoder().encode(canonical);
-  const digest = hash(bytes).toString("hex");
-  return `${CID_PREFIX}${digest}`;
+  return computeCidFromDict(dict);
 }
 
 /**
@@ -318,30 +331,39 @@ export function computeCid(input: Contribution | ContributionInput): string {
  */
 export function createContribution(input: ContributionInput): Contribution {
   ContributionInputSchema.parse(input);
-  const cid = computeCid(input);
+
+  // Build the manifest dict once and compute CID from it (avoids double validation).
+  const dict = toManifestDict(input);
+  const cid = computeCidFromDict(dict);
+
   const contribution: Contribution = {
     cid,
     manifestVersion: MANIFEST_VERSION,
     kind: input.kind,
     mode: input.mode,
     summary: input.summary,
-    description: input.description,
+    ...stripUndefined({ description: input.description }),
     artifacts: { ...input.artifacts },
-    relations: input.relations.map((r) => ({
-      targetCid: r.targetCid,
-      relationType: r.relationType,
-      ...(r.metadata !== undefined && {
-        metadata: JSON.parse(JSON.stringify(r.metadata)) as Readonly<Record<string, JsonValue>>,
+    relations: input.relations.map((r) =>
+      stripUndefined({
+        targetCid: r.targetCid,
+        relationType: r.relationType,
+        metadata:
+          r.metadata !== undefined
+            ? (JSON.parse(JSON.stringify(r.metadata)) as Readonly<Record<string, JsonValue>>)
+            : undefined,
       }),
-    })),
-    scores: input.scores
-      ? Object.fromEntries(Object.entries(input.scores).map(([k, v]) => [k, v && { ...v }]))
-      : undefined,
+    ),
+    ...stripUndefined({
+      scores: input.scores
+        ? Object.fromEntries(Object.entries(input.scores).map(([k, v]) => [k, v && { ...v }]))
+        : undefined,
+      context: input.context
+        ? (JSON.parse(JSON.stringify(input.context)) as Readonly<Record<string, JsonValue>>)
+        : undefined,
+    }),
     tags: [...input.tags],
-    context: input.context
-      ? (JSON.parse(JSON.stringify(input.context)) as Readonly<Record<string, JsonValue>>)
-      : undefined,
-    agent: { ...input.agent },
+    agent: stripUndefined({ ...input.agent }),
     createdAt: input.createdAt,
   };
   return deepFreeze(contribution);
@@ -379,34 +401,35 @@ export interface FromManifestOptions {
 export function fromManifest(data: unknown, options?: FromManifestOptions): Contribution {
   const parsed = ContributionManifestSchema.parse(data);
 
-  const agent: AgentIdentity = {
+  const agent: AgentIdentity = stripUndefined({
     agentId: parsed.agent.agentId,
-    ...(parsed.agent.agentName !== undefined && { agentName: parsed.agent.agentName }),
-    ...(parsed.agent.provider !== undefined && { provider: parsed.agent.provider }),
-    ...(parsed.agent.model !== undefined && { model: parsed.agent.model }),
-    ...(parsed.agent.platform !== undefined && { platform: parsed.agent.platform }),
-    ...(parsed.agent.version !== undefined && { version: parsed.agent.version }),
-    ...(parsed.agent.toolchain !== undefined && { toolchain: parsed.agent.toolchain }),
-    ...(parsed.agent.runtime !== undefined && { runtime: parsed.agent.runtime }),
-  };
+    agentName: parsed.agent.agentName,
+    provider: parsed.agent.provider,
+    model: parsed.agent.model,
+    platform: parsed.agent.platform,
+    version: parsed.agent.version,
+    toolchain: parsed.agent.toolchain,
+    runtime: parsed.agent.runtime,
+  });
 
-  const relations: readonly Relation[] = parsed.relations.map((r) => ({
-    targetCid: r.targetCid,
-    relationType: r.relationType as RelationType,
-    ...(r.metadata !== undefined && {
-      metadata: r.metadata as Readonly<Record<string, JsonValue>>,
+  const relations: readonly Relation[] = parsed.relations.map((r) =>
+    stripUndefined({
+      targetCid: r.targetCid,
+      relationType: r.relationType as RelationType,
+      metadata:
+        r.metadata !== undefined ? (r.metadata as Readonly<Record<string, JsonValue>>) : undefined,
     }),
-  }));
+  );
 
   const scores = parsed.scores
     ? Object.fromEntries(
         Object.entries(parsed.scores).map(([k, v]) => [
           k,
-          {
+          stripUndefined({
             value: v.value,
             direction: v.direction as ScoreDirection,
-            ...(v.unit !== undefined && { unit: v.unit }),
-          } satisfies Score,
+            unit: v.unit,
+          }) satisfies Score,
         ]),
       )
     : undefined;
@@ -417,14 +440,17 @@ export function fromManifest(data: unknown, options?: FromManifestOptions): Cont
     kind: parsed.kind as ContributionKind,
     mode: parsed.mode as ContributionMode,
     summary: parsed.summary,
-    ...(parsed.description !== undefined && { description: parsed.description }),
+    ...stripUndefined({ description: parsed.description }),
     artifacts: parsed.artifacts,
     relations,
-    ...(scores !== undefined && { scores }),
-    tags: parsed.tags,
-    ...(parsed.context !== undefined && {
-      context: parsed.context as Readonly<Record<string, JsonValue>>,
+    ...stripUndefined({
+      scores,
+      context:
+        parsed.context !== undefined
+          ? (parsed.context as Readonly<Record<string, JsonValue>>)
+          : undefined,
     }),
+    tags: parsed.tags,
     agent,
     createdAt: parsed.createdAt,
   };

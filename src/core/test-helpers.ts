@@ -2,9 +2,11 @@
  * Shared test fixture factories for Grove core tests.
  *
  * Provides sensible defaults so tests only override the fields they care about.
+ * All contributions have valid computed CIDs.
  */
 
-import type { AgentIdentity, Contribution, Relation, Score } from "./models.js";
+import { createContribution } from "./manifest.js";
+import type { AgentIdentity, Contribution, ContributionInput, Relation, Score } from "./models.js";
 import { ContributionKind, ContributionMode, RelationType, ScoreDirection } from "./models.js";
 
 /** Create an AgentIdentity with sensible defaults. */
@@ -33,11 +35,12 @@ export function makeScore(overrides?: Partial<Score>): Score {
   };
 }
 
-/** Create a Contribution with sensible defaults. Override any field. */
-export function makeContribution(overrides?: Partial<Contribution>): Contribution {
-  return {
-    cid: "blake3:0000000000000000000000000000000000000000000000000000000000000000",
-    manifestVersion: 1,
+/**
+ * Create a Contribution with sensible defaults and a valid computed CID.
+ * Override any ContributionInput field. The CID is always recomputed.
+ */
+export function makeContribution(overrides?: Partial<ContributionInput>): Contribution {
+  const input: ContributionInput = {
     kind: ContributionKind.Work,
     mode: ContributionMode.Evaluation,
     summary: "Test contribution",
@@ -48,4 +51,5 @@ export function makeContribution(overrides?: Partial<Contribution>): Contributio
     createdAt: "2026-01-01T00:00:00Z",
     ...overrides,
   };
+  return createContribution(input);
 }

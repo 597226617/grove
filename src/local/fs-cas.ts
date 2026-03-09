@@ -4,11 +4,42 @@
  * Stores artifacts by BLAKE3 hash on the local filesystem.
  * Layout: {root}/{hash[0:2]}/{hash[2:4]}/{hash}
  *
- * TODO: Implement in #9
+ * Writes are atomic: data is written to a temp file first, then renamed
+ * into place to prevent partial writes on crash.
  */
+
+import { mkdir, rename, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
+import { hash } from "blake3";
 
 import type { ContentStore } from "../core/cas.js";
 
+/** Prefix for BLAKE3 content hashes. */
+const HASH_PREFIX = "blake3:";
+
+/**
+ * Compute the BLAKE3 hash of a Uint8Array and return the prefixed hex string.
+ */
+function computeHash(data: Uint8Array): string {
+  const digest = hash(data).toString("hex");
+  return `${HASH_PREFIX}${digest}`;
+}
+
+/**
+ * Extract the hex portion from a content hash string.
+ * Assumes the hash is in "blake3:<64-hex>" format.
+ */
+function hexFromHash(contentHash: string): string {
+  return contentHash.slice(HASH_PREFIX.length);
+}
+
+/**
+ * Filesystem-backed ContentStore using BLAKE3 hashing.
+ *
+ * Directory layout: `{rootPath}/{hex[0:2]}/{hex[2:4]}/{hex}`
+ * where `hex` is the 64-character lowercase hex hash.
+ */
 export class FsCas implements ContentStore {
   readonly rootPath: string;
 
@@ -16,27 +47,110 @@ export class FsCas implements ContentStore {
     this.rootPath = rootPath;
   }
 
-  put = async (_data: Uint8Array): Promise<string> => {
-    throw new Error("Not implemented");
+  /**
+   * Build the filesystem path for a given hex hash.
+   */
+  private blobPath(hex: string): string {
+    return join(this.rootPath, hex.slice(0, 2), hex.slice(2, 4), hex);
+  }
+
+  /**
+   * Store bytes and return the content hash.
+   * Uses atomic write (temp file + rename) for crash safety.
+   */
+  put = async (data: Uint8Array): Promise<string> => {
+    const contentHash = computeHash(data);
+    const hex = hexFromHash(contentHash);
+    const blobFile = this.blobPath(hex);
+
+    // Skip write if content already exists
+    const file = Bun.file(blobFile);
+    if (await file.exists()) {
+      return contentHash;
+    }
+
+    // Ensure parent directories exist
+    const dir = dirname(blobFile);
+    await mkdir(dir, { recursive: true });
+
+    // Atomic write: write to temp file, then rename
+    const tmpFile = `${blobFile}.tmp.${Date.now()}`;
+    await Bun.write(tmpFile, data);
+    await rename(tmpFile, blobFile);
+
+    return contentHash;
   };
 
-  get = async (_contentHash: string): Promise<Uint8Array | undefined> => {
-    throw new Error("Not implemented");
+  /**
+   * Retrieve bytes by content hash.
+   * Returns undefined if the content is not found.
+   */
+  get = async (contentHash: string): Promise<Uint8Array | undefined> => {
+    const hex = hexFromHash(contentHash);
+    const blobFile = this.blobPath(hex);
+    const file = Bun.file(blobFile);
+
+    if (!(await file.exists())) {
+      return undefined;
+    }
+
+    return new Uint8Array(await file.arrayBuffer());
   };
 
-  exists = async (_contentHash: string): Promise<boolean> => {
-    throw new Error("Not implemented");
+  /**
+   * Check if content exists by hash.
+   */
+  exists = async (contentHash: string): Promise<boolean> => {
+    const hex = hexFromHash(contentHash);
+    const blobFile = this.blobPath(hex);
+    const file = Bun.file(blobFile);
+    return file.exists();
   };
 
-  delete = async (_contentHash: string): Promise<boolean> => {
-    throw new Error("Not implemented");
+  /**
+   * Delete content by hash.
+   * Returns true if the content was deleted, false if it did not exist.
+   */
+  delete = async (contentHash: string): Promise<boolean> => {
+    const hex = hexFromHash(contentHash);
+    const blobFile = this.blobPath(hex);
+    const file = Bun.file(blobFile);
+
+    if (!(await file.exists())) {
+      return false;
+    }
+
+    await unlink(blobFile);
+    return true;
   };
 
-  putFile = async (_path: string): Promise<string> => {
-    throw new Error("Not implemented");
+  /**
+   * Store a file's contents and return the content hash.
+   * Reads the file, hashes it, and stores via put().
+   */
+  putFile = async (path: string): Promise<string> => {
+    const file = Bun.file(path);
+    const data = new Uint8Array(await file.arrayBuffer());
+    return this.put(data);
   };
 
-  getToFile = async (_contentHash: string, _path: string): Promise<boolean> => {
-    throw new Error("Not implemented");
+  /**
+   * Retrieve content and write it to a file.
+   * Returns true if the content was found and written, false otherwise.
+   */
+  getToFile = async (contentHash: string, path: string): Promise<boolean> => {
+    const data = await this.get(contentHash);
+    if (data === undefined) {
+      return false;
+    }
+    await Bun.write(path, data);
+    return true;
   };
+
+  /**
+   * Release resources. No-op for filesystem storage.
+   */
+  close(): void {
+    // No resources to clean up
+  }
 }
