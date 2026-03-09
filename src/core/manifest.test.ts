@@ -194,7 +194,10 @@ describe("computeCid", () => {
 
   describe("input validation", () => {
     test("rejects Date in context", () => {
-      const input = { ...MINIMAL_INPUT, context: { when: new Date("2026-01-01") as unknown } };
+      const input = {
+        ...MINIMAL_INPUT,
+        context: { when: new Date("2026-01-01") },
+      } as unknown as ContributionInput;
       expect(() => computeCid(input)).toThrow();
     });
 
@@ -205,18 +208,18 @@ describe("computeCid", () => {
           {
             targetCid: "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             relationType: RelationType.DerivesFrom,
-            metadata: { when: new Date("2026-01-01") as unknown },
+            metadata: { when: new Date("2026-01-01") },
           },
         ],
-      };
+      } as unknown as ContributionInput;
       expect(() => computeCid(input)).toThrow();
     });
 
     test("rejects non-JSON-safe values when called with a Contribution", () => {
-      const contribution: Contribution = {
+      const contribution = {
         ...createContribution(MINIMAL_INPUT),
-        context: { data: new Map() as unknown },
-      };
+        context: { data: new Map() },
+      } as unknown as Contribution;
       expect(() => computeCid(contribution)).toThrow();
     });
   });
@@ -930,24 +933,24 @@ describe("JSON-safe context and metadata validation", () => {
   test("rejects Date in context", () => {
     const input = {
       ...MINIMAL_INPUT,
-      context: { when: new Date("2026-01-01") as unknown },
-    };
+      context: { when: new Date("2026-01-01") },
+    } as unknown as ContributionInput;
     expect(() => createContribution(input)).toThrow();
   });
 
   test("rejects Map in context", () => {
     const input = {
       ...MINIMAL_INPUT,
-      context: { data: new Map() as unknown },
-    };
+      context: { data: new Map() },
+    } as unknown as ContributionInput;
     expect(() => createContribution(input)).toThrow();
   });
 
   test("rejects function in context", () => {
     const input = {
       ...MINIMAL_INPUT,
-      context: { fn: (() => 42) as unknown },
-    };
+      context: { fn: () => 42 },
+    } as unknown as ContributionInput;
     expect(() => createContribution(input)).toThrow();
   });
 
@@ -958,10 +961,10 @@ describe("JSON-safe context and metadata validation", () => {
         {
           targetCid: "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           relationType: RelationType.DerivesFrom,
-          metadata: { when: new Date("2026-01-01") as unknown },
+          metadata: { when: new Date("2026-01-01") },
         },
       ],
-    };
+    } as unknown as ContributionInput;
     expect(() => createContribution(input)).toThrow();
   });
 
