@@ -112,7 +112,7 @@
           "pattern": "^blake3:[a-f0-9]{64}$"
         },
         "relation_type": {
-          "$ref": "#/$defs/relation_type"
+          "$ref": "relation.json#/$defs/relation_type"
         },
         "metadata": {
           "type": "object",
@@ -122,11 +122,6 @@
         }
       },
       "unevaluatedProperties": false
-    },
-    "relation_type": {
-      "type": "string",
-      "description": "The type of relation between contributions.",
-      "enum": ["derives_from", "responds_to", "reviews", "reproduces", "adopts"]
     },
     "score": {
       "type": "object",
