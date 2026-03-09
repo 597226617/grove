@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grove.dev/schemas/contribution.json",
+  "title": "Grove Contribution Manifest",
+  "description": "An immutable unit of published work in the Grove contribution graph. The CID is derived from the BLAKE3 hash of the canonical JSON serialization (RFC 8785) of the manifest, excluding the cid field itself.",
+  "type": "object",
+  "required": [
+    "cid",
+    "kind",
+    "mode",
+    "summary",
+    "artifacts",
+    "relations",
+    "tags",
+    "agent",
+    "created_at"
+  ],
+  "properties": {
+    "cid": {
+      "type": "string",
+      "description": "Content-derived contribution identifier. BLAKE3 hash of the canonical manifest serialization (excluding this field).",
+      "pattern": "^blake3:[a-f0-9]{64}$"
+    },
+    "kind": {
+      "$ref": "#/$defs/contribution_kind"
+    },
+    "mode": {
+      "$ref": "#/$defs/contribution_mode"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short human/agent-readable summary of the contribution.",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional longer body with details about the contribution.",
+      "maxLength": 65536
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Named artifact references. Keys are artifact names, values are content hashes (e.g., blake3:<hex64>).",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^blake3:[a-f0-9]{64}$"
+      },
+      "maxProperties": 1000
+    },
+    "relations": {
+      "type": "array",
+      "description": "Typed edges to other contributions.",
+      "items": {
+        "$ref": "#/$defs/relation"
+      },
+      "maxItems": 1000
+    },
+    "scores": {
+      "type": "object",
+      "description": "Arbitrary numeric scores with direction. Keys are metric names. Optional — exploration mode contributions may have none.",
+      "additionalProperties": {
+        "$ref": "#/$defs/score"
+      },
+      "maxProperties": 100
+    },
+    "tags": {
+      "type": "array",
+      "description": "Free-form labels for categorization and search.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "context": {
+      "type": "object",
+      "description": "Execution/evaluation context. Domain-specific — domains define their own vocabulary (e.g., hardware, dataset, seed for research; repo, commit for coding).",
+      "additionalProperties": true,
+      "maxProperties": 100
+    },
+    "agent": {
+      "$ref": "#/$defs/agent_identity"
+    },
+    "created_at": {
+      "type": "string",
+      "description": "ISO 8601 / RFC 3339 timestamp of when the contribution was created. Must include timezone. For CID computation, timestamps are normalized to UTC (Z suffix) to ensure equivalent instants produce the same CID.",
+      "format": "date-time"
+    }
+  },
+  "unevaluatedProperties": false,
+  "$defs": {
+    "contribution_kind": {
+      "type": "string",
+      "description": "The type of work being contributed.",
+      "enum": ["work", "review", "discussion", "adoption", "reproduction"]
+    },
+    "contribution_mode": {
+      "type": "string",
+      "description": "Whether this contribution is measured (evaluation) or exploratory (exploration).",
+      "enum": ["evaluation", "exploration"]
+    },
+    "relation": {
+      "type": "object",
+      "description": "A typed edge to another contribution.",
+      "required": ["target_cid", "relation_type"],
+      "properties": {
+        "target_cid": {
+          "type": "string",
+          "description": "CID of the target contribution.",
+          "pattern": "^blake3:[a-f0-9]{64}$"
+        },
+        "relation_type": {
+          "$ref": "#/$defs/relation_type"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional metadata for this relation (e.g., review score, reproduction verdict).",
+          "additionalProperties": true,
+          "maxProperties": 100
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "relation_type": {
+      "type": "string",
+      "description": "The type of relation between contributions.",
+      "enum": ["derives_from", "responds_to", "reviews", "reproduces", "adopts"]
+    },
+    "score": {
+      "type": "object",
+      "description": "A numeric score with direction and optional unit.",
+      "required": ["value", "direction"],
+      "properties": {
+        "value": {
+          "type": "number",
+          "description": "The numeric score value."
+        },
+        "direction": {
+          "$ref": "#/$defs/score_direction"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Optional unit label (e.g., 'bpb', 'seconds', 'accuracy').",
+          "maxLength": 64
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "score_direction": {
+      "type": "string",
+      "description": "Whether lower or higher values are better.",
+      "enum": ["minimize", "maximize"]
+    },
+    "agent_identity": {
+      "type": "object",
+      "description": "Identity metadata for the agent that created this contribution.",
+      "required": ["agent_name"],
+      "properties": {
+        "agent_name": {
+          "type": "string",
+          "description": "Human/agent-readable name identifying this agent.",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Stable machine-readable identifier for the agent. Unlike agent_name (which is human-readable and may change), agent_id should be a persistent, unique identifier used for attribution and query filtering.",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "provider": {
+          "type": "string",
+          "description": "The provider of the agent (e.g., 'anthropic', 'openai').",
+          "maxLength": 128
+        },
+        "model": {
+          "type": "string",
+          "description": "The model used by the agent (e.g., 'claude-opus-4-6', 'o3').",
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "description": "Version identifier for the agent or its configuration.",
+          "maxLength": 128
+        },
+        "toolchain": {
+          "type": "string",
+          "description": "The toolchain used (e.g., 'claude-code', 'codex-cli', 'koi').",
+          "maxLength": 128
+        },
+        "runtime": {
+          "type": "string",
+          "description": "Runtime environment (e.g., 'bun-1.3.9', 'python-3.12').",
+          "maxLength": 128
+        },
+        "platform": {
+          "type": "string",
+          "description": "Hardware or execution platform (e.g., 'H100', 'macOS-arm64').",
+          "maxLength": 128
+        }
+      },
+      "unevaluatedProperties": false
+    }
+  }
+}

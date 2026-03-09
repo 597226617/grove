@@ -3,6 +3,9 @@
  *
  * All models except Claim are immutable (frozen objects).
  * Claims are the only mutable coordination objects in the protocol.
+ *
+ * Wire format uses snake_case (JSON Schema). TypeScript uses camelCase.
+ * See spec/schemas/contribution.json for the canonical wire format.
  */
 
 /** Contribution kinds — the type of work being contributed. */
@@ -41,6 +44,20 @@ export const ClaimStatus = {
 } as const;
 export type ClaimStatus = (typeof ClaimStatus)[keyof typeof ClaimStatus];
 
+/**
+ * A JSON-safe value type. Only types that survive a JSON.stringify
+ * round-trip are permitted. This prevents non-JSON values (Map, Set,
+ * BigInt, functions, symbols) from entering context and metadata
+ * fields, where they would be silently lost or throw during CID hashing.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 /** Score direction — minimize or maximize. */
 export const ScoreDirection = {
   Minimize: "minimize",
@@ -50,10 +67,13 @@ export type ScoreDirection = (typeof ScoreDirection)[keyof typeof ScoreDirection
 
 /** Identity of the agent that created a contribution or claim. */
 export interface AgentIdentity {
-  readonly agentId: string;
-  readonly agentName?: string | undefined;
+  readonly agentName: string;
+  readonly agentId?: string | undefined;
   readonly provider?: string | undefined;
   readonly model?: string | undefined;
+  readonly version?: string | undefined;
+  readonly toolchain?: string | undefined;
+  readonly runtime?: string | undefined;
   readonly platform?: string | undefined;
 }
 
@@ -68,7 +88,7 @@ export interface Score {
 export interface Relation {
   readonly targetCid: string;
   readonly relationType: RelationType;
-  readonly metadata?: Readonly<Record<string, unknown>> | undefined;
+  readonly metadata?: Readonly<Record<string, JsonValue>> | undefined;
 }
 
 /** Content-addressed artifact metadata. */
@@ -83,7 +103,7 @@ export interface Artifact {
  * An immutable unit of published work in the contribution graph.
  *
  * The CID is derived from the BLAKE3 hash of the canonical manifest
- * serialization (excluding the CID field itself).
+ * serialization (RFC 8785, excluding the CID field itself).
  */
 export interface Contribution {
   readonly cid: string;
@@ -95,10 +115,16 @@ export interface Contribution {
   readonly relations: readonly Relation[];
   readonly scores?: Readonly<Record<string, Score>> | undefined;
   readonly tags: readonly string[];
-  readonly context?: Readonly<Record<string, unknown>> | undefined;
+  readonly context?: Readonly<Record<string, JsonValue>> | undefined;
   readonly agent: AgentIdentity;
   readonly createdAt: string;
 }
+
+/**
+ * Input for creating a contribution (everything except the CID,
+ * which is computed from the canonical serialization).
+ */
+export type ContributionInput = Omit<Contribution, "cid">;
 
 /**
  * A mutable coordination object for live work.

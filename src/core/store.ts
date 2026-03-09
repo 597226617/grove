@@ -20,6 +20,7 @@ export interface ContributionQuery {
   readonly mode?: ContributionMode | undefined;
   readonly tags?: readonly string[] | undefined;
   readonly agentId?: string | undefined;
+  readonly agentName?: string | undefined;
   readonly limit?: number | undefined;
   readonly offset?: number | undefined;
 }

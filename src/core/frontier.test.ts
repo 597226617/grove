@@ -5,7 +5,7 @@ import { ContributionKind, ContributionMode, ScoreDirection } from "./models.js"
 
 describe("getScore", () => {
   const contribution: Contribution = {
-    cid: "blake3:test",
+    cid: `blake3:${"0".repeat(64)}`,
     kind: ContributionKind.Work,
     mode: ContributionMode.Evaluation,
     summary: "test",
@@ -16,7 +16,7 @@ describe("getScore", () => {
       throughput: { value: 14800, direction: ScoreDirection.Maximize, unit: "ops/sec" },
     },
     tags: [],
-    agent: { agentId: "test" },
+    agent: { agentName: "test" },
     createdAt: "2026-01-01T00:00:00Z",
   };
 
