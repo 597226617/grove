@@ -163,12 +163,22 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     // This ensures concurrent opens wait rather than fail immediately.
     this.db.run("PRAGMA busy_timeout = 5000");
 
-    // Only switch to WAL if not already enabled — avoids contention when
-    // another process already set WAL mode on this database file.
+    // Enable WAL mode for concurrent read/write access.
+    // On a fresh database, two processes opening simultaneously can race on
+    // the journal mode switch. PRAGMA journal_mode = WAL is a file-level
+    // structural change that may not fully respect busy_timeout, so we
+    // catch failures gracefully. The connection works correctly in any
+    // journal mode, and subsequent opens will see WAL already enabled.
     const mode = (this.db.prepare("PRAGMA journal_mode").get() as { journal_mode: string })
       .journal_mode;
     if (mode !== "wal") {
-      this.db.run("PRAGMA journal_mode = WAL");
+      try {
+        this.db.run("PRAGMA journal_mode = WAL");
+      } catch {
+        // Concurrent first-open: another process is switching to WAL.
+        // This session falls back to delete/rollback journal mode, which
+        // is functionally correct. WAL will be active for future opens.
+      }
     }
 
     this.db.run("PRAGMA synchronous = NORMAL");
