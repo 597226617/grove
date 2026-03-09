@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ContributionInput } from "./manifest.js";
 import {
   computeCid,
   createContribution,
@@ -9,7 +8,7 @@ import {
   toManifest,
   verifyCid,
 } from "./manifest.js";
-import type { Contribution } from "./models.js";
+import type { Contribution, ContributionInput } from "./models.js";
 import { ContributionKind, ContributionMode, RelationType, ScoreDirection } from "./models.js";
 
 // ---------------------------------------------------------------------------

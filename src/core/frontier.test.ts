@@ -1,25 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { getScore } from "./frontier.js";
-import type { Contribution } from "./models.js";
-import { ContributionKind, ContributionMode, ScoreDirection } from "./models.js";
+import { ScoreDirection } from "./models.js";
+import { makeContribution } from "./test-helpers.js";
 
 describe("getScore", () => {
-  const contribution: Contribution = {
-    cid: `blake3:${"0".repeat(64)}`,
-    manifestVersion: 1,
-    kind: ContributionKind.Work,
-    mode: ContributionMode.Evaluation,
-    summary: "test",
-    artifacts: {},
-    relations: [],
+  const contribution = makeContribution({
     scores: {
       val_bpb: { value: 0.97, direction: ScoreDirection.Minimize },
       throughput: { value: 14800, direction: ScoreDirection.Maximize, unit: "ops/sec" },
     },
-    tags: [],
-    agent: { agentId: "test" },
-    createdAt: "2026-01-01T00:00:00Z",
-  };
+  });
 
   test("returns score for existing metric", () => {
     const score = getScore(contribution, "val_bpb");
@@ -33,10 +23,7 @@ describe("getScore", () => {
   });
 
   test("returns undefined when contribution has no scores", () => {
-    const noScores: Contribution = {
-      ...contribution,
-      scores: undefined,
-    };
+    const noScores = makeContribution();
     const score = getScore(noScores, "val_bpb");
     expect(score).toBeUndefined();
   });

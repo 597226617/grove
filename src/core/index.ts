@@ -1,7 +1,13 @@
 export type { ContentStore } from "./cas.js";
+export type {
+  Frontier,
+  FrontierCalculator,
+  FrontierEntry,
+  FrontierQuery,
+} from "./frontier.js";
+export { DefaultFrontierCalculator, getScore } from "./frontier.js";
 export {
   CID_PATTERN,
-  type ContributionInput,
   computeCid,
   createContribution,
   type FromManifestOptions,
@@ -16,6 +22,7 @@ export {
   type Claim,
   ClaimStatus,
   type Contribution,
+  type ContributionInput,
   ContributionKind,
   ContributionMode,
   type JsonValue,

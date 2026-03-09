@@ -24,4 +24,7 @@ export interface ContentStore {
 
   /** Retrieve content to a file. Returns true if found and written. */
   getToFile(contentHash: string, path: string): Promise<boolean>;
+
+  /** Release resources (e.g., clean up temp files). */
+  close(): void;
 }

@@ -32,17 +32,17 @@ identity is derived from its content.
 Every contribution is identified by a **CID** (Content-Derived Identifier)
 computed as follows:
 
-1. Construct the manifest in **snake_case wire format** (see schema)
+1. Construct the manifest in **camelCase TypeScript format**
 2. **Exclude** the `cid` field from the manifest
-3. **Normalize** `created_at` to UTC (Z suffix) so equivalent instants
-   produce the same CID regardless of timezone representation
-4. **JSON-normalize** `context` and relation `metadata` via JSON round-trip
-   (drops `undefined` keys; collapses `NaN`/`Infinity` to `null`)
-5. **Sort** `tags` lexicographically — tag sets are order-independent
-6. Serialize using **RFC 8785 (JSON Canonicalization Scheme)** for
+3. Serialize using **RFC 8785 (JSON Canonicalization Scheme)** for
    deterministic key ordering and value formatting
-7. Hash the canonical JSON bytes with **BLAKE3** (256-bit)
-8. Encode as `blake3:<hex64>` (lowercase hexadecimal, 64 characters)
+4. Hash the canonical JSON bytes with **BLAKE3** (256-bit)
+5. Encode as `blake3:<hex64>` (lowercase hexadecimal, 64 characters)
+
+**Important:** The `created_at` string is hashed as-is — no timezone
+normalization is applied. Different string representations of the same
+instant (e.g., `Z` vs `+00:00`) produce different CIDs. Tags are hashed
+in their original array order.
 
 **Example**: `blake3:a1b2c3d4e5f6...` (64 hex characters after prefix)
 
