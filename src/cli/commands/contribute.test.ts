@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ContributeOptions } from "./contribute.js";
 import { executeContribute, parseContributeArgs, validateContributeOptions } from "./contribute.js";
+import type { InitOptions } from "./init.js";
 import { executeInit } from "./init.js";
 
 // ---------------------------------------------------------------------------
@@ -720,6 +721,130 @@ describe("executeContribute", () => {
       // Different CIDs (different createdAt) but both succeed
       expect(r1.cid).toMatch(/^blake3:[0-9a-f]{64}$/);
       expect(r2.cid).toMatch(/^blake3:[0-9a-f]{64}$/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex review fixes — enforcing store, mode resolution, metric direction
+// ---------------------------------------------------------------------------
+
+describe("Codex review fixes", () => {
+  test("enforces artifact count limit from GROVE.md contract", async () => {
+    const dir = await createTempDir();
+    try {
+      await executeInit(makeInitOptions(dir));
+
+      // Overwrite GROVE.md with strict artifact limit
+      const grovemdPath = join(dir, "GROVE.md");
+      await writeFile(
+        grovemdPath,
+        [
+          "---",
+          "contract_version: 2",
+          "name: test-grove",
+          "mode: evaluation",
+          "rate_limits:",
+          "  max_artifacts_per_contribution: 1",
+          "---",
+          "# test",
+        ].join("\n"),
+      );
+
+      // Create two artifact files
+      const file1 = join(dir, "a.txt");
+      const file2 = join(dir, "b.txt");
+      await writeFile(file1, "AAA");
+      await writeFile(file2, "BBB");
+
+      // Contributing with 2 artifacts should fail due to enforcement
+      await expect(
+        executeContribute(
+          makeContributeOptions({
+            summary: "too many artifacts",
+            artifacts: [file1, file2],
+            cwd: dir,
+          }),
+        ),
+      ).rejects.toThrow(/artifact/i);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inherits mode from GROVE.md contract when CLI uses default", async () => {
+    const dir = await createTempDir();
+    try {
+      // Initialize grove with exploration mode
+      await executeInit({
+        ...makeInitOptions(dir),
+        mode: "exploration",
+      });
+
+      // Contribute without explicit --mode (parseArgs default is "evaluation")
+      const result = await executeContribute(
+        makeContributeOptions({
+          summary: "implicit exploration",
+          cwd: dir,
+        }),
+      );
+
+      // Read back from store to verify the mode was inherited
+      const { SqliteContributionStore, initSqliteDb } = await import("../../local/sqlite-store.js");
+      const dbPath = join(dir, ".grove", "store.sqlite");
+      const db = initSqliteDb(dbPath);
+      const store = new SqliteContributionStore(db);
+      try {
+        const contribution = await store.get(result.cid);
+        expect(contribution).toBeDefined();
+        const c = contribution as NonNullable<typeof contribution>;
+        expect(c.mode).toBe("exploration");
+      } finally {
+        db.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("uses metric direction from GROVE.md contract instead of hardcoded maximize", async () => {
+    const dir = await createTempDir();
+    try {
+      // Initialize grove with a minimize metric
+      await executeInit({
+        ...makeInitOptions(dir),
+        metric: ["val_bpb:minimize"],
+      });
+
+      // Contribute with that metric
+      const result = await executeContribute(
+        makeContributeOptions({
+          summary: "metric direction test",
+          metric: ["val_bpb=0.97"],
+          cwd: dir,
+        }),
+      );
+
+      // Read back from store to verify the score direction
+      const { SqliteContributionStore, initSqliteDb } = await import("../../local/sqlite-store.js");
+      const dbPath = join(dir, ".grove", "store.sqlite");
+      const db = initSqliteDb(dbPath);
+      const store = new SqliteContributionStore(db);
+      try {
+        const contribution = await store.get(result.cid);
+        expect(contribution).toBeDefined();
+        const c = contribution as NonNullable<typeof contribution>;
+        expect(c.scores).toBeDefined();
+        const scores = c.scores as NonNullable<typeof c.scores>;
+        const valBpb = scores.val_bpb as NonNullable<typeof scores.val_bpb>;
+        expect(valBpb).toBeDefined();
+        expect(valBpb.direction).toBe("minimize");
+        expect(valBpb.value).toBe(0.97);
+      } finally {
+        db.close();
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

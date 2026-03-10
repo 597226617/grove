@@ -34,6 +34,11 @@ export async function ingestFiles(
       await walkDirectory(cas, p, p, artifacts);
     } else if (info.isFile()) {
       const name = p.split("/").pop() ?? p;
+      if (name in artifacts) {
+        throw new Error(
+          `Artifact name collision: '${name}' already exists. Use directories to avoid name conflicts.`,
+        );
+      }
       const hash = await cas.putFile(p);
       artifacts[name] = hash;
     }
@@ -61,6 +66,11 @@ async function walkDirectory(
       await walkDirectory(cas, rootDir, fullPath, artifacts);
     } else if (entry.isFile()) {
       const name = relative(rootDir, fullPath);
+      if (name in artifacts) {
+        throw new Error(
+          `Artifact name collision: '${name}' already exists. Use distinct directory structures to avoid name conflicts.`,
+        );
+      }
       const hash = await cas.putFile(fullPath);
       artifacts[name] = hash;
     }

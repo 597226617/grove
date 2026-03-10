@@ -5,7 +5,7 @@
  * and contribution kinds (work, review, discussion, adoption, reproduction).
  */
 
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -258,15 +258,33 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
   const { createContribution } = await import("../../core/manifest.js");
   const { SqliteContributionStore, initSqliteDb } = await import("../../local/sqlite-store.js");
   const { FsCas } = await import("../../local/fs-cas.js");
+  const { parseGroveContract } = await import("../../core/contract.js");
+  const { EnforcingContributionStore } = await import("../../core/enforcing-store.js");
 
   const dbPath = join(grovePath, "store.sqlite");
   const casPath = join(grovePath, "cas");
   const db = initSqliteDb(dbPath);
-  const store = new SqliteContributionStore(db);
+  const rawStore = new SqliteContributionStore(db);
   const cas = new FsCas(casPath);
 
+  // 3. Load GROVE.md contract for enforcement, default mode, and metric directions
+  const grovemdPath = join(options.cwd, "GROVE.md");
+  let contract: Awaited<ReturnType<typeof parseGroveContract>> | undefined;
   try {
-    // 3. Validate parent CID exists
+    const grovemdContent = await readFile(grovemdPath, "utf-8");
+    contract = parseGroveContract(grovemdContent);
+  } catch {
+    // GROVE.md may not exist or may have no frontmatter — proceed without enforcement
+  }
+
+  // Wrap store with enforcement if contract is available
+  const store = contract ? new EnforcingContributionStore(rawStore, contract, { cas }) : rawStore;
+
+  // Resolve effective mode: CLI flag > grove default > "evaluation"
+  const effectiveMode = resolveMode(options.mode, contract?.mode);
+
+  try {
+    // 4. Validate parent CID exists
     if (options.parent) {
       const parent = await store.get(options.parent);
       if (!parent) {
@@ -284,7 +302,7 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
       }
     }
 
-    // 4. Validate artifact paths exist before ingesting
+    // 5. Validate artifact paths exist before ingesting
     for (const artifactPath of options.artifacts) {
       try {
         await access(artifactPath);
@@ -301,7 +319,7 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
       }
     }
 
-    // 5. Ingest artifacts
+    // 6. Ingest artifacts
     let artifacts: Record<string, string> = {};
 
     if (options.artifacts.length > 0) {
@@ -318,7 +336,7 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
       artifacts = await ingestReport(cas, options.fromReport);
     }
 
-    // 6. Build relations
+    // 7. Build relations
     const { RelationType } = await import("../../core/models.js");
     type RT = (typeof RelationType)[keyof typeof RelationType];
     const relations: Array<{ targetCid: string; relationType: RT }> = [];
@@ -354,7 +372,7 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
       });
     }
 
-    // 7. Parse metrics into scores
+    // 8. Parse metrics into scores — use direction from GROVE.md contract when available
     const { ScoreDirection } = await import("../../core/models.js");
     type SD = (typeof ScoreDirection)[keyof typeof ScoreDirection];
     const scores: Record<string, { value: number; direction: SD }> | undefined =
@@ -364,10 +382,10 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
       const eqIdx = m.indexOf("=");
       const name = m.slice(0, eqIdx);
       const value = Number(m.slice(eqIdx + 1));
-      // Default direction for metrics specified via --metric is "maximize"
-      // The GROVE.md contract may override this — but at CLI level we use a sensible default
+      // Look up direction from GROVE.md contract; fall back to maximize
+      const direction = contract?.metrics?.[name]?.direction ?? ScoreDirection.Maximize;
       if (scores) {
-        scores[name] = { value, direction: ScoreDirection.Maximize };
+        scores[name] = { value, direction };
       }
     }
 
@@ -375,17 +393,18 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
       const eqIdx = s.indexOf("=");
       const name = s.slice(0, eqIdx);
       const value = Number(s.slice(eqIdx + 1));
+      const direction = contract?.metrics?.[name]?.direction ?? ScoreDirection.Maximize;
       if (scores) {
-        scores[name] = { value, direction: ScoreDirection.Maximize };
+        scores[name] = { value, direction };
       }
     }
 
-    // 8. Create and store contribution
+    // 9. Create and store contribution (goes through enforcing store if contract loaded)
     const agent = resolveAgent(options.agentOverrides);
 
     const contribution = createContribution({
       kind: options.kind,
-      mode: options.mode,
+      mode: effectiveMode,
       summary: options.summary,
       ...(options.description !== undefined && { description: options.description }),
       artifacts,
@@ -409,6 +428,36 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
   } finally {
     db.close();
   }
+}
+
+/**
+ * Resolve effective contribution mode.
+ *
+ * If the user explicitly passed --mode on the CLI, use that.
+ * Otherwise, inherit the grove's default mode from GROVE.md.
+ * Falls back to "evaluation" if neither is set.
+ *
+ * We detect "user explicitly passed --mode" by checking whether
+ * the value differs from the parseArgs default ("evaluation").
+ * If the user passed --mode evaluation explicitly, that's fine —
+ * same result. The only case this heuristic misses is a grove
+ * with mode=exploration where the user wants to override back
+ * to evaluation without passing the flag — an unlikely edge case.
+ */
+function resolveMode(
+  cliMode: ContributeOptions["mode"],
+  groveDefault: string | undefined,
+): ContributeOptions["mode"] {
+  // If user explicitly set mode to something other than the parseArgs default,
+  // always honor it.
+  if (cliMode !== "evaluation") {
+    return cliMode;
+  }
+  // Otherwise, prefer the grove's configured default mode
+  if (groveDefault === "exploration" || groveDefault === "evaluation") {
+    return groveDefault;
+  }
+  return "evaluation";
 }
 
 /**

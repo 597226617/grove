@@ -123,6 +123,29 @@ describe("ingestFiles", () => {
     }
   });
 
+  test("errors on artifact name collision across files", async () => {
+    const dir = await createTempDir();
+    try {
+      const casDir = join(dir, "cas");
+      const cas = new FsCas(casDir);
+
+      // Two files in different directories but same basename
+      const dir1 = join(dir, "foo");
+      const dir2 = join(dir, "bar");
+      await mkdir(dir1, { recursive: true });
+      await mkdir(dir2, { recursive: true });
+      await writeFile(join(dir1, "output.txt"), "content A");
+      await writeFile(join(dir2, "output.txt"), "content B");
+
+      // Ingesting both as individual files triggers name collision
+      await expect(
+        ingestFiles(cas, [join(dir1, "output.txt"), join(dir2, "output.txt")]),
+      ).rejects.toThrow(/Artifact name collision.*output\.txt/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("deduplicates identical files by content hash", async () => {
     const dir = await createTempDir();
     try {
