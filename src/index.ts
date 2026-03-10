@@ -82,13 +82,12 @@ export {
   type GitHubAdapterOptions,
   type ImportResult,
 } from "./github/adapter.js";
-export {
-  type CreateDiscussionParams,
-  type CreatePRParams,
-  type GitHubClient,
-  type PushBranchParams,
+export type {
+  CreateDiscussionParams,
+  CreatePRParams,
+  GitHubClient,
+  PushBranchParams,
 } from "./github/client.js";
-export { createGhCliClient } from "./github/gh-cli-client.js";
 export {
   GhCliNotFoundError,
   GitHubAdapterError,
@@ -97,6 +96,7 @@ export {
   GitHubRateLimitError,
   GitHubValidationError,
 } from "./github/errors.js";
+export { createGhCliClient } from "./github/gh-cli-client.js";
 export { parseDiscussionRef, parsePRRef, parseRepoRef } from "./github/refs.js";
 export type {
   DiscussionRef,

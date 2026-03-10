@@ -11,7 +11,7 @@
  * source of truth" (§7.3).
  */
 
-import type { Contribution, ContributionInput, JsonValue, Relation } from "../core/models.js";
+import type { Contribution, ContributionInput, JsonValue } from "../core/models.js";
 import { ContributionKind, ContributionMode, RelationType } from "../core/models.js";
 import type { GitHubComment, GitHubDiscussion, GitHubPR, PRReviewComment } from "./types.js";
 

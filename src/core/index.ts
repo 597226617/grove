@@ -112,6 +112,7 @@ export type {
   ExpireStaleOptions,
 } from "./store.js";
 export { ExpiryReason } from "./store.js";
+export { type SpawnOptions, type SpawnResult, spawnCommand, spawnOrThrow } from "./subprocess.js";
 export type {
   CheckoutOptions,
   StaleOptions,
@@ -120,4 +121,3 @@ export type {
   WorkspaceQuery,
 } from "./workspace.js";
 export { WorkspaceStatus } from "./workspace.js";
-export { spawnCommand, spawnOrThrow, type SpawnOptions, type SpawnResult } from "./subprocess.js";
