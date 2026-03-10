@@ -110,10 +110,10 @@ describe("CLI dispatch", () => {
     expect(stderr).toContain("unknown command");
   });
 
-  test("unimplemented command exits 1", async () => {
-    const { stderr, exitCode } = await runCli(["init"], tmpDir);
-    expect(exitCode).toBe(1);
-    expect(stderr).toContain("not yet implemented");
+  test("--version prints version", async () => {
+    const { stdout, exitCode } = await runCli(["--version"], tmpDir);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("grove");
   });
 });
 

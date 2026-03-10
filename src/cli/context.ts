@@ -64,8 +64,8 @@ export function findGroveDir(startDir: string): string | undefined {
  * Discover the grove and initialize all stores.
  * Throws with a user-friendly message if no .grove directory is found.
  */
-export function initCliDeps(cwd: string): CliDeps {
-  const groveDir = findGroveDir(cwd);
+export function initCliDeps(cwd: string, groveOverride?: string): CliDeps {
+  const groveDir = groveOverride ? resolve(groveOverride) : findGroveDir(cwd);
   if (groveDir === undefined) {
     throw new Error(
       "Not inside a grove. Run 'grove init' to create one, or navigate to an existing grove.",
