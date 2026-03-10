@@ -920,30 +920,223 @@ describe("Codex review fixes", () => {
 // ---------------------------------------------------------------------------
 
 describe("grove contribute E2E", () => {
+  const cliPath = join(import.meta.dir, "..", "..", "cli", "main.ts");
+
+  async function runCli(
+    args: string[],
+    cwd: string,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    const proc = Bun.spawn(["bun", "run", cliPath, ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
+    return { exitCode, stdout, stderr };
+  }
+
   test("grove contribute via CLI creates a contribution", async () => {
     const dir = await createTempDir();
     try {
-      const cliPath = join(import.meta.dir, "..", "..", "cli", "main.ts");
+      await runCli(["init", "e2e-test"], dir);
+      const { exitCode } = await runCli(
+        ["contribute", "--summary", "E2E contribution", "--tag", "e2e"],
+        dir,
+      );
+      expect(exitCode).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
-      // First init
-      const initProc = Bun.spawn(["bun", "run", cliPath, "init", "e2e-test"], {
-        cwd: dir,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      await initProc.exited;
+  test("contribute with artifacts via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test"], dir);
+      await writeFile(join(dir, "output.txt"), "test output");
 
-      // Then contribute
-      const proc = Bun.spawn(
-        ["bun", "run", cliPath, "contribute", "--summary", "E2E contribution", "--tag", "e2e"],
-        { cwd: dir, stdout: "pipe", stderr: "pipe" },
+      const { exitCode, stdout } = await runCli(
+        ["contribute", "--summary", "With artifact", "--artifacts", join(dir, "output.txt")],
+        dir,
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("artifacts: 1");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("contribute with metrics via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test", "--metric", "accuracy:maximize"], dir);
+
+      const { exitCode, stdout } = await runCli(
+        ["contribute", "--summary", "Metrics test", "--metric", "accuracy=0.95"],
+        dir,
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("blake3:");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("contribute inherits exploration mode from grove via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test", "--mode", "exploration"], dir);
+
+      // No --mode flag: should inherit exploration from grove
+      const { exitCode, stdout } = await runCli(
+        ["contribute", "--summary", "Exploration work"],
+        dir,
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("mode: exploration");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("explicit --mode evaluation overrides grove exploration via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test", "--mode", "exploration"], dir);
+
+      const { exitCode, stdout } = await runCli(
+        ["contribute", "--summary", "Eval override", "--mode", "evaluation"],
+        dir,
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("mode: evaluation");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("contribute fails on malformed GROVE.md via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test"], dir);
+
+      // Corrupt the GROVE.md
+      await writeFile(
+        join(dir, "GROVE.md"),
+        ["---", "contract_version: 2", "---", "# broken"].join("\n"),
       );
 
-      // Drain stdout/stderr to avoid pipe hang
-      await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      const exitCode = await proc.exited;
+      const { exitCode, stderr } = await runCli(["contribute", "--summary", "Should fail"], dir);
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("Invalid GROVE.md");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
+  test("contribute enforces artifact count limit via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test"], dir);
+
+      // Write GROVE.md with artifact limit
+      await writeFile(
+        join(dir, "GROVE.md"),
+        [
+          "---",
+          "contract_version: 2",
+          "name: e2e-test",
+          "mode: evaluation",
+          "rate_limits:",
+          "  max_artifacts_per_contribution: 1",
+          "---",
+          "# e2e-test",
+        ].join("\n"),
+      );
+
+      await writeFile(join(dir, "a.txt"), "AAA");
+      await writeFile(join(dir, "b.txt"), "BBB");
+
+      const { exitCode } = await runCli(
+        [
+          "contribute",
+          "--summary",
+          "Too many",
+          "--artifacts",
+          join(dir, "a.txt"),
+          "--artifacts",
+          join(dir, "b.txt"),
+        ],
+        dir,
+      );
+      expect(exitCode).not.toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("contribute with --from-report via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test"], dir);
+      await writeFile(join(dir, "report.md"), "# Report\n\nFindings.");
+
+      const { exitCode, stdout } = await runCli(
+        ["contribute", "--summary", "Report", "--from-report", join(dir, "report.md")],
+        dir,
+      );
       expect(exitCode).toBe(0);
+      expect(stdout).toContain("artifacts: 1");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("contribute with review kind via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test"], dir);
+
+      // Create a work contribution first
+      const { stdout: workOut } = await runCli(["contribute", "--summary", "Work to review"], dir);
+      const cidMatch = workOut.match(/blake3:[0-9a-f]{64}/);
+      expect(cidMatch).not.toBeNull();
+      const workCid = (cidMatch as RegExpMatchArray)[0];
+
+      // Create a review
+      const { exitCode, stdout } = await runCli(
+        [
+          "contribute",
+          "--kind",
+          "review",
+          "--summary",
+          "Looks good",
+          "--reviews",
+          workCid,
+          "--score",
+          "quality=8",
+        ],
+        dir,
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("kind: review");
+      expect(stdout).toContain("relations: 1");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("contribute fails without --summary via CLI", async () => {
+    const dir = await createTempDir();
+    try {
+      await runCli(["init", "e2e-test"], dir);
+
+      const { exitCode } = await runCli(["contribute"], dir);
+      expect(exitCode).not.toBe(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
