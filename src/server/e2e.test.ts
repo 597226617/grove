@@ -9,7 +9,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { Server } from "bun";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
-import { createContribution } from "../core/manifest.js";
 import { InMemoryContributionStore } from "../core/testing.js";
 import { createApp } from "./app.js";
 import type { ServerDeps } from "./deps.js";
@@ -17,7 +16,6 @@ import {
   InMemoryClaimStore,
   InMemoryContentStore,
   makeClaimBody,
-  makeContributionInput,
   makeManifestBody,
 } from "./test-helpers.js";
 
@@ -94,7 +92,7 @@ describe("E2E: contribution lifecycle", () => {
   });
 
   it("GET /api/contributions/:cid returns 404 for non-existent", async () => {
-    const fakeCid = "blake3:" + "f".repeat(64);
+    const fakeCid = `blake3:${"f".repeat(64)}`;
     const res = await fetch(`${baseUrl}/api/contributions/${fakeCid}`);
     expect(res.status).toBe(404);
   });

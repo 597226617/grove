@@ -8,20 +8,13 @@
 import type { Hono } from "hono";
 import type { ContentStore, PutOptions } from "../core/cas.js";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
-import type {
-  AgentIdentity,
-  Artifact,
-  Claim,
-  ClaimStatus,
-  ContributionInput,
-  JsonValue,
-} from "../core/models.js";
+import type { AgentIdentity, Artifact, Claim, ContributionInput } from "../core/models.js";
 import type {
   ActiveClaimFilter,
   ClaimQuery,
   ClaimStore,
-  ExpireStaleOptions,
   ExpiredClaim,
+  ExpireStaleOptions,
 } from "../core/store.js";
 import { InMemoryContributionStore } from "../core/testing.js";
 import { createApp } from "./app.js";
