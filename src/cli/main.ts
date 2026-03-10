@@ -298,9 +298,13 @@ Usage:
   grove gossip peers    [--server <url>]      List known peers
   grove gossip status   [--server <url>]      Show gossip overview
   grove gossip frontier [--server <url>]      Show merged frontier from gossip
+  grove gossip watch    [--server <url>]      Stream gossip events
   grove gossip exchange <peer-url>            Push-pull frontier exchange
   grove gossip shuffle  <peer-url>            CYCLON peer sampling shuffle
   grove gossip sync     <seeds>               Full gossip round with seeds
+  grove gossip daemon   <seeds>               Run persistent gossip loop
+  grove gossip add-peer <id@address>          Add peer to local store
+  grove gossip remove-peer <id>               Remove peer from local store
 
 Global options:
   --grove <path>              Path to grove directory (or set GROVE_DIR)

@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "bun";
@@ -14,6 +14,7 @@ import { DefaultFrontierCalculator } from "../../core/frontier.js";
 import { ScoreDirection } from "../../core/models.js";
 import { makeContribution } from "../../core/test-helpers.js";
 import { FsCas } from "../../local/fs-cas.js";
+import { SqliteGossipStore } from "../../local/gossip-store.js";
 import { initSqliteDb, SqliteContributionStore } from "../../local/sqlite-store.js";
 import type { CliDeps } from "../context.js";
 import { handleGossip } from "./gossip.js";
@@ -41,9 +42,12 @@ function withCliDepsTest(
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), "grove-gossip-cli-test-"));
-  const db = initSqliteDb(join(tmpDir, "grove.db"));
+  // Create .grove directory structure so resolveGroveDir can find it
+  const groveDir = join(tmpDir, ".grove");
+  await mkdir(groveDir, { recursive: true });
+  const db = initSqliteDb(join(groveDir, "grove.db"));
   const store = new SqliteContributionStore(db);
-  const cas = new FsCas(join(tmpDir, "cas"));
+  const cas = new FsCas(join(groveDir, "cas"));
   const frontier = new DefaultFrontierCalculator(store);
   deps = {
     store,
@@ -536,5 +540,182 @@ describe("gossip sync", () => {
     const parsed = JSON.parse(jsonLine as string);
     expect(parsed).toHaveProperty("peersDiscovered");
     expect(parsed).toHaveProperty("newCids");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Peer management: add-peer
+// ---------------------------------------------------------------------------
+
+describe("gossip add-peer", () => {
+  test("adds a peer to local gossip store", async () => {
+    const groveDir = join(tmpDir, ".grove");
+    const { lines, writer } = createOutput();
+    await handleGossip(["add-peer", "node1@http://host1:4515"], groveDir, undefined, writer);
+
+    expect(lines.join("\n")).toContain("Added peer: node1");
+    expect(lines.join("\n")).toContain("http://host1:4515");
+
+    // Verify it was persisted
+    const store = new SqliteGossipStore(join(groveDir, "gossip.db"));
+    try {
+      const peers = store.loadPeers();
+      expect(peers).toHaveLength(1);
+      expect(peers[0]?.peerId).toBe("node1");
+      expect(peers[0]?.address).toBe("http://host1:4515");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reports when peer already exists", async () => {
+    const groveDir = join(tmpDir, ".grove");
+
+    // Add first time
+    const { writer: w1 } = createOutput();
+    await handleGossip(["add-peer", "node1@http://host1:4515"], groveDir, undefined, w1);
+
+    // Add again
+    const { lines, writer } = createOutput();
+    await handleGossip(["add-peer", "node1@http://host1:4515"], groveDir, undefined, writer);
+
+    expect(lines.join("\n")).toContain("already exists");
+  });
+
+  test("throws without peer spec", async () => {
+    const groveDir = join(tmpDir, ".grove");
+    const { writer } = createOutput();
+    await expect(handleGossip(["add-peer"], groveDir, undefined, writer)).rejects.toThrow(
+      "peerId@address",
+    );
+  });
+
+  test("throws for invalid peer format", async () => {
+    const groveDir = join(tmpDir, ".grove");
+    const { writer } = createOutput();
+    await expect(
+      handleGossip(["add-peer", "no-at-sign"], groveDir, undefined, writer),
+    ).rejects.toThrow("peerId@address");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Peer management: remove-peer
+// ---------------------------------------------------------------------------
+
+describe("gossip remove-peer", () => {
+  test("removes a peer from local gossip store", async () => {
+    const groveDir = join(tmpDir, ".grove");
+
+    // Add a peer first
+    const { writer: w1 } = createOutput();
+    await handleGossip(["add-peer", "node1@http://host1:4515"], groveDir, undefined, w1);
+
+    // Remove it
+    const { lines, writer } = createOutput();
+    await handleGossip(["remove-peer", "node1"], groveDir, undefined, writer);
+
+    expect(lines.join("\n")).toContain("Removed peer: node1");
+
+    // Verify it was removed
+    const store = new SqliteGossipStore(join(groveDir, "gossip.db"));
+    try {
+      const peers = store.loadPeers();
+      expect(peers).toHaveLength(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reports when peer not found", async () => {
+    const groveDir = join(tmpDir, ".grove");
+    const { lines, writer } = createOutput();
+    await handleGossip(["remove-peer", "nonexistent"], groveDir, undefined, writer);
+
+    expect(lines.join("\n")).toContain("not found");
+  });
+
+  test("throws without peer ID", async () => {
+    const groveDir = join(tmpDir, ".grove");
+    const { writer } = createOutput();
+    await expect(handleGossip(["remove-peer"], groveDir, undefined, writer)).rejects.toThrow(
+      "peerId",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watch (single poll iteration via mock)
+// ---------------------------------------------------------------------------
+
+describe("gossip watch", () => {
+  test("detects new peer via polling", async () => {
+    let callCount = 0;
+    mockServer = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/api/gossip/peers") {
+          callCount++;
+          // First call: empty, second call: one peer
+          if (callCount <= 1) {
+            return Response.json({ peers: [], liveness: [] });
+          }
+          return Response.json({
+            peers: [{ peerId: "p1", address: "http://h:1", age: 0, lastSeen: "" }],
+            liveness: [
+              {
+                peer: { peerId: "p1", address: "http://h:1", age: 0, lastSeen: "" },
+                status: "alive",
+                lastSeen: "2025-01-01T00:00:00Z",
+              },
+            ],
+          });
+        }
+        if (path === "/api/gossip/frontier") {
+          return Response.json({ entries: [] });
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    });
+    serverUrl = `http://localhost:${mockServer.port}`;
+
+    const { lines, writer } = createOutput();
+
+    // Run watch with very short interval, stop after detecting event
+    const watchPromise = handleGossip(
+      ["watch", "--server", serverUrl, "--interval", "1"],
+      undefined,
+      undefined,
+      writer,
+    );
+
+    // Let it poll a few times then stop
+    await Bun.sleep(3500);
+    process.emit("SIGINT", "SIGINT");
+
+    await watchPromise;
+
+    const text = lines.join("\n");
+    expect(text).toContain("Watching gossip events");
+    expect(text).toContain("peer_joined");
+    expect(text).toContain("p1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Help text includes new commands
+// ---------------------------------------------------------------------------
+
+describe("gossip help completeness", () => {
+  test("help includes all subcommands", async () => {
+    const { lines, writer } = createOutput();
+    await handleGossip(["--help"], undefined, undefined, writer);
+
+    const text = lines.join("\n");
+    expect(text).toContain("daemon");
+    expect(text).toContain("watch");
+    expect(text).toContain("add-peer");
+    expect(text).toContain("remove-peer");
   });
 });
