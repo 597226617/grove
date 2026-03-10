@@ -14,6 +14,12 @@ import type {
   RelationType,
 } from "./models.js";
 
+/** Filter for counting active claims. */
+export interface ActiveClaimFilter {
+  readonly agentId?: string | undefined;
+  readonly targetRef?: string | undefined;
+}
+
 /** Filters for querying contributions. */
 export interface ContributionQuery {
   readonly kind?: ContributionKind | undefined;
@@ -27,6 +33,19 @@ export interface ContributionQuery {
 
 /** Store for immutable contributions and their typed relations. */
 export interface ContributionStore {
+  /**
+   * Optional persistent-state identity string.
+   *
+   * Stores backed by the same persistent state (e.g., the same SQLite
+   * database file) should return the same string so that enforcement
+   * wrappers can share a single write-serialization mutex across
+   * independently-constructed store objects.
+   *
+   * Stores that do not set this property fall back to per-object
+   * identity (WeakMap), which is safe only when a single wrapper
+   * exists per backing store.
+   */
+  readonly storeIdentity?: string | undefined;
   /** Store a contribution (idempotent — same CID is a no-op). */
   put(contribution: Contribution): Promise<void>;
 
@@ -115,6 +134,9 @@ export interface ExpireStaleOptions {
 
 /** Store for mutable claims (coordination objects). */
 export interface ClaimStore {
+  /** Optional persistent-state identity string. See ContributionStore.storeIdentity. */
+  readonly storeIdentity?: string | undefined;
+
   /** Create a new claim. Throws if claimId already exists. */
   createClaim(claim: Claim): Promise<Claim>;
 
@@ -173,6 +195,26 @@ export interface ClaimStore {
    * @returns Number of claims deleted.
    */
   cleanCompleted(retentionMs: number): Promise<number>;
+
+  /**
+   * Count active claims matching the given filter.
+   *
+   * More efficient than `activeClaims().length` — implementations should
+   * use COUNT queries rather than materializing full Claim objects.
+   */
+  countActiveClaims(filter?: ActiveClaimFilter): Promise<number>;
+
+  /**
+   * Detect stalled claims: active claims with a valid lease but a stale heartbeat.
+   *
+   * A claim is stalled when:
+   * - status is 'active'
+   * - lease has not expired (lease_expires_at >= now)
+   * - heartbeat is older than stallTimeoutMs
+   *
+   * This is advisory — callers decide what to do with stalled claims.
+   */
+  detectStalled(stallTimeoutMs: number): Promise<readonly Claim[]>;
 
   /** Release resources (e.g., close database connections). */
   close(): void;

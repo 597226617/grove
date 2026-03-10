@@ -1,6 +1,10 @@
 /**
  * GROVE.md contract types, Zod schemas, and parser.
  *
+ * Supports contract_version 1 (legacy claim_policy) and contract_version 2
+ * (concurrency, execution, rate_limits, retry sections). V1 contracts are
+ * auto-migrated to V2 types at parse time.
+ *
  * Mirrors spec/schemas/grove-contract.json — keep in sync.
  * See spec/GROVE-CONTRACT.md for the full specification.
  *
@@ -13,7 +17,7 @@ import { z } from "zod";
 import type { ContributionKind, ContributionMode, RelationType, ScoreDirection } from "./models.js";
 
 // ---------------------------------------------------------------------------
-// Zod Schemas (snake_case — matches YAML frontmatter wire format)
+// Shared Zod Schemas (snake_case — matches YAML frontmatter wire format)
 // ---------------------------------------------------------------------------
 
 const MetricDefinitionSchema = z
@@ -157,6 +161,16 @@ const AgentConstraintsSchema = z
   })
   .strict();
 
+const MetricNamePattern = /^[a-z][a-z0-9_]*$/;
+
+const MetricsSchema = z
+  .record(z.string().regex(MetricNamePattern).min(1).max(64), MetricDefinitionSchema)
+  .refine((m) => Object.keys(m).length <= 50, { message: "max 50 metrics" });
+
+// ---------------------------------------------------------------------------
+// V1 Schema (legacy — claim_policy)
+// ---------------------------------------------------------------------------
+
 const ClaimPolicySchema = z
   .object({
     default_lease_seconds: z.number().int().min(30).max(86400).optional(),
@@ -165,24 +179,74 @@ const ClaimPolicySchema = z
   })
   .strict();
 
-const MetricNamePattern = /^[a-z][a-z0-9_]*$/;
-
-/** Top-level GROVE.md frontmatter schema (snake_case wire format). */
-const GroveContractSchema = z
+const GroveContractV1Schema = z
   .object({
     contract_version: z.literal(1),
     name: z.string().min(1).max(128),
     description: z.string().max(1024).optional(),
     mode: z.enum(["evaluation", "exploration"]).optional(),
     seed: z.string().min(1).max(256).optional(),
-    metrics: z
-      .record(z.string().regex(MetricNamePattern).min(1).max(64), MetricDefinitionSchema)
-      .refine((m) => Object.keys(m).length <= 50, { message: "max 50 metrics" })
-      .optional(),
+    metrics: MetricsSchema.optional(),
     gates: z.array(GateSchema).max(20).optional(),
     stop_conditions: StopConditionsSchema.optional(),
     agent_constraints: AgentConstraintsSchema.optional(),
     claim_policy: ClaimPolicySchema.optional(),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// V2 Schemas (concurrency, execution, rate_limits, retry)
+// ---------------------------------------------------------------------------
+
+const ConcurrencySchema = z
+  .object({
+    max_active_claims: z.number().int().min(1).max(1000).optional(),
+    max_claims_per_agent: z.number().int().min(0).max(100).optional(),
+    max_claims_per_target: z.literal(1).optional(),
+  })
+  .strict();
+
+const ExecutionSchema = z
+  .object({
+    default_lease_seconds: z.number().int().min(30).max(86400).optional(),
+    max_lease_seconds: z.number().int().min(60).max(604800).optional(),
+    heartbeat_interval_seconds: z.number().int().min(10).max(86400).optional(),
+    stall_timeout_seconds: z.number().int().min(60).max(604800).optional(),
+  })
+  .strict();
+
+const RateLimitsSchema = z
+  .object({
+    max_contributions_per_agent_per_hour: z.number().int().min(1).max(10000).optional(),
+    max_contributions_per_grove_per_hour: z.number().int().min(1).max(100000).optional(),
+    max_artifact_size_bytes: z.number().int().min(1).optional(),
+    max_artifacts_per_contribution: z.number().int().min(1).max(1000).optional(),
+  })
+  .strict();
+
+const RetrySchema = z
+  .object({
+    base_delay_ms: z.number().int().min(100).max(600000).optional(),
+    max_backoff_ms: z.number().int().min(1000).max(3600000).optional(),
+    max_attempts: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+const GroveContractV2Schema = z
+  .object({
+    contract_version: z.literal(2),
+    name: z.string().min(1).max(128),
+    description: z.string().max(1024).optional(),
+    mode: z.enum(["evaluation", "exploration"]).optional(),
+    seed: z.string().min(1).max(256).optional(),
+    metrics: MetricsSchema.optional(),
+    gates: z.array(GateSchema).max(20).optional(),
+    stop_conditions: StopConditionsSchema.optional(),
+    agent_constraints: AgentConstraintsSchema.optional(),
+    concurrency: ConcurrencySchema.optional(),
+    execution: ExecutionSchema.optional(),
+    rate_limits: RateLimitsSchema.optional(),
+    retry: RetrySchema.optional(),
   })
   .strict();
 
@@ -260,14 +324,47 @@ export interface AgentConstraints {
     | undefined;
 }
 
-/** Claim policy from the GROVE.md contract. */
+/**
+ * Claim policy from the GROVE.md contract (V1 only).
+ * @deprecated Use concurrency + execution sections instead (contract_version: 2).
+ */
 export interface ClaimPolicy {
   readonly defaultLeaseSeconds?: number | undefined;
   readonly maxClaimsPerAgent?: number | undefined;
   readonly heartbeatRequired?: boolean | undefined;
 }
 
-/** Parsed GROVE.md contract. */
+/** Concurrency limits for bounded agent coordination. */
+export interface ConcurrencyConfig {
+  readonly maxActiveClaims?: number | undefined;
+  readonly maxClaimsPerAgent?: number | undefined;
+  readonly maxClaimsPerTarget?: number | undefined;
+}
+
+/** Execution timeout and lease configuration. */
+export interface ExecutionConfig {
+  readonly defaultLeaseSeconds?: number | undefined;
+  readonly maxLeaseSeconds?: number | undefined;
+  readonly heartbeatIntervalSeconds?: number | undefined;
+  readonly stallTimeoutSeconds?: number | undefined;
+}
+
+/** Rate limits for contribution and artifact submission. */
+export interface RateLimitsConfig {
+  readonly maxContributionsPerAgentPerHour?: number | undefined;
+  readonly maxContributionsPerGrovePerHour?: number | undefined;
+  readonly maxArtifactSizeBytes?: number | undefined;
+  readonly maxArtifactsPerContribution?: number | undefined;
+}
+
+/** Retry and backoff configuration. */
+export interface RetryConfig {
+  readonly baseDelayMs?: number | undefined;
+  readonly maxBackoffMs?: number | undefined;
+  readonly maxAttempts?: number | undefined;
+}
+
+/** Parsed GROVE.md contract (always in V2 normalized form). */
 export interface GroveContract {
   readonly contractVersion: number;
   readonly name: string;
@@ -278,16 +375,80 @@ export interface GroveContract {
   readonly gates?: readonly Gate[] | undefined;
   readonly stopConditions?: StopConditions | undefined;
   readonly agentConstraints?: AgentConstraints | undefined;
+  /** @deprecated V1 only. Use concurrency + execution instead. Populated when parsing V1 contracts. */
   readonly claimPolicy?: ClaimPolicy | undefined;
+  readonly concurrency?: ConcurrencyConfig | undefined;
+  readonly execution?: ExecutionConfig | undefined;
+  readonly rateLimits?: RateLimitsConfig | undefined;
+  readonly retry?: RetryConfig | undefined;
 }
 
 // ---------------------------------------------------------------------------
 // Wire format conversion (snake_case ↔ camelCase)
 // ---------------------------------------------------------------------------
 
-/** Convert a validated snake_case wire object to a camelCase GroveContract. */
-function wireToContract(wire: z.infer<typeof GroveContractSchema>): GroveContract {
-  const contract: GroveContract = {
+/** Convert a validated V1 snake_case wire object to a camelCase GroveContract. */
+function wireV1ToContract(wire: z.infer<typeof GroveContractV1Schema>): GroveContract {
+  const base = wireToContractBase(wire);
+  const cp = wire.claim_policy;
+
+  // Auto-migrate claim_policy fields into v2 sections
+  const hasConcurrency = cp?.max_claims_per_agent !== undefined;
+  const hasExecution =
+    cp?.default_lease_seconds !== undefined || cp?.heartbeat_required !== undefined;
+
+  return {
+    ...base,
+    // Preserve claimPolicy for backward compat / diagnostics
+    ...(cp !== undefined && {
+      claimPolicy: wireToClaimPolicy(cp),
+    }),
+    // Migrate to v2 sections
+    ...(hasConcurrency && {
+      concurrency: {
+        ...(cp?.max_claims_per_agent !== undefined && {
+          maxClaimsPerAgent: cp.max_claims_per_agent,
+        }),
+      },
+    }),
+    ...(hasExecution && {
+      execution: {
+        ...(cp?.default_lease_seconds !== undefined && {
+          defaultLeaseSeconds: cp.default_lease_seconds,
+        }),
+        // heartbeat_required: true → default interval of 60s
+        ...(cp?.heartbeat_required === true && { heartbeatIntervalSeconds: 60 }),
+      },
+    }),
+  };
+}
+
+/** Convert a validated V2 snake_case wire object to a camelCase GroveContract. */
+function wireV2ToContract(wire: z.infer<typeof GroveContractV2Schema>): GroveContract {
+  const base = wireToContractBase(wire);
+
+  return {
+    ...base,
+    ...(wire.concurrency !== undefined && {
+      concurrency: wireToConcurrency(wire.concurrency),
+    }),
+    ...(wire.execution !== undefined && {
+      execution: wireToExecution(wire.execution),
+    }),
+    ...(wire.rate_limits !== undefined && {
+      rateLimits: wireToRateLimits(wire.rate_limits),
+    }),
+    ...(wire.retry !== undefined && {
+      retry: wireToRetry(wire.retry),
+    }),
+  };
+}
+
+/** Shared base fields for V1 and V2. */
+function wireToContractBase(
+  wire: z.infer<typeof GroveContractV1Schema> | z.infer<typeof GroveContractV2Schema>,
+): GroveContract {
+  return {
     contractVersion: wire.contract_version,
     name: wire.name,
     ...(wire.description !== undefined && { description: wire.description }),
@@ -314,15 +475,11 @@ function wireToContract(wire: z.infer<typeof GroveContractSchema>): GroveContrac
     ...(wire.agent_constraints !== undefined && {
       agentConstraints: wireToAgentConstraints(wire.agent_constraints),
     }),
-    ...(wire.claim_policy !== undefined && {
-      claimPolicy: wireToClaimPolicy(wire.claim_policy),
-    }),
   };
-  return contract;
 }
 
 function wireToStopConditions(
-  wire: NonNullable<z.infer<typeof GroveContractSchema>["stop_conditions"]>,
+  wire: NonNullable<z.infer<typeof GroveContractV1Schema>["stop_conditions"]>,
 ): StopConditions {
   return {
     ...(wire.max_rounds_without_improvement !== undefined && {
@@ -361,7 +518,7 @@ function wireToStopConditions(
 }
 
 function wireToAgentConstraints(
-  wire: NonNullable<z.infer<typeof GroveContractSchema>["agent_constraints"]>,
+  wire: NonNullable<z.infer<typeof GroveContractV1Schema>["agent_constraints"]>,
 ): AgentConstraints {
   return {
     ...(wire.allowed_kinds !== undefined && {
@@ -379,7 +536,7 @@ function wireToAgentConstraints(
 }
 
 function wireToClaimPolicy(
-  wire: NonNullable<z.infer<typeof GroveContractSchema>["claim_policy"]>,
+  wire: NonNullable<z.infer<typeof GroveContractV1Schema>["claim_policy"]>,
 ): ClaimPolicy {
   return {
     ...(wire.default_lease_seconds !== undefined && {
@@ -394,8 +551,68 @@ function wireToClaimPolicy(
   };
 }
 
+function wireToConcurrency(
+  wire: NonNullable<z.infer<typeof GroveContractV2Schema>["concurrency"]>,
+): ConcurrencyConfig {
+  return {
+    ...(wire.max_active_claims !== undefined && { maxActiveClaims: wire.max_active_claims }),
+    ...(wire.max_claims_per_agent !== undefined && {
+      maxClaimsPerAgent: wire.max_claims_per_agent,
+    }),
+    ...(wire.max_claims_per_target !== undefined && {
+      maxClaimsPerTarget: wire.max_claims_per_target,
+    }),
+  };
+}
+
+function wireToExecution(
+  wire: NonNullable<z.infer<typeof GroveContractV2Schema>["execution"]>,
+): ExecutionConfig {
+  return {
+    ...(wire.default_lease_seconds !== undefined && {
+      defaultLeaseSeconds: wire.default_lease_seconds,
+    }),
+    ...(wire.max_lease_seconds !== undefined && { maxLeaseSeconds: wire.max_lease_seconds }),
+    ...(wire.heartbeat_interval_seconds !== undefined && {
+      heartbeatIntervalSeconds: wire.heartbeat_interval_seconds,
+    }),
+    ...(wire.stall_timeout_seconds !== undefined && {
+      stallTimeoutSeconds: wire.stall_timeout_seconds,
+    }),
+  };
+}
+
+function wireToRateLimits(
+  wire: NonNullable<z.infer<typeof GroveContractV2Schema>["rate_limits"]>,
+): RateLimitsConfig {
+  return {
+    ...(wire.max_contributions_per_agent_per_hour !== undefined && {
+      maxContributionsPerAgentPerHour: wire.max_contributions_per_agent_per_hour,
+    }),
+    ...(wire.max_contributions_per_grove_per_hour !== undefined && {
+      maxContributionsPerGrovePerHour: wire.max_contributions_per_grove_per_hour,
+    }),
+    ...(wire.max_artifact_size_bytes !== undefined && {
+      maxArtifactSizeBytes: wire.max_artifact_size_bytes,
+    }),
+    ...(wire.max_artifacts_per_contribution !== undefined && {
+      maxArtifactsPerContribution: wire.max_artifacts_per_contribution,
+    }),
+  };
+}
+
+function wireToRetry(
+  wire: NonNullable<z.infer<typeof GroveContractV2Schema>["retry"]>,
+): RetryConfig {
+  return {
+    ...(wire.base_delay_ms !== undefined && { baseDelayMs: wire.base_delay_ms }),
+    ...(wire.max_backoff_ms !== undefined && { maxBackoffMs: wire.max_backoff_ms }),
+    ...(wire.max_attempts !== undefined && { maxAttempts: wire.max_attempts }),
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Parser
+// Cross-field validation
 // ---------------------------------------------------------------------------
 
 /**
@@ -433,6 +650,64 @@ function validateMetricReferences(contract: GroveContract): void {
 }
 
 /**
+ * Validate cross-field constraints within execution config.
+ * E.g., default_lease_seconds ≤ max_lease_seconds.
+ */
+function validateExecutionConstraints(contract: GroveContract): void {
+  const exec = contract.execution;
+  if (exec === undefined) return;
+
+  const errors: string[] = [];
+
+  if (
+    exec.defaultLeaseSeconds !== undefined &&
+    exec.maxLeaseSeconds !== undefined &&
+    exec.defaultLeaseSeconds > exec.maxLeaseSeconds
+  ) {
+    errors.push(
+      `execution.default_lease_seconds (${exec.defaultLeaseSeconds}) exceeds max_lease_seconds (${exec.maxLeaseSeconds})`,
+    );
+  }
+
+  if (
+    exec.heartbeatIntervalSeconds !== undefined &&
+    exec.stallTimeoutSeconds !== undefined &&
+    exec.heartbeatIntervalSeconds >= exec.stallTimeoutSeconds
+  ) {
+    errors.push(
+      `execution.heartbeat_interval_seconds (${exec.heartbeatIntervalSeconds}) must be less than stall_timeout_seconds (${exec.stallTimeoutSeconds})`,
+    );
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid contract: ${errors.join("; ")}`);
+  }
+}
+
+/**
+ * Validate cross-field constraints within rate limits.
+ * E.g., per-agent limit ≤ per-grove limit.
+ */
+function validateRateLimitConstraints(contract: GroveContract): void {
+  const rl = contract.rateLimits;
+  if (rl === undefined) return;
+
+  if (
+    rl.maxContributionsPerAgentPerHour !== undefined &&
+    rl.maxContributionsPerGrovePerHour !== undefined &&
+    rl.maxContributionsPerAgentPerHour > rl.maxContributionsPerGrovePerHour
+  ) {
+    throw new Error(
+      `Invalid contract: rate_limits.max_contributions_per_agent_per_hour (${rl.maxContributionsPerAgentPerHour}) exceeds max_contributions_per_grove_per_hour (${rl.maxContributionsPerGrovePerHour})`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
+
+/**
  * Extract YAML frontmatter from a GROVE.md file.
  * Returns the YAML string between the first pair of `---` delimiters,
  * or null if no frontmatter is found.
@@ -448,10 +723,57 @@ function extractFrontmatter(content: string): string | null {
 }
 
 /**
+ * Parse and validate a raw YAML object as a GroveContract.
+ * Dispatches to V1 or V2 schema based on contract_version.
+ */
+function parseRawObject(raw: unknown): GroveContract {
+  if (raw === null || raw === undefined || typeof raw !== "object") {
+    throw new Error("Contract data is not a valid object");
+  }
+
+  const obj = raw as Record<string, unknown>;
+  const version = obj.contract_version;
+
+  if (version === 1) {
+    const result = GroveContractV1Schema.safeParse(raw);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`Invalid GROVE.md contract (v1): ${issues}`);
+    }
+    const contract = wireV1ToContract(result.data);
+    validateMetricReferences(contract);
+    validateExecutionConstraints(contract);
+    return contract;
+  }
+
+  if (version === 2) {
+    const result = GroveContractV2Schema.safeParse(raw);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`Invalid GROVE.md contract (v2): ${issues}`);
+    }
+    const contract = wireV2ToContract(result.data);
+    validateMetricReferences(contract);
+    validateExecutionConstraints(contract);
+    validateRateLimitConstraints(contract);
+    return contract;
+  }
+
+  if (version === undefined) {
+    throw new Error("GROVE.md contract missing required field 'contract_version'");
+  }
+
+  throw new Error(`Unsupported contract_version: ${String(version)} (supported: 1, 2)`);
+}
+
+/**
  * Parse and validate a GROVE.md file's content.
  *
- * Extracts YAML frontmatter, validates against the Zod schema,
- * and returns a typed GroveContract.
+ * Extracts YAML frontmatter, validates against the appropriate schema
+ * (V1 or V2), and returns a typed GroveContract in V2 normalized form.
+ *
+ * V1 contracts with claim_policy are auto-migrated to V2 sections
+ * (concurrency, execution).
  *
  * @throws {Error} if frontmatter is missing, YAML is invalid, or
  *   validation fails.
@@ -467,15 +789,7 @@ export function parseGroveContract(content: string): GroveContract {
     throw new Error("GROVE.md frontmatter is not a valid YAML object");
   }
 
-  const result = GroveContractSchema.safeParse(raw);
-  if (!result.success) {
-    const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new Error(`Invalid GROVE.md contract: ${issues}`);
-  }
-
-  const contract = wireToContract(result.data);
-  validateMetricReferences(contract);
-  return contract;
+  return parseRawObject(raw);
 }
 
 /**
@@ -485,13 +799,5 @@ export function parseGroveContract(content: string): GroveContract {
  * @throws {Error} if validation fails.
  */
 export function parseGroveContractObject(obj: unknown): GroveContract {
-  const result = GroveContractSchema.safeParse(obj);
-  if (!result.success) {
-    const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new Error(`Invalid grove contract: ${issues}`);
-  }
-
-  const contract = wireToContract(result.data);
-  validateMetricReferences(contract);
-  return contract;
+  return parseRawObject(obj);
 }

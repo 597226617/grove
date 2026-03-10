@@ -657,6 +657,122 @@ export function runClaimStoreTests(factory: ClaimStoreFactory): void {
     });
 
     // ------------------------------------------------------------------
+    // countActiveClaims
+    // ------------------------------------------------------------------
+
+    test("countActiveClaims returns 0 when no claims exist", async () => {
+      const count = await store.countActiveClaims();
+      expect(count).toBe(0);
+    });
+
+    test("countActiveClaims counts only active non-expired claims", async () => {
+      const active = makeClaim({
+        claimId: "count-active",
+        targetRef: "t-count-1",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      const expired = makeClaim({
+        claimId: "count-expired",
+        targetRef: "t-count-2",
+        leaseExpiresAt: new Date(Date.now() - 10_000).toISOString(),
+      });
+      const released = makeClaim({
+        claimId: "count-released",
+        targetRef: "t-count-3",
+      });
+      await store.createClaim(active);
+      await store.createClaim(expired);
+      await store.createClaim(released);
+      await store.release("count-released");
+
+      const count = await store.countActiveClaims();
+      expect(count).toBe(1);
+    });
+
+    test("countActiveClaims filters by agentId", async () => {
+      const claim1 = makeClaim({
+        claimId: "agent-a-1",
+        targetRef: "t-filter-1",
+        agent: { agentId: "agent-alpha", agentName: "Alpha" },
+      });
+      const claim2 = makeClaim({
+        claimId: "agent-b-1",
+        targetRef: "t-filter-2",
+        agent: { agentId: "agent-beta", agentName: "Beta" },
+      });
+      await store.createClaim(claim1);
+      await store.createClaim(claim2);
+
+      const alphaCount = await store.countActiveClaims({ agentId: "agent-alpha" });
+      expect(alphaCount).toBe(1);
+
+      const betaCount = await store.countActiveClaims({ agentId: "agent-beta" });
+      expect(betaCount).toBe(1);
+
+      const allCount = await store.countActiveClaims();
+      expect(allCount).toBe(2);
+    });
+
+    test("countActiveClaims filters by targetRef", async () => {
+      const claim1 = makeClaim({
+        claimId: "target-a",
+        targetRef: "target-alpha",
+      });
+      const claim2 = makeClaim({
+        claimId: "target-b",
+        targetRef: "target-beta",
+      });
+      await store.createClaim(claim1);
+      await store.createClaim(claim2);
+
+      const alphaCount = await store.countActiveClaims({ targetRef: "target-alpha" });
+      expect(alphaCount).toBe(1);
+    });
+
+    // ------------------------------------------------------------------
+    // detectStalled
+    // ------------------------------------------------------------------
+
+    test("detectStalled returns empty when no stalled claims", async () => {
+      const fresh = makeClaim({
+        claimId: "fresh-stall",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      await store.createClaim(fresh);
+      // Heartbeat just happened, so with a 30s stall timeout nothing should be stalled
+      const stalled = await store.detectStalled(30_000);
+      expect(stalled.length).toBe(0);
+    });
+
+    test("detectStalled finds claims with stale heartbeats", async () => {
+      // Create a claim with a long lease but whose heartbeat will be old
+      const claim = makeClaim({
+        claimId: "stalled-claim",
+        leaseExpiresAt: new Date(Date.now() + 600_000).toISOString(),
+        heartbeatAt: new Date(Date.now() - 120_000).toISOString(),
+      });
+      await store.createClaim(claim);
+
+      // With 60s stall timeout, a 120s-old heartbeat should be stalled
+      const stalled = await store.detectStalled(60_000);
+      expect(stalled.length).toBe(1);
+      expect(stalled[0]?.claimId).toBe("stalled-claim");
+    });
+
+    test("detectStalled excludes non-active claims", async () => {
+      const claim = makeClaim({
+        claimId: "released-stall",
+        leaseExpiresAt: new Date(Date.now() + 600_000).toISOString(),
+        heartbeatAt: new Date(Date.now() - 120_000).toISOString(),
+      });
+      await store.createClaim(claim);
+      await store.release("released-stall");
+
+      const stalled = await store.detectStalled(60_000);
+      expect(stalled.length).toBe(0);
+    });
+
+    // ------------------------------------------------------------------
     // close
     // ------------------------------------------------------------------
 

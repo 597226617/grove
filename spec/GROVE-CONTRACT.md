@@ -49,9 +49,16 @@ Free-form prose for human/agent-readable context...
 
 ## Contract Version
 
-Every GROVE.md MUST include `contract_version: 1`. This field enables
-schema evolution — future versions will increment the value, and
-parsers can decide how to handle unknown versions.
+Every GROVE.md MUST include a `contract_version` field. Two versions
+are currently supported:
+
+- **Version 1**: Legacy format with `claim_policy` for basic claim
+  coordination. Suitable for simple groves with minimal enforcement.
+- **Version 2**: Extended format with `concurrency`, `execution`,
+  `rate_limits`, and `retry` sections for fine-grained control.
+
+V1 contracts are auto-migrated to V2 types at parse time. New groves
+SHOULD use version 2.
 
 Unknown properties are **rejected** (strict validation). This catches
 typos immediately rather than silently ignoring misspelled fields like
@@ -63,7 +70,7 @@ typos immediately rather than silently ignoring misspelled fields like
 
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
-| `contract_version` | Yes | integer | Must be `1` |
+| `contract_version` | Yes | integer | `1` or `2` |
 | `name` | Yes | string | Human/agent-readable name (1-128 chars) |
 | `description` | No | string | What this grove is about (max 1024 chars) |
 | `mode` | No | enum | Default contribution mode: `evaluation` or `exploration` |
@@ -298,9 +305,11 @@ relation of each listed type.
 
 ---
 
-## Claim Policy
+## Claim Policy (V1 only)
 
 The `claim_policy` section configures claim coordination behavior.
+This is a **version 1** feature — version 2 contracts use
+`concurrency`, `execution`, `rate_limits`, and `retry` instead.
 
 ```yaml
 claim_policy:
@@ -317,15 +326,130 @@ claim_policy:
 | `max_claims_per_agent` | (unlimited) | 0-100 | Max concurrent claims per agent. 0 = unlimited |
 | `heartbeat_required` | `true` | boolean | Whether heartbeats are required |
 
-### Lease Duration
+### V1 → V2 Migration
 
-The minimum lease is 30 seconds (to prevent thrashing) and the maximum
-is 86400 seconds (24 hours). The protocol default of 300 seconds
-(5 minutes) applies when no claim policy is specified.
+V1 `claim_policy` fields are auto-migrated to V2 types at parse time:
 
-Shorter leases (30-120 seconds) suit fast polling systems. Longer
-leases (600-1800 seconds) suit agents doing extended computation.
-See PROTOCOL.md for heartbeat interval guidance (lease_duration / 3).
+- `default_lease_seconds` → `execution.defaultLeaseSeconds`
+- `max_claims_per_agent` → `concurrency.maxClaimsPerAgent`
+- `heartbeat_required: true` → `execution.heartbeatIntervalSeconds: 60`
+
+---
+
+## Concurrency Limits (V2)
+
+The `concurrency` section controls how many claims can be active
+simultaneously.
+
+```yaml
+concurrency:
+  max_active_claims: 10
+  max_claims_per_agent: 3
+  max_claims_per_target: 1
+```
+
+### Fields
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `max_active_claims` | 1-1000 | Global limit on active claims across all agents |
+| `max_claims_per_agent` | 0-100 | Max claims per agent. 0 = unlimited |
+| `max_claims_per_target` | 1-100 | Max claims per target_ref |
+
+Attempts to create claims beyond these limits throw a
+`ConcurrencyLimitError` with the limit type (`global`, `per_agent`,
+or `per_target`) and current/limit values.
+
+---
+
+## Execution Settings (V2)
+
+The `execution` section configures lease duration, heartbeat
+intervals, and stall detection.
+
+```yaml
+execution:
+  default_lease_seconds: 300
+  max_lease_seconds: 3600
+  heartbeat_interval_seconds: 60
+  stall_timeout_seconds: 180
+```
+
+### Fields
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `default_lease_seconds` | 30-86400 | Default lease duration |
+| `max_lease_seconds` | 60-604800 | Maximum lease duration (1 week) |
+| `heartbeat_interval_seconds` | 10-86400 | Expected heartbeat interval |
+| `stall_timeout_seconds` | 60-604800 | Heartbeat silence before stall |
+
+### Cross-field Constraints
+
+- `default_lease_seconds` ≤ `max_lease_seconds` (when both specified)
+- `heartbeat_interval_seconds` < `stall_timeout_seconds` (when both
+  specified)
+
+Claims requesting leases longer than `max_lease_seconds` are rejected
+with a `LeaseViolationError`.
+
+---
+
+## Rate Limits (V2)
+
+The `rate_limits` section throttles contribution submission rate and
+artifact sizes.
+
+```yaml
+rate_limits:
+  max_contributions_per_agent_per_hour: 100
+  max_contributions_per_grove_per_hour: 1000
+  max_artifact_size_bytes: 10485760
+  max_artifacts_per_contribution: 10
+```
+
+### Fields
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `max_contributions_per_agent_per_hour` | 1-10000 | Per-agent sliding window |
+| `max_contributions_per_grove_per_hour` | 1-100000 | Per-grove sliding window |
+| `max_artifact_size_bytes` | 1+ | Max size of a single artifact |
+| `max_artifacts_per_contribution` | 1-1000 | Max artifacts per contribution |
+
+Rate limits use a 1-hour sliding window. Exceeding a limit throws a
+`RateLimitError` with `retryAfterMs` indicating when a slot opens.
+
+### Cross-field Constraint
+
+- `max_contributions_per_agent_per_hour` ≤
+  `max_contributions_per_grove_per_hour` (when both specified)
+
+---
+
+## Retry Settings (V2)
+
+The `retry` section configures exponential backoff for retrying
+failed operations.
+
+```yaml
+retry:
+  base_delay_ms: 1000
+  max_backoff_ms: 60000
+  max_attempts: 5
+```
+
+### Fields
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `base_delay_ms` | 100-600000 | Base delay for exponential backoff |
+| `max_backoff_ms` | 1000-3600000 | Maximum backoff cap |
+| `max_attempts` | 1-100 | Maximum retry attempts |
+
+The backoff algorithm uses **full jitter**: for attempt `n`, the
+delay is `random(0, min(cap, base * 2^n))`. This prevents thundering
+herd problems when multiple agents retry simultaneously.
 
 ---
 

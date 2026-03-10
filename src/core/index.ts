@@ -1,19 +1,39 @@
+export {
+  canRetry,
+  computeBackoffMs,
+  DEFAULT_BASE_DELAY_MS,
+  DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_MAX_BACKOFF_MS,
+} from "./backoff.js";
 export type { ContentStore, PutOptions } from "./cas.js";
 export { validateMediaType } from "./cas.js";
 export type {
   AgentConstraints,
   Budget,
   ClaimPolicy,
+  ConcurrencyConfig,
   DeliberationLimit,
+  ExecutionConfig,
   Gate,
   GateType,
   GroveContract,
   MetricDefinition,
   QuorumReviewScore,
+  RateLimitsConfig,
+  RetryConfig,
   StopConditions,
   TargetMetric,
 } from "./contract.js";
 export { parseGroveContract, parseGroveContractObject } from "./contract.js";
+export { EnforcingClaimStore, EnforcingContributionStore } from "./enforcing-store.js";
+export {
+  ArtifactLimitError,
+  ConcurrencyLimitError,
+  GroveError,
+  LeaseViolationError,
+  RateLimitError,
+  RetryExhaustedError,
+} from "./errors.js";
 export type {
   Frontier,
   FrontierCalculator,
@@ -84,6 +104,7 @@ export type {
 } from "./reconciler.js";
 export { DefaultReconciler } from "./reconciler.js";
 export type {
+  ActiveClaimFilter,
   ClaimStore,
   ContributionQuery,
   ContributionStore,

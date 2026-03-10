@@ -1,18 +1,38 @@
+export {
+  canRetry,
+  computeBackoffMs,
+  DEFAULT_BASE_DELAY_MS,
+  DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_MAX_BACKOFF_MS,
+} from "./core/backoff.js";
 export type { ContentStore, PutOptions } from "./core/cas.js";
 export type {
   AgentConstraints,
   Budget,
   ClaimPolicy,
+  ConcurrencyConfig,
   DeliberationLimit,
+  ExecutionConfig,
   Gate,
   GateType,
   GroveContract,
   MetricDefinition,
   QuorumReviewScore,
+  RateLimitsConfig,
+  RetryConfig,
   StopConditions,
   TargetMetric,
 } from "./core/contract.js";
 export { parseGroveContract, parseGroveContractObject } from "./core/contract.js";
+export { EnforcingClaimStore, EnforcingContributionStore } from "./core/enforcing-store.js";
+export {
+  ArtifactLimitError,
+  ConcurrencyLimitError,
+  GroveError,
+  LeaseViolationError,
+  RateLimitError,
+  RetryExhaustedError,
+} from "./core/errors.js";
 export type { StopConditionResult, StopEvaluationResult } from "./core/lifecycle.js";
 export {
   deriveLifecycleState,
@@ -46,6 +66,7 @@ export type {
 } from "./core/reconciler.js";
 export { DefaultReconciler } from "./core/reconciler.js";
 export type {
+  ActiveClaimFilter,
   ClaimStore,
   ContributionStore,
   ExpiredClaim,

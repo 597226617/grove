@@ -156,7 +156,8 @@ export type ContributionInput = Omit<Contribution, "cid" | "manifestVersion">;
  * mutating existing ones.
  *
  * They prevent duplicate work in agent swarms via lease-based coordination.
- * At most one active claim may exist per target_ref at any time.
+ * PROTOCOL INVARIANT: at most one active claim may exist per target_ref
+ * at any time. This is enforced by the store layer (not configurable).
  */
 export interface Claim {
   readonly claimId: string;
@@ -168,4 +169,6 @@ export interface Claim {
   readonly heartbeatAt: string;
   readonly leaseExpiresAt: string;
   readonly context?: Readonly<Record<string, JsonValue>> | undefined;
+  /** Number of times this claim has been attempted (for retry/backoff). Defaults to 0. */
+  readonly attemptCount?: number | undefined;
 }
