@@ -75,7 +75,7 @@ describe("grove release", () => {
     expect(stderr.length).toBe(1);
     expect(stderr[0]).toContain("claim-id is required");
     expect(process.exitCode).toBe(2);
-    process.exitCode = undefined;
+    process.exitCode = 0;
   });
 
   test("throws when releasing non-existent claim", async () => {

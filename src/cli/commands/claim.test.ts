@@ -129,7 +129,7 @@ describe("grove claim", () => {
     expect(stderr.length).toBe(1);
     expect(stderr[0]).toContain("target is required");
     expect(process.exitCode).toBe(2);
-    process.exitCode = undefined;
+    process.exitCode = 0;
   });
 
   test("outputs claim_id on success", async () => {
