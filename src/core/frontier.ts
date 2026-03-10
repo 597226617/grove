@@ -9,7 +9,7 @@
  * - By reproduction (most-reproduced contributions)
  */
 
-import type { Contribution, ContributionKind, Score } from "./models.js";
+import type { Contribution, ContributionKind, JsonValue, Score } from "./models.js";
 import { ContributionMode, RelationType } from "./models.js";
 import type { ContributionStore } from "./store.js";
 
@@ -39,6 +39,7 @@ export interface FrontierQuery {
   readonly mode?: ContributionMode | undefined;
   readonly agentId?: string | undefined;
   readonly agentName?: string | undefined;
+  readonly context?: Readonly<Record<string, JsonValue>> | undefined;
   readonly limit?: number | undefined;
 }
 
@@ -91,6 +92,13 @@ function matchesFilters(c: Contribution, query?: FrontierQuery): boolean {
   }
   if (query?.agentName !== undefined) {
     if (c.agent.agentName !== query.agentName) return false;
+  }
+  if (query?.context !== undefined) {
+    if (c.context === undefined) return false;
+    for (const [key, expected] of Object.entries(query.context)) {
+      if (!(key in c.context)) return false;
+      if (JSON.stringify(c.context[key]) !== JSON.stringify(expected)) return false;
+    }
   }
   return true;
 }
