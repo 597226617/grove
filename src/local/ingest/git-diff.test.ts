@@ -114,4 +114,22 @@ describe("ingestGitDiff", () => {
       await rm(repoDir, { recursive: true, force: true });
     }
   });
+
+  test("rejects refs starting with dash to prevent option injection", async () => {
+    const repoDir = await createTempGitRepo();
+    try {
+      const casDir = join(repoDir, ".cas");
+      const cas = new FsCas(casDir);
+
+      // A ref like --output=/tmp/out.diff would be parsed as a git option
+      await expect(ingestGitDiff(cas, "--output=/tmp/out.diff", repoDir)).rejects.toThrow(
+        /must not start with/,
+      );
+
+      // Also reject single-dash options
+      await expect(ingestGitDiff(cas, "-p", repoDir)).rejects.toThrow(/must not start with/);
+    } finally {
+      await rm(repoDir, { recursive: true, force: true });
+    }
+  });
 });

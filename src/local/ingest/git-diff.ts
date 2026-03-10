@@ -24,7 +24,14 @@ export async function ingestGitDiff(
   ref: string,
   cwd?: string,
 ): Promise<Record<string, string>> {
-  const proc = Bun.spawn(["git", "diff", ref], {
+  // Reject refs that start with "-" to prevent git option injection.
+  // A value like "--output=/tmp/out.diff" would be parsed as a git flag,
+  // not a ref, allowing command behavior modification or file writes.
+  if (ref.startsWith("-")) {
+    throw new Error(`Invalid git ref: '${ref}' (must not start with '-')`);
+  }
+
+  const proc = Bun.spawn(["git", "diff", ref, "--"], {
     cwd: cwd ?? process.cwd(),
     stdout: "pipe",
     stderr: "pipe",

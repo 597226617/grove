@@ -19,7 +19,7 @@ import { resolveAgent } from "../agent.js";
 /** Parsed and validated options for `grove contribute`. */
 export interface ContributeOptions {
   readonly kind: "work" | "review" | "discussion" | "adoption" | "reproduction";
-  readonly mode: "evaluation" | "exploration";
+  readonly mode: "evaluation" | "exploration" | undefined;
   readonly summary: string;
   readonly description?: string | undefined;
 
@@ -67,7 +67,7 @@ export function parseContributeArgs(args: readonly string[]): ContributeOptions 
     args: args as string[],
     options: {
       kind: { type: "string", default: "work" },
-      mode: { type: "string", default: "evaluation" },
+      mode: { type: "string" },
       summary: { type: "string" },
       description: { type: "string" },
       artifacts: { type: "string", multiple: true, default: [] },
@@ -94,7 +94,7 @@ export function parseContributeArgs(args: readonly string[]): ContributeOptions 
 
   return {
     kind: values.kind as ContributeOptions["kind"],
-    mode: values.mode as ContributeOptions["mode"],
+    mode: (values.mode as ContributeOptions["mode"]) ?? undefined,
     summary: values.summary as string,
     description: values.description as string | undefined,
     artifacts: values.artifacts as string[],
@@ -149,8 +149,11 @@ export function validateContributeOptions(options: ContributeOptions): Validatio
     errors.push(`Invalid kind '${options.kind}'. Valid kinds: ${VALID_KINDS.join(", ")}`);
   }
 
-  // Valid mode
-  if (!VALID_MODES.includes(options.mode as (typeof VALID_MODES)[number])) {
+  // Valid mode (undefined is allowed — resolved later from contract/default)
+  if (
+    options.mode !== undefined &&
+    !VALID_MODES.includes(options.mode as (typeof VALID_MODES)[number])
+  ) {
     errors.push(`Invalid mode '${options.mode}'. Valid modes: ${VALID_MODES.join(", ")}`);
   }
 
@@ -270,11 +273,16 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
   // 3. Load GROVE.md contract for enforcement, default mode, and metric directions
   const grovemdPath = join(options.cwd, "GROVE.md");
   let contract: Awaited<ReturnType<typeof parseGroveContract>> | undefined;
+  let grovemdContent: string | undefined;
   try {
-    const grovemdContent = await readFile(grovemdPath, "utf-8");
-    contract = parseGroveContract(grovemdContent);
+    grovemdContent = await readFile(grovemdPath, "utf-8");
   } catch {
-    // GROVE.md may not exist or may have no frontmatter — proceed without enforcement
+    // GROVE.md does not exist — proceed without enforcement
+  }
+  if (grovemdContent !== undefined) {
+    // File exists — parse errors must propagate so malformed contracts
+    // are not silently ignored (which would bypass enforcement).
+    contract = parseGroveContract(grovemdContent);
   }
 
   // Wrap store with enforcement if contract is available
@@ -433,24 +441,18 @@ export async function executeContribute(options: ContributeOptions): Promise<{ c
 /**
  * Resolve effective contribution mode.
  *
- * If the user explicitly passed --mode on the CLI, use that.
- * Otherwise, inherit the grove's default mode from GROVE.md.
- * Falls back to "evaluation" if neither is set.
+ * Priority: explicit CLI flag > grove contract default > "evaluation".
  *
- * We detect "user explicitly passed --mode" by checking whether
- * the value differs from the parseArgs default ("evaluation").
- * If the user passed --mode evaluation explicitly, that's fine —
- * same result. The only case this heuristic misses is a grove
- * with mode=exploration where the user wants to override back
- * to evaluation without passing the flag — an unlikely edge case.
+ * When --mode is omitted, `cliMode` is `undefined` (no parseArgs default),
+ * so we can reliably distinguish "user omitted --mode" from
+ * "user explicitly passed --mode evaluation".
  */
 function resolveMode(
   cliMode: ContributeOptions["mode"],
   groveDefault: string | undefined,
-): ContributeOptions["mode"] {
-  // If user explicitly set mode to something other than the parseArgs default,
-  // always honor it.
-  if (cliMode !== "evaluation") {
+): "evaluation" | "exploration" {
+  // If user explicitly set --mode, always honor it.
+  if (cliMode !== undefined) {
     return cliMode;
   }
   // Otherwise, prefer the grove's configured default mode

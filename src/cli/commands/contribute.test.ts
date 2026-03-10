@@ -74,6 +74,11 @@ describe("parseContributeArgs", () => {
     expect(opts.kind).toBe("work");
   });
 
+  test("mode is undefined when --mode is omitted", () => {
+    const opts = parseContributeArgs(["--summary", "test"]);
+    expect(opts.mode).toBeUndefined();
+  });
+
   test("parses --mode flag", () => {
     const opts = parseContributeArgs(["--summary", "test", "--mode", "exploration"]);
     expect(opts.mode).toBe("exploration");
@@ -774,7 +779,7 @@ describe("Codex review fixes", () => {
     }
   });
 
-  test("inherits mode from GROVE.md contract when CLI uses default", async () => {
+  test("inherits mode from GROVE.md contract when --mode is omitted", async () => {
     const dir = await createTempDir();
     try {
       // Initialize grove with exploration mode
@@ -783,10 +788,11 @@ describe("Codex review fixes", () => {
         mode: "exploration",
       });
 
-      // Contribute without explicit --mode (parseArgs default is "evaluation")
+      // Contribute without explicit --mode (mode: undefined)
       const result = await executeContribute(
         makeContributeOptions({
           summary: "implicit exploration",
+          mode: undefined,
           cwd: dir,
         }),
       );
@@ -804,6 +810,64 @@ describe("Codex review fixes", () => {
       } finally {
         db.close();
       }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("explicit --mode evaluation overrides grove default exploration", async () => {
+    const dir = await createTempDir();
+    try {
+      // Initialize grove with exploration mode
+      await executeInit({
+        ...makeInitOptions(dir),
+        mode: "exploration",
+      });
+
+      // Contribute with explicit --mode evaluation
+      const result = await executeContribute(
+        makeContributeOptions({
+          summary: "explicit evaluation override",
+          mode: "evaluation",
+          cwd: dir,
+        }),
+      );
+
+      // Read back from store to verify explicit flag wins
+      const { SqliteContributionStore, initSqliteDb } = await import("../../local/sqlite-store.js");
+      const dbPath = join(dir, ".grove", "store.sqlite");
+      const db = initSqliteDb(dbPath);
+      const store = new SqliteContributionStore(db);
+      try {
+        const contribution = await store.get(result.cid);
+        expect(contribution).toBeDefined();
+        const c = contribution as NonNullable<typeof contribution>;
+        expect(c.mode).toBe("evaluation");
+      } finally {
+        db.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("errors on malformed GROVE.md instead of silently falling back", async () => {
+    const dir = await createTempDir();
+    try {
+      await executeInit(makeInitOptions(dir));
+
+      // Overwrite GROVE.md with invalid contract (missing required 'name' field)
+      const grovemdPath = join(dir, "GROVE.md");
+      await writeFile(grovemdPath, ["---", "contract_version: 2", "---", "# broken"].join("\n"));
+
+      await expect(
+        executeContribute(
+          makeContributeOptions({
+            summary: "should fail on bad contract",
+            cwd: dir,
+          }),
+        ),
+      ).rejects.toThrow(/Invalid GROVE.md/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

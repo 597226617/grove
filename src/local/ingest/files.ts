@@ -6,9 +6,19 @@
  */
 
 import { readdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 
 import type { ContentStore } from "../../core/cas.js";
+
+/**
+ * Normalize a relative path to use forward slashes regardless of OS.
+ * On Windows, `path.relative()` returns backslash-separated paths,
+ * but artifact names must use forward slashes (per spec) so they can
+ * be materialized on any platform.
+ */
+function toPortableName(name: string): string {
+  return sep === "\\" ? name.replaceAll("\\", "/") : name;
+}
 
 /**
  * Ingest files and directories into CAS.
@@ -33,7 +43,7 @@ export async function ingestFiles(
     if (info.isDirectory()) {
       await walkDirectory(cas, p, p, artifacts);
     } else if (info.isFile()) {
-      const name = p.split("/").pop() ?? p;
+      const name = basename(p);
       if (name in artifacts) {
         throw new Error(
           `Artifact name collision: '${name}' already exists. Use directories to avoid name conflicts.`,
@@ -65,7 +75,7 @@ async function walkDirectory(
       }
       await walkDirectory(cas, rootDir, fullPath, artifacts);
     } else if (entry.isFile()) {
-      const name = relative(rootDir, fullPath);
+      const name = toPortableName(relative(rootDir, fullPath));
       if (name in artifacts) {
         throw new Error(
           `Artifact name collision: '${name}' already exists. Use distinct directory structures to avoid name conflicts.`,
