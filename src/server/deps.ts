@@ -7,6 +7,7 @@
 
 import type { ContentStore } from "../core/cas.js";
 import type { FrontierCalculator } from "../core/frontier.js";
+import type { GossipService } from "../core/gossip/types.js";
 import type { ClaimStore, ContributionStore } from "../core/store.js";
 
 /** Dependencies injected into the Hono application. */
@@ -15,6 +16,8 @@ export interface ServerDeps {
   readonly claimStore: ClaimStore;
   readonly cas: ContentStore;
   readonly frontier: FrontierCalculator;
+  /** Optional gossip service. Routes return 501 when not configured. */
+  readonly gossip?: GossipService | undefined;
 }
 
 /** Hono environment type carrying injected dependencies. */

@@ -1,0 +1,488 @@
+/**
+ * Gossip protocol implementation.
+ *
+ * Orchestrates CYCLON peer sampling, frontier digest exchange, and
+ * failure detection into a cohesive gossip service. Runs a background
+ * loop that periodically exchanges state with random peers.
+ *
+ * Architecture:
+ * - CyclonPeerSampler: manages the partial view of peers
+ * - GossipTransport: handles HTTP communication
+ * - FrontierCalculator: computes local frontier for digest generation
+ * - Liveness tracker: detects suspected/failed peers via gossip rounds
+ */
+
+import {
+  DEFAULT_FAILURE_TIMEOUT_MS,
+  DEFAULT_FRONTIER_DIGEST_LIMIT,
+  DEFAULT_GOSSIP_FAN_OUT,
+  DEFAULT_GOSSIP_INTERVAL_MS,
+  DEFAULT_GOSSIP_JITTER,
+  DEFAULT_PARTIAL_VIEW_SIZE,
+  DEFAULT_SHUFFLE_LENGTH,
+  DEFAULT_SUSPICION_TIMEOUT_MS,
+} from "../core/constants.js";
+import type { FrontierCalculator, FrontierEntry } from "../core/frontier.js";
+import {
+  type FrontierDigestEntry,
+  type GossipConfig,
+  type GossipEvent,
+  type GossipEventListener,
+  GossipEventType,
+  type GossipMessage,
+  type GossipService,
+  type GossipTransport,
+  type PeerCapabilities,
+  type PeerInfo,
+  type PeerLiveness,
+  type PeerLoad,
+  PeerStatus,
+  type ShuffleRequest,
+  type ShuffleResponse,
+} from "../core/gossip/types.js";
+import { CyclonPeerSampler } from "./cyclon.js";
+
+// ---------------------------------------------------------------------------
+// Liveness state
+// ---------------------------------------------------------------------------
+
+/** Internal mutable liveness state per peer. */
+interface LivenessState {
+  status: PeerStatus;
+  lastSeen: number;
+  suspectedAt: number | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// DefaultGossipService
+// ---------------------------------------------------------------------------
+
+/**
+ * Concrete gossip service implementation.
+ *
+ * Combines CYCLON peer sampling with push-pull frontier exchange and
+ * liveness tracking. Runs a background loop with jittered intervals.
+ */
+export class DefaultGossipService implements GossipService {
+  private readonly config: {
+    readonly peerId: string;
+    readonly address: string;
+    readonly intervalMs: number;
+    readonly fanOut: number;
+    readonly jitter: number;
+    readonly digestLimit: number;
+    readonly suspicionTimeoutMs: number;
+    readonly failureTimeoutMs: number;
+  };
+  private readonly sampler: CyclonPeerSampler;
+  private readonly transport: GossipTransport;
+  private readonly frontier: FrontierCalculator;
+  private readonly capabilities: PeerCapabilities;
+  private readonly getLoad: () => PeerLoad;
+  private readonly listeners: Set<GossipEventListener> = new Set();
+  private readonly livenessMap = new Map<string, LivenessState>();
+  private remoteFrontier: FrontierDigestEntry[] = [];
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private running = false;
+  private readonly now: () => number;
+
+  constructor(opts: {
+    config: GossipConfig;
+    transport: GossipTransport;
+    frontier: FrontierCalculator;
+    capabilities?: PeerCapabilities;
+    getLoad?: () => PeerLoad;
+    now?: () => number;
+  }) {
+    this.config = {
+      peerId: opts.config.peerId,
+      address: opts.config.address,
+      intervalMs: opts.config.intervalMs ?? DEFAULT_GOSSIP_INTERVAL_MS,
+      fanOut: opts.config.fanOut ?? DEFAULT_GOSSIP_FAN_OUT,
+      jitter: opts.config.jitter ?? DEFAULT_GOSSIP_JITTER,
+      digestLimit: opts.config.digestLimit ?? DEFAULT_FRONTIER_DIGEST_LIMIT,
+      suspicionTimeoutMs: opts.config.suspicionTimeoutMs ?? DEFAULT_SUSPICION_TIMEOUT_MS,
+      failureTimeoutMs: opts.config.failureTimeoutMs ?? DEFAULT_FAILURE_TIMEOUT_MS,
+    };
+
+    const selfPeer: PeerInfo = {
+      peerId: this.config.peerId,
+      address: this.config.address,
+      age: 0,
+      lastSeen: new Date().toISOString(),
+    };
+
+    this.sampler = new CyclonPeerSampler(
+      selfPeer,
+      {
+        maxViewSize: opts.config.maxViewSize ?? DEFAULT_PARTIAL_VIEW_SIZE,
+        shuffleLength: opts.config.shuffleLength ?? DEFAULT_SHUFFLE_LENGTH,
+      },
+      opts.config.seedPeers,
+    );
+
+    this.transport = opts.transport;
+    this.frontier = opts.frontier;
+    this.capabilities = opts.capabilities ?? {};
+    this.getLoad = opts.getLoad ?? (() => ({ queueDepth: 0 }));
+    this.now = opts.now ?? Date.now;
+
+    // Initialize liveness for seed peers
+    for (const peer of opts.config.seedPeers) {
+      this.livenessMap.set(peer.peerId, {
+        status: PeerStatus.Alive,
+        lastSeen: this.now(),
+        suspectedAt: undefined,
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Lifecycle
+  // -------------------------------------------------------------------------
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.scheduleNextRound();
+  }
+
+  async stop(): Promise<void> {
+    this.running = false;
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Gossip exchange
+  // -------------------------------------------------------------------------
+
+  async handleExchange(message: GossipMessage): Promise<GossipMessage> {
+    // Update liveness for sender
+    this.markAlive(message.peerId);
+
+    // Merge remote frontier entries
+    this.mergeRemoteFrontier(message.frontier);
+
+    // Ensure sender is in our view
+    const senderPeer: PeerInfo = {
+      peerId: message.peerId,
+      address: "", // Address not in GossipMessage; existing view entry has it
+      age: 0,
+      lastSeen: message.timestamp,
+    };
+    this.sampler.addPeer(senderPeer);
+
+    // Return our current message
+    return this.currentMessage();
+  }
+
+  handleShuffle(request: ShuffleRequest): ShuffleResponse {
+    this.markAlive(request.sender.peerId);
+    return this.sampler.handleShuffleRequest(request);
+  }
+
+  // -------------------------------------------------------------------------
+  // State queries
+  // -------------------------------------------------------------------------
+
+  peers(): readonly PeerInfo[] {
+    return this.sampler.getView();
+  }
+
+  liveness(): readonly PeerLiveness[] {
+    const result: PeerLiveness[] = [];
+    for (const peer of this.sampler.getView()) {
+      const state = this.livenessMap.get(peer.peerId);
+      result.push({
+        peer,
+        status: state?.status ?? PeerStatus.Alive,
+        lastSeen: state ? new Date(state.lastSeen).toISOString() : peer.lastSeen,
+        suspectedAt: state?.suspectedAt ? new Date(state.suspectedAt).toISOString() : undefined,
+      });
+    }
+    return result;
+  }
+
+  async currentMessage(): Promise<GossipMessage> {
+    const digest = await this.computeDigest();
+    return {
+      peerId: this.config.peerId,
+      frontier: digest,
+      load: this.getLoad(),
+      capabilities: this.capabilities,
+      timestamp: new Date(this.now()).toISOString(),
+    };
+  }
+
+  mergedFrontier(): readonly FrontierDigestEntry[] {
+    return this.remoteFrontier;
+  }
+
+  // -------------------------------------------------------------------------
+  // Event listeners
+  // -------------------------------------------------------------------------
+
+  on(listener: GossipEventListener): void {
+    this.listeners.add(listener);
+  }
+
+  off(listener: GossipEventListener): void {
+    this.listeners.delete(listener);
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal: gossip round
+  // -------------------------------------------------------------------------
+
+  /** Run a single gossip round (exposed for testing). */
+  async runRound(): Promise<void> {
+    // 1. Run CYCLON shuffle with oldest peer
+    await this.runShuffle();
+
+    // 2. Exchange frontier with fan-out peers
+    await this.exchangeWithPeers();
+
+    // 3. Check liveness and emit events
+    this.checkLiveness();
+  }
+
+  private scheduleNextRound(): void {
+    if (!this.running) return;
+
+    const jitter = 1 - this.config.jitter + Math.random() * 2 * this.config.jitter;
+    const delay = Math.floor(this.config.intervalMs * jitter);
+
+    this.timer = setTimeout(async () => {
+      try {
+        await this.runRound();
+      } catch {
+        // Gossip round errors are non-fatal — log and continue
+      }
+      this.scheduleNextRound();
+    }, delay);
+  }
+
+  private async runShuffle(): Promise<void> {
+    const target = this.sampler.selectOldestPeer();
+    if (!target) return;
+
+    const request = this.sampler.createShuffleRequest(target);
+
+    try {
+      const response = await this.transport.shuffle(target, request);
+      this.sampler.processShuffleResponse(response, request.offered);
+      this.markAlive(target.peerId);
+
+      // Check for new peers in the response
+      for (const peer of response.offered) {
+        if (!this.livenessMap.has(peer.peerId) && peer.peerId !== this.config.peerId) {
+          this.emit({
+            type: GossipEventType.PeerJoined,
+            peerId: peer.peerId,
+            timestamp: new Date(this.now()).toISOString(),
+          });
+          this.livenessMap.set(peer.peerId, {
+            status: PeerStatus.Alive,
+            lastSeen: this.now(),
+            suspectedAt: undefined,
+          });
+        }
+      }
+    } catch {
+      this.markUnresponsive(target.peerId);
+    }
+  }
+
+  private async exchangeWithPeers(): Promise<void> {
+    const view = this.sampler.getView();
+    if (view.length === 0) return;
+
+    // Select fan-out peers (random subset of view)
+    const shuffled = [...view].sort(() => Math.random() - 0.5);
+    const targets = shuffled.slice(0, Math.min(this.config.fanOut, shuffled.length));
+
+    const message = await this.currentMessage();
+
+    const exchanges = targets.map(async (peer) => {
+      try {
+        const response = await this.transport.exchange(peer, message);
+        this.markAlive(peer.peerId);
+        this.mergeRemoteFrontier(response.frontier);
+      } catch {
+        this.markUnresponsive(peer.peerId);
+      }
+    });
+
+    await Promise.allSettled(exchanges);
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal: frontier digest
+  // -------------------------------------------------------------------------
+
+  private async computeDigest(): Promise<FrontierDigestEntry[]> {
+    const frontier = await this.frontier.compute({ limit: this.config.digestLimit });
+    const entries: FrontierDigestEntry[] = [];
+
+    // Collect top entries from each metric dimension
+    for (const [metric, metricEntries] of Object.entries(frontier.byMetric)) {
+      for (const entry of metricEntries) {
+        entries.push({
+          metric,
+          value: entry.value,
+          cid: entry.cid,
+          tags: entry.contribution.tags.length > 0 ? entry.contribution.tags : undefined,
+        });
+      }
+    }
+
+    // Add top entries from other dimensions with synthetic metric names
+    const addDimension = (dimension: string, items: readonly FrontierEntry[]): void => {
+      for (const entry of items.slice(0, this.config.digestLimit)) {
+        entries.push({
+          metric: `_${dimension}`,
+          value: entry.value,
+          cid: entry.cid,
+        });
+      }
+    };
+
+    addDimension("adoption", frontier.byAdoption);
+    addDimension("recency", frontier.byRecency);
+    addDimension("review_score", frontier.byReviewScore);
+    addDimension("reproduction", frontier.byReproduction);
+
+    return entries;
+  }
+
+  private mergeRemoteFrontier(remote: readonly FrontierDigestEntry[]): void {
+    // Index existing entries by (metric, cid)
+    const index = new Map<string, FrontierDigestEntry>();
+    for (const entry of this.remoteFrontier) {
+      index.set(`${entry.metric}::${entry.cid}`, entry);
+    }
+
+    // Merge: keep the best value per (metric, cid)
+    for (const entry of remote) {
+      const key = `${entry.metric}::${entry.cid}`;
+      const existing = index.get(key);
+      if (!existing || entry.value > existing.value) {
+        index.set(key, entry);
+      }
+    }
+
+    this.remoteFrontier = [...index.values()];
+
+    this.emit({
+      type: GossipEventType.FrontierUpdated,
+      peerId: this.config.peerId,
+      timestamp: new Date(this.now()).toISOString(),
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal: liveness tracking
+  // -------------------------------------------------------------------------
+
+  private markAlive(peerId: string): void {
+    const state = this.livenessMap.get(peerId);
+    const wasNotAlive = state && state.status !== PeerStatus.Alive;
+
+    this.livenessMap.set(peerId, {
+      status: PeerStatus.Alive,
+      lastSeen: this.now(),
+      suspectedAt: undefined,
+    });
+
+    if (wasNotAlive) {
+      this.emit({
+        type: GossipEventType.PeerRecovered,
+        peerId,
+        timestamp: new Date(this.now()).toISOString(),
+      });
+    }
+  }
+
+  private markUnresponsive(peerId: string): void {
+    const state = this.livenessMap.get(peerId);
+    if (!state) {
+      this.livenessMap.set(peerId, {
+        status: PeerStatus.Suspected,
+        lastSeen: this.now(),
+        suspectedAt: this.now(),
+      });
+      return;
+    }
+
+    // If already suspected or failed, don't re-mark
+    if (state.status === PeerStatus.Suspected || state.status === PeerStatus.Failed) return;
+
+    // Transition: alive → suspected
+    this.livenessMap.set(peerId, {
+      ...state,
+      status: PeerStatus.Suspected,
+      suspectedAt: this.now(),
+    });
+
+    this.emit({
+      type: GossipEventType.PeerSuspected,
+      peerId,
+      timestamp: new Date(this.now()).toISOString(),
+    });
+  }
+
+  private checkLiveness(): void {
+    const currentTime = this.now();
+
+    for (const [peerId, state] of this.livenessMap) {
+      if (peerId === this.config.peerId) continue;
+
+      if (state.status === PeerStatus.Alive) {
+        // Check if peer should be suspected (no response in suspicionTimeout)
+        if (currentTime - state.lastSeen > this.config.suspicionTimeoutMs) {
+          this.livenessMap.set(peerId, {
+            ...state,
+            status: PeerStatus.Suspected,
+            suspectedAt: currentTime,
+          });
+          this.emit({
+            type: GossipEventType.PeerSuspected,
+            peerId,
+            timestamp: new Date(currentTime).toISOString(),
+          });
+        }
+      } else if (state.status === PeerStatus.Suspected) {
+        // Check if suspected peer should be declared failed
+        const suspectedDuration = currentTime - (state.suspectedAt ?? currentTime);
+        if (suspectedDuration > this.config.failureTimeoutMs - this.config.suspicionTimeoutMs) {
+          this.livenessMap.set(peerId, {
+            ...state,
+            status: PeerStatus.Failed,
+          });
+
+          // Remove failed peer from view
+          this.sampler.removePeer(peerId);
+
+          this.emit({
+            type: GossipEventType.PeerFailed,
+            peerId,
+            timestamp: new Date(currentTime).toISOString(),
+          });
+        }
+      }
+    }
+  }
+
+  private emit(event: GossipEvent): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch {
+        // Listener errors are non-fatal
+      }
+    }
+  }
+}

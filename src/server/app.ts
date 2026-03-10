@@ -12,6 +12,7 @@ import { claims } from "./routes/claims.js";
 import { contributions } from "./routes/contributions.js";
 import { dag } from "./routes/dag.js";
 import { frontier } from "./routes/frontier.js";
+import { gossip } from "./routes/gossip.js";
 import { grove } from "./routes/grove.js";
 import { search } from "./routes/search.js";
 
@@ -36,6 +37,7 @@ export function createApp(deps: ServerDeps): Hono<ServerEnv> {
   app.route("/api/search", search);
   app.route("/api/dag", dag);
   app.route("/api/claims", claims);
+  app.route("/api/gossip", gossip);
   app.route("/api/grove", grove);
 
   // Centralized error handling
