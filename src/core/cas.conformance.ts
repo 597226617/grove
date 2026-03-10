@@ -199,5 +199,111 @@ export function runContentStoreTests(factory: ContentStoreFactory): void {
       const retrieved = await store.get(hash);
       expect(retrieved).toEqual(data);
     });
+
+    // ------------------------------------------------------------------
+    // stat
+    // ------------------------------------------------------------------
+
+    test("stat returns artifact metadata for stored content", async () => {
+      const data = new TextEncoder().encode("stat test data");
+      const hash = await store.put(data);
+      const artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.contentHash).toBe(hash);
+      expect(artifact?.sizeBytes).toBe(data.byteLength);
+    });
+
+    test("stat returns undefined for non-existent content", async () => {
+      const fakeHash = "blake3:0000000000000000000000000000000000000000000000000000000000000000";
+      const result = await store.stat(fakeHash);
+      expect(result).toBeUndefined();
+    });
+
+    test("stat returns correct size for empty content", async () => {
+      const data = new Uint8Array(0);
+      const hash = await store.put(data);
+      const artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.sizeBytes).toBe(0);
+    });
+
+    // ------------------------------------------------------------------
+    // PutOptions — mediaType
+    // ------------------------------------------------------------------
+
+    test("put with mediaType persists it in stat", async () => {
+      const data = new TextEncoder().encode('{"key": "value"}');
+      const hash = await store.put(data, { mediaType: "application/json" });
+      const artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.mediaType).toBe("application/json");
+    });
+
+    test("put without mediaType returns no mediaType in stat", async () => {
+      const data = new TextEncoder().encode("no type");
+      const hash = await store.put(data);
+      const artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.mediaType).toBeUndefined();
+    });
+
+    test("putFile with mediaType persists it in stat", async () => {
+      const filePath = join(tempDir, "data.json");
+      await writeFile(filePath, '{"x": 1}', "utf-8");
+      const hash = await store.putFile(filePath, { mediaType: "application/json" });
+      const artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.mediaType).toBe("application/json");
+    });
+
+    test("mediaType can be set on re-put of existing content", async () => {
+      const data = new TextEncoder().encode("typed later");
+      const hash = await store.put(data);
+      // Initially no mediaType
+      let artifact = await store.stat(hash);
+      expect(artifact?.mediaType).toBeUndefined();
+      // Re-put with mediaType
+      await store.put(data, { mediaType: "text/plain" });
+      artifact = await store.stat(hash);
+      expect(artifact?.mediaType).toBe("text/plain");
+    });
+
+    test("rejects mediaType with parameters (e.g., charset)", async () => {
+      const data = new TextEncoder().encode("bad media type");
+      await expect(store.put(data, { mediaType: "text/html; charset=utf-8" })).rejects.toThrow();
+    });
+
+    test("rejects mediaType exceeding 256 characters", async () => {
+      const data = new TextEncoder().encode("long type");
+      const longType = `text/${"a".repeat(256)}`;
+      await expect(store.put(data, { mediaType: longType })).rejects.toThrow();
+    });
+
+    test("empty mediaType string is treated as no mediaType", async () => {
+      const data = new TextEncoder().encode("empty type");
+      const hash = await store.put(data, { mediaType: "" });
+      const artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.mediaType).toBeUndefined();
+    });
+
+    // ------------------------------------------------------------------
+    // delete cleans up sidecar metadata
+    // ------------------------------------------------------------------
+
+    test("delete removes sidecar metadata so re-put does not resurrect it", async () => {
+      const data = new TextEncoder().encode("delete meta test");
+      const hash = await store.put(data, { mediaType: "text/plain" });
+      // Verify metadata exists
+      let artifact = await store.stat(hash);
+      expect(artifact?.mediaType).toBe("text/plain");
+      // Delete (should remove blob + sidecar)
+      await store.delete(hash);
+      // Re-put same bytes WITHOUT mediaType
+      await store.put(data);
+      artifact = await store.stat(hash);
+      expect(artifact).toBeDefined();
+      expect(artifact?.mediaType).toBeUndefined();
+    });
   });
 }

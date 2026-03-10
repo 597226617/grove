@@ -1,4 +1,4 @@
-export type { ContentStore } from "./core/cas.js";
+export type { ContentStore, PutOptions } from "./core/cas.js";
 export {
   CID_PATTERN,
   computeCid,
@@ -14,6 +14,7 @@ export type {
   Claim,
   Contribution,
   ContributionInput,
+  NamedArtifact,
   Relation,
 } from "./core/models.js";
 export type { ClaimStore, ContributionStore } from "./core/store.js";

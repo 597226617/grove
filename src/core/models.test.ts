@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentIdentity, Contribution, Relation, Score } from "./models.js";
+import type { AgentIdentity, Artifact, Contribution, Relation, Score } from "./models.js";
 import {
   ClaimStatus,
   ContributionKind,
@@ -7,6 +7,7 @@ import {
   RelationType,
   ScoreDirection,
 } from "./models.js";
+import { makeArtifact } from "./test-helpers.js";
 
 describe("ContributionKind", () => {
   test("has all expected values", () => {
@@ -129,5 +130,56 @@ describe("Contribution interface", () => {
     expect(Object.keys(contribution.artifacts)).toHaveLength(0);
     expect(contribution.relations).toHaveLength(0);
     expect(contribution.tags).toHaveLength(0);
+  });
+});
+
+describe("Artifact interface", () => {
+  test("can construct a valid artifact with all fields", () => {
+    const artifact: Artifact = {
+      contentHash: "blake3:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      sizeBytes: 4096,
+      mediaType: "application/json",
+    };
+
+    expect(artifact.contentHash).toMatch(/^blake3:[0-9a-f]{64}$/);
+    expect(artifact.sizeBytes).toBe(4096);
+    expect(artifact.mediaType).toBe("application/json");
+  });
+
+  test("supports minimal artifact without media type", () => {
+    const artifact: Artifact = {
+      contentHash: "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+      sizeBytes: 0,
+    };
+
+    expect(artifact.mediaType).toBeUndefined();
+    expect(artifact.sizeBytes).toBe(0);
+  });
+
+  test("supports zero-byte artifact", () => {
+    const artifact = makeArtifact({ sizeBytes: 0 });
+    expect(artifact.sizeBytes).toBe(0);
+  });
+
+  test("makeArtifact provides sensible defaults", () => {
+    const artifact = makeArtifact();
+
+    expect(artifact.contentHash).toMatch(/^blake3:[0-9a-f]{64}$/);
+    expect(artifact.sizeBytes).toBe(1024);
+    expect(artifact.mediaType).toBeUndefined();
+  });
+
+  test("makeArtifact allows overriding all fields", () => {
+    const artifact = makeArtifact({
+      contentHash: "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      sizeBytes: 999999,
+      mediaType: "text/plain",
+    });
+
+    expect(artifact.contentHash).toBe(
+      "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    );
+    expect(artifact.sizeBytes).toBe(999999);
+    expect(artifact.mediaType).toBe("text/plain");
   });
 });

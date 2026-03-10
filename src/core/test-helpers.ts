@@ -6,7 +6,14 @@
  */
 
 import { createContribution } from "./manifest.js";
-import type { AgentIdentity, Contribution, ContributionInput, Relation, Score } from "./models.js";
+import type {
+  AgentIdentity,
+  Artifact,
+  Contribution,
+  ContributionInput,
+  Relation,
+  Score,
+} from "./models.js";
 import { ContributionKind, ContributionMode, RelationType, ScoreDirection } from "./models.js";
 
 /** Create an AgentIdentity with sensible defaults. */
@@ -31,6 +38,15 @@ export function makeScore(overrides?: Partial<Score>): Score {
   return {
     value: 0.95,
     direction: ScoreDirection.Minimize,
+    ...overrides,
+  };
+}
+
+/** Create an Artifact with sensible defaults. */
+export function makeArtifact(overrides?: Partial<Artifact>): Artifact {
+  return {
+    contentHash: "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    sizeBytes: 1024,
     ...overrides,
   };
 }
