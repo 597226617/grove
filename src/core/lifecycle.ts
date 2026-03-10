@@ -554,9 +554,11 @@ async function evaluateDeliberationLimit(
   const exceededTopics: DeliberationResult[] = [];
 
   for (const rootCid of roots) {
-    const nodes = await store.thread(rootCid, {
-      maxDepth: limit.maxRounds ?? 50,
-    });
+    // Traverse the full thread — don't truncate at maxRounds.
+    // maxRounds is the stop-condition threshold, not a traversal cap.
+    // maxMessages needs an accurate total descendant count, so we must
+    // walk the entire tree (capped at a high safety ceiling).
+    const nodes = await store.thread(rootCid, { maxDepth: 10_000 });
 
     if (nodes.length === 0) continue;
 

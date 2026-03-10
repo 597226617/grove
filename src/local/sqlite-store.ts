@@ -645,6 +645,9 @@ export class SqliteContributionStore implements ContributionStore {
     const rootRow = this.stmtGetByCid.get(rootCid) as { manifest_json: string } | null;
     if (rootRow === null) return [];
 
+    // Deduplicate in the outer query: a contribution with multiple responds_to
+    // parents can appear at different depths in the CTE. GROUP BY cid + MIN(depth)
+    // keeps the shallowest occurrence, matching the InMemory BFS behavior.
     const sql = `
       WITH RECURSIVE thread_walk(cid, depth, created_at) AS (
         SELECT ?, 0, c.created_at
@@ -657,10 +660,14 @@ export class SqliteContributionStore implements ContributionStore {
         INNER JOIN contributions child ON child.cid = r.source_cid
         WHERE tw.depth < ?
       )
-      SELECT tw.cid, tw.depth, c.manifest_json
-      FROM thread_walk tw
-      INNER JOIN contributions c ON c.cid = tw.cid
-      ORDER BY tw.depth ASC, tw.created_at ASC
+      SELECT deduped.cid, deduped.depth, c.manifest_json
+      FROM (
+        SELECT cid, MIN(depth) AS depth, MIN(created_at) AS created_at
+        FROM thread_walk
+        GROUP BY cid
+      ) deduped
+      INNER JOIN contributions c ON c.cid = deduped.cid
+      ORDER BY deduped.depth ASC, deduped.created_at ASC
       ${opts?.limit !== undefined ? "LIMIT ?" : ""}
     `;
 

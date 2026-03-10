@@ -813,6 +813,33 @@ describe("evaluateStopConditions", () => {
       expect(result.conditions.deliberation_limit?.met).toBe(true);
     });
 
+    test("maxMessages on deep chain is not truncated by maxRounds", async () => {
+      // Regression: maxMessages must count the full thread, not just up
+      // to maxRounds depth. A 60-message chain with { maxMessages: 55 }
+      // must trigger even if maxRounds is unset (default depth was 50).
+      const root = makeUniqueContribution({ summary: "Deep root" });
+      const allContribs = [root];
+      let parentCid = root.cid;
+      for (let i = 0; i < 60; i++) {
+        const reply = makeUniqueContribution({
+          kind: ContributionKind.Discussion,
+          summary: `Deep reply ${i}`,
+          relations: [{ targetCid: parentCid, relationType: RelationType.RespondsTo }],
+        });
+        allContribs.push(reply);
+        parentCid = reply.cid;
+      }
+
+      const contract: GroveContract = {
+        contractVersion: 1,
+        name: "test",
+        stopConditions: { deliberationLimit: { maxMessages: 55 } },
+      };
+      const store = new InMemoryContributionStore(allContribs);
+      const result = await evaluateStopConditions(contract, store);
+      expect(result.conditions.deliberation_limit?.met).toBe(true);
+    });
+
     test("not met when no discussion threads exist", async () => {
       const work = makeUniqueContribution({ summary: "Just work" });
       const contract: GroveContract = {

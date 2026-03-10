@@ -377,7 +377,45 @@ for (const [backendName, createBackend] of backends) {
       }
     });
 
-    // 12. Parent before children ordering
+    // 12. Multi-parent deduplication: contribution with multiple responds_to parents
+    test("contribution with multiple responds_to parents appears only once at shallowest depth", async () => {
+      const { store, cleanup } = createBackend();
+      try {
+        const root = makeThreadContribution({ summary: "Root" });
+        const childA = makeThreadContribution({
+          kind: ContributionKind.Discussion,
+          summary: "Child A",
+          relations: [{ targetCid: root.cid, relationType: RelationType.RespondsTo }],
+        });
+        const childB = makeThreadContribution({
+          kind: ContributionKind.Discussion,
+          summary: "Child B",
+          relations: [{ targetCid: root.cid, relationType: RelationType.RespondsTo }],
+        });
+        // Shared node responds to BOTH childA and childB
+        const shared = makeThreadContribution({
+          kind: ContributionKind.Discussion,
+          summary: "Shared reply",
+          relations: [
+            { targetCid: childA.cid, relationType: RelationType.RespondsTo },
+            { targetCid: childB.cid, relationType: RelationType.RespondsTo },
+          ],
+        });
+        await store.putMany([root, childA, childB, shared]);
+
+        const nodes = await store.thread(root.cid);
+        // Should have exactly 4 nodes (root, childA, childB, shared) — no duplicates
+        expect(nodes).toHaveLength(4);
+        const sharedNodes = nodes.filter((n) => n.contribution.cid === shared.cid);
+        expect(sharedNodes).toHaveLength(1);
+        // Shared should be at depth 2 (shallowest path)
+        expect(sharedNodes[0]?.depth).toBe(2);
+      } finally {
+        cleanup();
+      }
+    });
+
+    // 13. Parent before children ordering
     test("parents always appear before their children", async () => {
       const { store, cleanup } = createBackend();
       try {
