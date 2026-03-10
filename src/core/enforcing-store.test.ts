@@ -1078,4 +1078,264 @@ describe("EnforcingClaimStore", () => {
       }
     });
   });
+
+  describe("delegation", () => {
+    test("activeClaims delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        await store.createClaim(makeClaim({ claimId: "d-1", targetRef: "t-1" }));
+        const active = await store.activeClaims("t-1");
+        expect(active).toHaveLength(1);
+        expect(active[0]?.claimId).toBe("d-1");
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+
+    test("release delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        await store.createClaim(makeClaim({ claimId: "rel-1", targetRef: "t-1" }));
+        const released = await store.release("rel-1");
+        expect(released.status).toBe("released");
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+
+    test("complete delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        await store.createClaim(makeClaim({ claimId: "comp-1", targetRef: "t-1" }));
+        const completed = await store.complete("comp-1");
+        expect(completed.status).toBe("completed");
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+
+    test("expireStale delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        // Create a claim with an expired lease
+        const pastLease = new Date(Date.now() - 60_000).toISOString();
+        await store.createClaim(
+          makeClaim({ claimId: "exp-1", targetRef: "t-1", leaseExpiresAt: pastLease }),
+        );
+
+        const expired = await store.expireStale();
+        expect(expired).toHaveLength(1);
+        expect(expired[0]?.claim.claimId).toBe("exp-1");
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+
+    test("cleanCompleted delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        // Create a claim with an old heartbeat so it qualifies for cleanup
+        const oldHeartbeat = new Date(Date.now() - 120_000).toISOString();
+        await store.createClaim(
+          makeClaim({ claimId: "clean-1", targetRef: "t-1", heartbeatAt: oldHeartbeat }),
+        );
+        await store.complete("clean-1");
+
+        // Clean with 60s retention — claim heartbeat is 120s old, so it qualifies
+        const deleted = await store.cleanCompleted(60_000);
+        expect(deleted).toBe(1);
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+
+    test("detectStalled delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        // Create claim with old heartbeat but valid lease
+        const oldHeartbeat = new Date(Date.now() - 120_000).toISOString();
+        const futureLease = new Date(Date.now() + 300_000).toISOString();
+        await store.createClaim(
+          makeClaim({
+            claimId: "stall-1",
+            targetRef: "t-1",
+            heartbeatAt: oldHeartbeat,
+            leaseExpiresAt: futureLease,
+          }),
+        );
+
+        const stalled = await store.detectStalled(60_000);
+        expect(stalled).toHaveLength(1);
+        expect(stalled[0]?.claimId).toBe("stall-1");
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+
+    test("claimOrRenew delegates to inner store", async () => {
+      const { dir, db, claimStore } = await setupStores();
+      try {
+        const contract = makeContract();
+        const store = new EnforcingClaimStore(claimStore, contract);
+
+        const claim = makeClaim({ claimId: "cor-1", targetRef: "t-1" });
+        const created = await store.claimOrRenew(claim);
+        expect(created.claimId).toBe("cor-1");
+
+        // Renew same agent, same target
+        const renewed = await store.claimOrRenew(makeClaim({ claimId: "cor-2", targetRef: "t-1" }));
+        expect(renewed.claimId).toBe("cor-1"); // Should renew existing
+      } finally {
+        await cleanup(dir, db);
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EnforcingContributionStore — read delegation
+// ---------------------------------------------------------------------------
+
+describe("EnforcingContributionStore delegation", () => {
+  test("relationsOf delegates to inner store", async () => {
+    const { dir, db, contributionStore } = await setupStores();
+    try {
+      const contract = makeContract();
+      const store = new EnforcingContributionStore(contributionStore, contract);
+
+      const parent = makeRecentContribution({ summary: "parent-for-relations" });
+      await store.put(parent);
+      const c = makeRecentContribution({
+        relations: [{ targetCid: parent.cid, relationType: "derives_from" }],
+      });
+      await store.put(c);
+
+      const relations = await store.relationsOf(c.cid);
+      expect(relations).toHaveLength(1);
+      expect(relations[0]?.relationType).toBe("derives_from");
+    } finally {
+      await cleanup(dir, db);
+    }
+  });
+
+  test("relatedTo delegates to inner store", async () => {
+    const { dir, db, contributionStore } = await setupStores();
+    try {
+      const contract = makeContract();
+      const store = new EnforcingContributionStore(contributionStore, contract);
+
+      const parent = makeRecentContribution({ summary: "parent" });
+      await store.put(parent);
+      const child = makeRecentContribution({
+        summary: "child",
+        relations: [{ targetCid: parent.cid, relationType: "derives_from" }],
+      });
+      await store.put(child);
+
+      const related = await store.relatedTo(parent.cid);
+      expect(related).toHaveLength(1);
+      expect(related[0]?.cid).toBe(child.cid);
+    } finally {
+      await cleanup(dir, db);
+    }
+  });
+
+  test("search delegates to inner store", async () => {
+    const { dir, db, contributionStore } = await setupStores();
+    try {
+      const contract = makeContract();
+      const store = new EnforcingContributionStore(contributionStore, contract);
+
+      await store.put(makeRecentContribution({ summary: "quantum search test" }));
+      const results = await store.search("quantum");
+      expect(results).toHaveLength(1);
+    } finally {
+      await cleanup(dir, db);
+    }
+  });
+
+  test("children delegates to inner store", async () => {
+    const { dir, db, contributionStore } = await setupStores();
+    try {
+      const contract = makeContract();
+      const store = new EnforcingContributionStore(contributionStore, contract);
+
+      const parent = makeRecentContribution({ summary: "parent-children" });
+      await store.put(parent);
+      const child = makeRecentContribution({
+        summary: "child-of-parent",
+        relations: [{ targetCid: parent.cid, relationType: "derives_from" }],
+      });
+      await store.put(child);
+
+      const children = await store.children(parent.cid);
+      expect(children).toHaveLength(1);
+      expect(children[0]?.cid).toBe(child.cid);
+    } finally {
+      await cleanup(dir, db);
+    }
+  });
+
+  test("ancestors delegates to inner store", async () => {
+    const { dir, db, contributionStore } = await setupStores();
+    try {
+      const contract = makeContract();
+      const store = new EnforcingContributionStore(contributionStore, contract);
+
+      const parent = makeRecentContribution({ summary: "ancestor" });
+      await store.put(parent);
+      const child = makeRecentContribution({
+        summary: "descendant",
+        relations: [{ targetCid: parent.cid, relationType: "derives_from" }],
+      });
+      await store.put(child);
+
+      const ancestors = await store.ancestors(child.cid);
+      expect(ancestors).toHaveLength(1);
+      expect(ancestors[0]?.cid).toBe(parent.cid);
+    } finally {
+      await cleanup(dir, db);
+    }
+  });
+
+  test("findExisting delegates to inner store", async () => {
+    const { dir, db, contributionStore } = await setupStores();
+    try {
+      const contract = makeContract();
+      const store = new EnforcingContributionStore(contributionStore, contract);
+
+      const target = makeRecentContribution({ summary: "target" });
+      await store.put(target);
+      const review = makeRecentContribution({
+        summary: "review of target",
+        kind: "review",
+        relations: [{ targetCid: target.cid, relationType: "reviews" }],
+      });
+      await store.put(review);
+
+      const found = await store.findExisting(review.agent.agentId, target.cid, "review");
+      expect(found).toHaveLength(1);
+      expect(found[0]?.cid).toBe(review.cid);
+    } finally {
+      await cleanup(dir, db);
+    }
+  });
 });

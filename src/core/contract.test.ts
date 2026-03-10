@@ -333,6 +333,187 @@ describe("parseGroveContractObject", () => {
       "missing required field 'contract_version'",
     );
   });
+
+  test("rejects null input", () => {
+    expect(() => parseGroveContractObject(null)).toThrow("not a valid object");
+  });
+
+  test("rejects invalid V2 schema", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 2,
+        name: "bad",
+        concurrency: { max_active_claims: -1 },
+      }),
+    ).toThrow("Invalid GROVE.md contract (v2)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V2 contract parsing
+// ---------------------------------------------------------------------------
+
+describe("V2 contracts", () => {
+  test("parses V2 contract with concurrency, execution, rate_limits, retry", () => {
+    const content = `---
+contract_version: 2
+name: v2-grove
+concurrency:
+  max_active_claims: 10
+  max_claims_per_agent: 3
+  max_claims_per_target: 1
+execution:
+  default_lease_seconds: 300
+  max_lease_seconds: 3600
+  heartbeat_interval_seconds: 30
+  stall_timeout_seconds: 120
+rate_limits:
+  max_contributions_per_agent_per_hour: 50
+  max_contributions_per_grove_per_hour: 200
+  max_artifact_size_bytes: 10485760
+  max_artifacts_per_contribution: 5
+retry:
+  base_delay_ms: 1000
+  max_backoff_ms: 60000
+  max_attempts: 5
+---
+`;
+    const contract = parseGroveContract(content);
+    expect(contract.contractVersion).toBe(2);
+    expect(contract.name).toBe("v2-grove");
+
+    expect(contract.concurrency?.maxActiveClaims).toBe(10);
+    expect(contract.concurrency?.maxClaimsPerAgent).toBe(3);
+    expect(contract.concurrency?.maxClaimsPerTarget).toBe(1);
+
+    expect(contract.execution?.defaultLeaseSeconds).toBe(300);
+    expect(contract.execution?.maxLeaseSeconds).toBe(3600);
+    expect(contract.execution?.heartbeatIntervalSeconds).toBe(30);
+    expect(contract.execution?.stallTimeoutSeconds).toBe(120);
+
+    expect(contract.rateLimits?.maxContributionsPerAgentPerHour).toBe(50);
+    expect(contract.rateLimits?.maxContributionsPerGrovePerHour).toBe(200);
+    expect(contract.rateLimits?.maxArtifactSizeBytes).toBe(10485760);
+    expect(contract.rateLimits?.maxArtifactsPerContribution).toBe(5);
+
+    expect(contract.retry?.baseDelayMs).toBe(1000);
+    expect(contract.retry?.maxBackoffMs).toBe(60000);
+    expect(contract.retry?.maxAttempts).toBe(5);
+  });
+
+  test("parses minimal V2 contract", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 2,
+      name: "minimal-v2",
+    });
+    expect(contract.contractVersion).toBe(2);
+    expect(contract.concurrency).toBeUndefined();
+    expect(contract.execution).toBeUndefined();
+    expect(contract.rateLimits).toBeUndefined();
+    expect(contract.retry).toBeUndefined();
+  });
+
+  test("rejects unsupported contract_version", () => {
+    expect(() => parseGroveContractObject({ contract_version: 99, name: "bad" })).toThrow(
+      "Unsupported contract_version",
+    );
+  });
+
+  test("rejects defaultLeaseSeconds exceeding maxLeaseSeconds", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 2,
+        name: "bad-lease",
+        execution: {
+          default_lease_seconds: 7200,
+          max_lease_seconds: 3600,
+        },
+      }),
+    ).toThrow("default_lease_seconds");
+  });
+
+  test("rejects heartbeatIntervalSeconds >= stallTimeoutSeconds", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 2,
+        name: "bad-heartbeat",
+        execution: {
+          heartbeat_interval_seconds: 120,
+          stall_timeout_seconds: 60,
+        },
+      }),
+    ).toThrow("heartbeat_interval_seconds");
+  });
+
+  test("rejects per-agent rate exceeding per-grove rate", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 2,
+        name: "bad-rate",
+        rate_limits: {
+          max_contributions_per_agent_per_hour: 100,
+          max_contributions_per_grove_per_hour: 50,
+        },
+      }),
+    ).toThrow("max_contributions_per_agent_per_hour");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gate validation errors
+// ---------------------------------------------------------------------------
+
+describe("gate validation", () => {
+  test("rejects has_artifact gate without name", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 1,
+        name: "test",
+        gates: [{ type: "has_artifact" }],
+      }),
+    ).toThrow("Invalid GROVE.md contract");
+  });
+
+  test("rejects has_relation gate without relation_type", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 1,
+        name: "test",
+        gates: [{ type: "has_relation" }],
+      }),
+    ).toThrow("Invalid GROVE.md contract");
+  });
+
+  test("rejects min_reviews gate without count", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 1,
+        name: "test",
+        gates: [{ type: "min_reviews" }],
+      }),
+    ).toThrow("Invalid GROVE.md contract");
+  });
+
+  test("rejects min_score gate without metric", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 1,
+        name: "test",
+        gates: [{ type: "min_score", threshold: 0.5 }],
+      }),
+    ).toThrow("Invalid GROVE.md contract");
+  });
+
+  test("rejects min_score gate without threshold", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 1,
+        name: "test",
+        metrics: { acc: { direction: "maximize" } },
+        gates: [{ type: "min_score", metric: "acc" }],
+      }),
+    ).toThrow("Invalid GROVE.md contract");
+  });
 });
 
 // ---------------------------------------------------------------------------
