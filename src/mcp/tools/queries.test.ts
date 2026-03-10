@@ -200,9 +200,9 @@ describe("grove_log", () => {
     await testDeps.cleanup();
   });
 
-  test("returns recent contributions", async () => {
-    const c1 = makeContribution({ summary: "First" });
-    const c2 = makeContribution({ summary: "Second" });
+  test("returns recent contributions in newest-first order", async () => {
+    const c1 = makeContribution({ summary: "First", createdAt: "2026-01-01T00:00:00Z" });
+    const c2 = makeContribution({ summary: "Second", createdAt: "2026-01-02T00:00:00Z" });
     await deps.contributionStore.put(c1);
     await deps.contributionStore.put(c2);
 
@@ -212,6 +212,9 @@ describe("grove_log", () => {
     const data = JSON.parse(result.text);
     expect(data.results.length).toBe(2);
     expect(data.count).toBe(2);
+    // Newest first
+    expect(data.results[0].summary).toBe("Second");
+    expect(data.results[1].summary).toBe("First");
   });
 
   test("returns empty for empty grove", async () => {

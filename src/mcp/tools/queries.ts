@@ -250,7 +250,8 @@ export function registerQueryTools(server: McpServer, deps: McpDeps): void {
           offset: args.offset,
         });
 
-        const summaries = results.map(toSummary);
+        // Store returns oldest-first; reverse for newest-first as promised by the tool contract
+        const summaries = results.map(toSummary).reverse();
 
         return {
           content: [
