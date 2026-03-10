@@ -226,20 +226,40 @@ export class FsCas implements ContentStore {
    * arbitrarily large files can be stored in constant memory.
    * Preferred over `put()` for large artifacts.
    *
-   * The source file is read twice: once to hash, once to copy.
-   * Callers must ensure the source file is not modified during this call;
-   * otherwise the stored blob may not match its content hash.
+   * The source file is copied to a staging temp file first, then the
+   * temp file is hashed. This guarantees the stored blob always matches
+   * its content hash — no two-pass TOCTOU window on the source.
    */
   async putFile(path: string, options?: PutOptions): Promise<string> {
-    // Stream the file to compute BLAKE3 hash incrementally.
+    // Stage: copy source to a temp file so we have an immutable snapshot.
+    // We use the CAS root for temp files to ensure same-filesystem rename.
+    await mkdir(this.rootPath, { recursive: true });
+    const stagingFile = join(
+      this.rootPath,
+      `.staging.${Date.now()}.${randomBytes(4).toString("hex")}`,
+    );
+    try {
+      await copyFile(path, stagingFile);
+    } catch (err) {
+      // Clean up staging file on copy failure (may not exist yet)
+      try {
+        await unlink(stagingFile);
+      } catch {
+        /* ignore cleanup errors */
+      }
+      throw err;
+    }
+
+    // Hash the staged copy — this is the single source of truth.
     // dispose() frees native WASM memory if the stream errors before digest().
     const hasher = createBlake3();
     try {
-      for await (const chunk of createReadStream(path)) {
+      for await (const chunk of createReadStream(stagingFile)) {
         hasher.update(chunk);
       }
     } catch (err) {
       hasher.dispose();
+      await unlink(stagingFile).catch(() => {});
       throw err;
     }
     // Note: digest() internally frees the native WASM handle.
@@ -247,21 +267,22 @@ export class FsCas implements ContentStore {
     const contentHash = `${HASH_PREFIX}${hasher.digest("hex")}`;
     const { blobPath, metaPath } = this.resolve(contentHash);
 
-    // Skip copy if content already exists
+    // Skip rename if content already exists
     try {
       await fsStat(blobPath);
+      await unlink(stagingFile).catch(() => {});
       await this.writeMeta(metaPath, options);
       return contentHash;
     } catch (err) {
-      if (!isNotFound(err)) throw err;
+      if (!isNotFound(err)) {
+        await unlink(stagingFile).catch(() => {});
+        throw err;
+      }
     }
 
+    // Atomic placement: rename staged temp into the content-addressed path
     await this.ensureDir(blobPath);
-
-    // Atomic write: copy source to temp file, then rename into place
-    const tmpFile = `${blobPath}.tmp.${Date.now()}.${randomBytes(4).toString("hex")}`;
-    await copyFile(path, tmpFile);
-    await rename(tmpFile, blobPath);
+    await rename(stagingFile, blobPath);
 
     await this.writeMeta(metaPath, options);
     return contentHash;
@@ -277,17 +298,24 @@ export class FsCas implements ContentStore {
   async getToFile(contentHash: string, path: string): Promise<boolean> {
     const { blobPath } = this.resolve(contentHash);
 
-    // Verify source blob exists first so we can distinguish
-    // "blob not found" (return false) from destination errors (throw).
     try {
-      await fsStat(blobPath);
+      await copyFile(blobPath, path);
+      return true;
     } catch (err) {
-      if (isNotFound(err)) return false;
+      if (!isNotFound(err)) throw err;
+
+      // ENOENT could mean the source blob is missing (return false)
+      // or the destination parent directory doesn't exist (rethrow).
+      // Disambiguate by checking the source.
+      try {
+        await fsStat(blobPath);
+      } catch {
+        // Source doesn't exist — blob not found
+        return false;
+      }
+      // Source exists but dest path is invalid — rethrow original error
       throw err;
     }
-
-    await copyFile(blobPath, path);
-    return true;
   }
 
   /**
