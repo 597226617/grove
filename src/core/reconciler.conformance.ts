@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ClaimStatus } from "./models.js";
 import type { Reconciler } from "./reconciler.js";
-import { ExpiryReason } from "./store.js";
 import type { ClaimStore } from "./store.js";
+import { ExpiryReason } from "./store.js";
 import { makeClaim } from "./test-helpers.js";
 
 /** Factory for creating test instances. */

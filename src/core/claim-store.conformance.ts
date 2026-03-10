@@ -665,4 +665,3 @@ export function runClaimStoreTests(factory: ClaimStoreFactory): void {
     });
   });
 }
-

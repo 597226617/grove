@@ -56,9 +56,9 @@ export {
   validateWorkspaceKey,
 } from "./path-safety.js";
 export type {
+  ReconcileResult,
   Reconciler,
   ReconcilerConfig,
-  ReconcileResult,
   StartupReconcileResult,
 } from "./reconciler.js";
 export { DefaultReconciler } from "./reconciler.js";
