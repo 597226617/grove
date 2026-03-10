@@ -46,3 +46,18 @@ describe("parseImportArgs", () => {
     expect(() => parseImportArgs(["--from-pr", "owner/repo#0"])).toThrow(/positive integer/);
   });
 });
+
+describe("handleImport", () => {
+  test("--help prints usage without requiring other args", async () => {
+    const { handleImport } = await import("./import.js");
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.join(" "));
+    try {
+      await handleImport(["--help"]);
+      expect(logs.some((l) => l.includes("grove import"))).toBe(true);
+    } finally {
+      console.log = origLog;
+    }
+  });
+});

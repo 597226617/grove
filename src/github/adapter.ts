@@ -116,13 +116,16 @@ export function createGitHubAdapter(options: GitHubAdapterOptions) {
 
       const { title, body, branchName } = contributionToPRBody(contribution);
 
-      // Collect artifact contents from CAS
+      // Collect artifact contents from CAS — fail if any are missing
       const files = new Map<string, Uint8Array>();
       for (const [name, hash] of Object.entries(contribution.artifacts)) {
         const data = await cas.get(hash);
-        if (data) {
-          files.set(name, data);
+        if (!data) {
+          throw new Error(
+            `Artifact '${name}' with hash '${hash}' not found in CAS. Cannot export incomplete contribution.`,
+          );
         }
+        files.set(name, data);
       }
 
       // Get default branch for base

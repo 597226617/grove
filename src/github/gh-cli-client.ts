@@ -240,7 +240,23 @@ export async function createGhCliClient(): Promise<GitHubClient> {
     },
 
     getDiscussion: async (ref: DiscussionRef): Promise<GitHubDiscussion> => {
-      const data = await ghApiGraphql<{
+      type CommentNode = {
+        id: string;
+        body: string;
+        createdAt: string;
+        isAnswer: boolean;
+        author: { login: string } | null;
+        replies: {
+          nodes: Array<{
+            id: string;
+            body: string;
+            createdAt: string;
+            author: { login: string } | null;
+          }>;
+        };
+      };
+
+      type DiscussionResponse = {
         repository: {
           discussion: {
             number: number;
@@ -251,33 +267,22 @@ export async function createGhCliClient(): Promise<GitHubClient> {
             author: { login: string } | null;
             category: { name: string };
             comments: {
-              nodes: Array<{
-                id: string;
-                body: string;
-                createdAt: string;
-                isAnswer: boolean;
-                author: { login: string } | null;
-                replies: {
-                  nodes: Array<{
-                    id: string;
-                    body: string;
-                    createdAt: string;
-                    author: { login: string } | null;
-                  }>;
-                };
-              }>;
+              nodes: CommentNode[];
               pageInfo: { hasNextPage: boolean; endCursor: string };
             };
           } | null;
         };
-      }>(
-        `query($owner: String!, $repo: String!, $number: Int!) {
+      };
+
+      // Build the query with optional cursor for pagination
+      const buildQuery = (withCursor: boolean) =>
+        `query($owner: String!, $repo: String!, $number: Int!${withCursor ? ", $cursor: String!" : ""}) {
           repository(owner: $owner, name: $repo) {
             discussion(number: $number) {
               number title body url createdAt
               author { login }
               category { name }
-              comments(first: 100) {
+              comments(first: 100${withCursor ? ", after: $cursor" : ""}) {
                 nodes {
                   id body createdAt isAnswer
                   author { login }
@@ -292,18 +297,45 @@ export async function createGhCliClient(): Promise<GitHubClient> {
               }
             }
           }
-        }`,
-        { owner: ref.owner, repo: ref.repo, number: ref.number },
-      );
+        }`;
 
-      const disc = data.repository.discussion;
+      // First page
+      const firstPage = await ghApiGraphql<DiscussionResponse>(buildQuery(false), {
+        owner: ref.owner,
+        repo: ref.repo,
+        number: ref.number,
+      });
+
+      const disc = firstPage.repository.discussion;
       if (!disc) {
         throw new (await import("./errors.js")).GitHubNotFoundError(
           `Discussion #${ref.number} in ${ref.owner}/${ref.repo}`,
         );
       }
 
-      const comments: DiscussionComment[] = disc.comments.nodes.map((c) => ({
+      // Collect all comment nodes, paginating if needed (max 10 pages to bound)
+      const allNodes: CommentNode[] = [...disc.comments.nodes];
+      let pageInfo = disc.comments.pageInfo;
+      let pages = 1;
+      const maxPages = 10;
+
+      while (pageInfo.hasNextPage && pages < maxPages) {
+        const nextPage = await ghApiGraphql<DiscussionResponse>(buildQuery(true), {
+          owner: ref.owner,
+          repo: ref.repo,
+          number: ref.number,
+          cursor: pageInfo.endCursor,
+        });
+
+        const nextDisc = nextPage.repository.discussion;
+        if (!nextDisc) break;
+
+        allNodes.push(...nextDisc.comments.nodes);
+        pageInfo = nextDisc.comments.pageInfo;
+        pages++;
+      }
+
+      const comments: DiscussionComment[] = allNodes.map((c) => ({
         id: c.id,
         body: c.body,
         author: c.author?.login ?? "unknown",
@@ -356,6 +388,7 @@ export async function createGhCliClient(): Promise<GitHubClient> {
         title: string;
         body: string | null;
         state: string;
+        merged: boolean;
         html_url: string;
         created_at: string;
         user: { login: string } | null;
@@ -416,11 +449,17 @@ export async function createGhCliClient(): Promise<GitHubClient> {
         diffHunk: c.diff_hunk,
       }));
 
+      // GitHub REST API reports merged PRs as state:"closed" with merged:true.
+      // Normalize to our "open" | "closed" | "merged" union.
+      const state: GitHubPR["state"] = prData.merged
+        ? "merged"
+        : (prData.state as "open" | "closed");
+
       return {
         number: prData.number,
         title: prData.title,
         body: prData.body ?? "",
-        state: prData.state as GitHubPR["state"],
+        state,
         url: prData.html_url,
         author: prData.user?.login ?? "unknown",
         baseBranch: prData.base.ref,
@@ -489,15 +528,18 @@ export async function createGhCliClient(): Promise<GitHubClient> {
         for (const [filePath, content] of params.files) {
           const fullPath = join(tmpDir, filePath);
           const dir = fullPath.slice(0, fullPath.lastIndexOf("/"));
-          await Bun.write(fullPath, content);
-          // Ensure parent dirs exist (writeFile doesn't create them)
+          // Ensure parent dirs exist before writing
           await spawnCommand(["mkdir", "-p", dir]);
+          await Bun.write(fullPath, content);
         }
 
         // Stage and commit
-        await spawnOrThrow(["git", "add", "."], { cwd: tmpDir }, "git add");
+        const hasFiles = params.files.size > 0;
+        if (hasFiles) {
+          await spawnOrThrow(["git", "add", "."], { cwd: tmpDir }, "git add");
+        }
         await spawnOrThrow(
-          ["git", "commit", "-m", params.commitMessage],
+          ["git", "commit", ...(hasFiles ? [] : ["--allow-empty"]), "-m", params.commitMessage],
           { cwd: tmpDir },
           "git commit",
         );

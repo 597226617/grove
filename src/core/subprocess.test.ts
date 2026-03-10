@@ -40,6 +40,12 @@ describe("spawnCommand", () => {
     const result = await spawnCommand(["sh", "-c", "echo line1; echo line2"]);
     expect(result.stdout.trim()).toBe("line1\nline2");
   });
+
+  test("returns exit code 127 when executable not found", async () => {
+    const result = await spawnCommand(["definitely-not-a-binary-in-path"]);
+    expect(result.exitCode).toBe(127);
+    expect(result.stderr).toBeTruthy();
+  });
 });
 
 describe("spawnOrThrow", () => {

@@ -11,6 +11,7 @@ import type { Contribution, ContributionInput } from "../core/models.js";
 import { ContributionKind, ContributionMode } from "../core/models.js";
 import { InMemoryContributionStore } from "../core/testing.js";
 import { createGitHubAdapter } from "./adapter.js";
+import type { PushBranchParams } from "./client.js";
 import { GitHubNotFoundError, GitHubValidationError } from "./errors.js";
 import {
   InMemoryGitHubClient,
@@ -209,7 +210,8 @@ describe("exportToPR", () => {
     // Verify branch was pushed with correct files
     const branches = client.getPushedBranches(repo);
     expect(branches.size).toBe(1);
-    const [branchName, pushParams] = [...branches.entries()][0]!;
+    // Size asserted above guarantees at least one entry
+    const [branchName, pushParams] = [...branches.entries()][0] as [string, PushBranchParams];
     expect(branchName).toContain("grove/work/");
     expect(pushParams.files.has("src/index.ts")).toBe(true);
   });
@@ -228,6 +230,23 @@ describe("exportToPR", () => {
     const result = await adapter.exportToPR(repo, contribution.cid);
 
     expect(result.prNumber).toBeGreaterThan(0);
+  });
+
+  test("throws when artifact missing from CAS", async () => {
+    const store = new InMemoryContributionStore();
+    const cas = new InMemoryCas();
+    const client = new InMemoryGitHubClient();
+    const repo = { owner: "test", repo: "repo" };
+    client.seedRepo(repo);
+
+    // Create contribution referencing an artifact hash that doesn't exist in CAS
+    const contribution = makeContribution({
+      artifacts: { "src/index.ts": "blake3:does_not_exist_in_cas" },
+    });
+    await store.put(contribution);
+
+    const adapter = createGitHubAdapter({ client, store, cas, agent: testAgent });
+    await expect(adapter.exportToPR(repo, contribution.cid)).rejects.toThrow(/not found in CAS/);
   });
 
   test("throws when contribution not found", async () => {
@@ -287,11 +306,11 @@ describe("importFromPR", () => {
     expect(result.contribution.description).toBe("This fixes the thing");
 
     // Verify diff was stored as artifact
-    expect(result.contribution.artifacts).toHaveProperty("diff");
-    const diffHash = result.contribution.artifacts.diff!;
-    const diffData = await cas.get(diffHash);
+    const diffHash = result.contribution.artifacts.diff;
+    expect(diffHash).toBeDefined();
+    const diffData = await cas.get(diffHash as string);
     expect(diffData).toBeDefined();
-    expect(new TextDecoder().decode(diffData!)).toContain("diff --git");
+    expect(new TextDecoder().decode(diffData as Uint8Array)).toContain("diff --git");
 
     // Verify file patches stored (use array to avoid dot-splitting in key)
     expect(result.contribution.artifacts["patches/src/fix.ts"]).toBeDefined();

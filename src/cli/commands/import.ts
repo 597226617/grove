@@ -58,16 +58,16 @@ export function parseImportArgs(argv: readonly string[]): ImportOptions {
   return { fromPR, fromDiscussion, ref };
 }
 
-export async function handleImport(argv: readonly string[]): Promise<void> {
-  const options = parseImportArgs(argv);
-
-  // Check for --help
+export async function handleImport(argv: readonly string[], groveOverride?: string): Promise<void> {
+  // Check for --help before strict arg parsing
   if (argv.includes("--help") || argv.includes("-h")) {
     printImportHelp();
     return;
   }
 
-  const deps = initCliDeps(process.cwd());
+  const options = parseImportArgs(argv);
+
+  const deps = initCliDeps(process.cwd(), groveOverride);
   try {
     const client = await createGhCliClient();
 

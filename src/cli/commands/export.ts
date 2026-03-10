@@ -59,16 +59,16 @@ export function parseExportArgs(argv: readonly string[]): ExportOptions {
   return { toDiscussion, toPR, repoRef, cid, category };
 }
 
-export async function handleExport(argv: readonly string[]): Promise<void> {
-  const options = parseExportArgs(argv);
-
-  // Check for --help
+export async function handleExport(argv: readonly string[], groveOverride?: string): Promise<void> {
+  // Check for --help before strict arg parsing
   if (argv.includes("--help") || argv.includes("-h")) {
     printExportHelp();
     return;
   }
 
-  const deps = initCliDeps(process.cwd());
+  const options = parseExportArgs(argv);
+
+  const deps = initCliDeps(process.cwd(), groveOverride);
   try {
     const client = await createGhCliClient();
     const repo = parseRepoRef(options.repoRef);

@@ -45,11 +45,19 @@ export async function spawnCommand(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const _maxBufferBytes = options?.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
 
-  const proc = Bun.spawn([...cmd], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  let proc: import("bun").Subprocess<"pipe", "pipe", "pipe">;
+  try {
+    proc = Bun.spawn([...cmd], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch (err: unknown) {
+    // Bun.spawn throws immediately when the executable is not found in $PATH.
+    // Return a synthetic non-zero result so callers can handle it uniformly.
+    const message = err instanceof Error ? err.message : String(err);
+    return { stdout: "", stderr: message, exitCode: 127 };
+  }
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     const id = setTimeout(() => {

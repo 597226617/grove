@@ -116,7 +116,7 @@ function buildCommands(groveOverride: string | undefined): readonly Command[] {
       needsStore: false,
       handler: async (args) => {
         const { handleExport } = await import("./commands/export.js");
-        await handleExport(args);
+        await handleExport(args, groveOverride);
       },
     },
     {
@@ -125,7 +125,7 @@ function buildCommands(groveOverride: string | undefined): readonly Command[] {
       needsStore: false,
       handler: async (args) => {
         const { handleImport } = await import("./commands/import.js");
-        await handleImport(args);
+        await handleImport(args, groveOverride);
       },
     },
     {

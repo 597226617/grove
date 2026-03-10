@@ -66,3 +66,18 @@ describe("parseExportArgs", () => {
     );
   });
 });
+
+describe("handleExport", () => {
+  test("--help prints usage without requiring other args", async () => {
+    const { handleExport } = await import("./export.js");
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.join(" "));
+    try {
+      await handleExport(["--help"]);
+      expect(logs.some((l) => l.includes("grove export"))).toBe(true);
+    } finally {
+      console.log = origLog;
+    }
+  });
+});
