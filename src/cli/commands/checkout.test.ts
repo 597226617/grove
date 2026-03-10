@@ -3,7 +3,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DefaultFrontierCalculator } from "../../core/frontier.js";
@@ -11,7 +12,6 @@ import { ScoreDirection } from "../../core/models.js";
 import { makeContribution } from "../../core/test-helpers.js";
 import { FsCas } from "../../local/fs-cas.js";
 import { initSqliteDb, SqliteContributionStore } from "../../local/sqlite-store.js";
-import { LocalWorkspaceManager } from "../../local/workspace.js";
 import type { CliDeps } from "../context.js";
 import { parseCheckoutArgs, runCheckout } from "./checkout.js";
 
@@ -27,22 +27,15 @@ beforeEach(async () => {
   const store = new SqliteContributionStore(db);
   const cas = new FsCas(join(groveDir, "cas"));
   const frontier = new DefaultFrontierCalculator(store);
-  const workspace = new LocalWorkspaceManager({
-    groveRoot: groveDir,
-    db,
-    contributionStore: store,
-    cas,
-  });
 
   deps = {
     store,
     frontier,
-    workspace,
+    workspace: undefined as never, // checkout no longer uses workspace manager
     cas,
     groveRoot: tmpDir,
     close: () => {
       store.close();
-      workspace.close();
     },
   };
 });
@@ -92,8 +85,7 @@ describe("parseCheckoutArgs", () => {
 // ---------------------------------------------------------------------------
 
 describe("runCheckout", () => {
-  test("checks out a contribution by CID", async () => {
-    // Create a contribution with an artifact in CAS
+  test("checks out artifacts to the --to directory", async () => {
     const data = new TextEncoder().encode("hello world");
     const hash = await deps.cas.put(data);
 
@@ -103,15 +95,40 @@ describe("runCheckout", () => {
     });
     await deps.store.put(c);
 
+    const outDir = join(tmpDir, "requested-output");
     const output: string[] = [];
-    await runCheckout({ cid: c.cid, to: join(tmpDir, "out"), agent: "test-agent" }, deps, (s) =>
-      output.push(s),
-    );
+    await runCheckout({ cid: c.cid, to: outDir, agent: "test-agent" }, deps, (s) => output.push(s));
+
+    // Verify the file actually exists in the requested --to directory
+    const destFile = join(outDir, "readme.txt");
+    expect(existsSync(destFile)).toBe(true);
+    const content = await readFile(destFile, "utf-8");
+    expect(content).toBe("hello world");
 
     const text = output.join("\n");
     expect(text).toContain("Checked out");
+    expect(text).toContain(outDir);
     expect(text).toContain("test checkout");
     expect(text).toContain("Artifacts: 1");
+  });
+
+  test("checks out nested artifacts", async () => {
+    const data = new TextEncoder().encode("nested content");
+    const hash = await deps.cas.put(data);
+
+    const c = makeContribution({
+      summary: "nested test",
+      artifacts: { "src/main.py": hash },
+    });
+    await deps.store.put(c);
+
+    const outDir = join(tmpDir, "nested-out");
+    await runCheckout({ cid: c.cid, to: outDir, agent: "test-agent" }, deps);
+
+    const destFile = join(outDir, "src", "main.py");
+    expect(existsSync(destFile)).toBe(true);
+    const content = await readFile(destFile, "utf-8");
+    expect(content).toBe("nested content");
   });
 
   test("resolves CID from frontier metric", async () => {
@@ -121,9 +138,10 @@ describe("runCheckout", () => {
     });
     await deps.store.put(c);
 
+    const outDir = join(tmpDir, "frontier-out");
     const output: string[] = [];
     await runCheckout(
-      { frontierMetric: "throughput", to: join(tmpDir, "out"), agent: "test-agent" },
+      { frontierMetric: "throughput", to: outDir, agent: "test-agent" },
       deps,
       (s) => output.push(s),
     );

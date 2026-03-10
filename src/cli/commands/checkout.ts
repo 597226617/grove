@@ -6,8 +6,15 @@
  *   grove checkout --frontier throughput --to ./workspace/
  */
 
+import { mkdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import {
+  assertWithinBoundary,
+  ensureArtifactParentDir,
+  validateArtifactName,
+} from "../../core/path-safety.js";
 import type { CliDeps, Writer } from "../context.js";
 import { truncateCid } from "../format.js";
 
@@ -87,14 +94,25 @@ export async function runCheckout(
     throw new Error(`Contribution '${targetCid}' not found.`);
   }
 
-  const workspace = await deps.workspace.checkout(targetCid, {
-    agent: { agentId: options.agent },
-  });
+  // Materialize artifacts into the user-specified --to directory
+  const destDir = resolve(options.to);
+  await mkdir(destDir, { recursive: true });
 
-  writer(`Checked out ${truncateCid(targetCid)} to ${workspace.workspacePath}`);
-  writer(`  Kind: ${contribution.kind}`);
-  writer(`  Summary: ${contribution.summary}`);
+  for (const [name, contentHash] of Object.entries(contribution.artifacts)) {
+    validateArtifactName(name);
+    const destPath = join(destDir, name);
+    await assertWithinBoundary(destPath, destDir);
+    await ensureArtifactParentDir(name, destDir);
+
+    const found = await deps.cas.getToFile(contentHash, destPath);
+    if (!found) {
+      throw new Error(`Artifact '${name}' with hash '${contentHash}' not found in CAS.`);
+    }
+  }
 
   const artifactCount = Object.keys(contribution.artifacts).length;
+  writer(`Checked out ${truncateCid(targetCid)} to ${destDir}`);
+  writer(`  Kind: ${contribution.kind}`);
+  writer(`  Summary: ${contribution.summary}`);
   writer(`  Artifacts: ${artifactCount}`);
 }

@@ -150,6 +150,43 @@ describe("runTree", () => {
     expect(text).not.toContain("unrelated");
   });
 
+  test("subtree traversal excludes review/reproduction relations", async () => {
+    const root = makeContribution({ summary: "root-node" });
+    const child = makeContribution({
+      summary: "child-node",
+      relations: [makeRelation({ targetCid: root.cid, relationType: RelationType.DerivesFrom })],
+      createdAt: "2026-01-02T00:00:00Z",
+    });
+    // A review that reviews the child — should NOT be traversed
+    const review = makeContribution({
+      summary: "review-node",
+      kind: "review" as const,
+      relations: [makeRelation({ targetCid: child.cid, relationType: RelationType.Reviews })],
+      createdAt: "2026-01-03T00:00:00Z",
+    });
+    // A reproduction that reproduces the child — should NOT be traversed
+    const repro = makeContribution({
+      summary: "repro-node",
+      kind: "reproduction" as const,
+      relations: [makeRelation({ targetCid: child.cid, relationType: RelationType.Reproduces })],
+      createdAt: "2026-01-04T00:00:00Z",
+    });
+
+    await deps.store.put(root);
+    await deps.store.put(child);
+    await deps.store.put(review);
+    await deps.store.put(repro);
+
+    const output: string[] = [];
+    await runTree({ from: child.cid, depth: 10, json: false }, deps, (s) => output.push(s));
+
+    const text = output.join("\n");
+    expect(text).toContain("child-node");
+    expect(text).toContain("root-node"); // ancestor via derives_from
+    expect(text).not.toContain("review-node"); // reviews relation excluded
+    expect(text).not.toContain("repro-node"); // reproduces relation excluded
+  });
+
   test("throws for missing --from CID", async () => {
     const badCid = "blake3:0000000000000000000000000000000000000000000000000000000000000000";
     await expect(runTree({ from: badCid, depth: 10, json: false }, deps)).rejects.toThrow(

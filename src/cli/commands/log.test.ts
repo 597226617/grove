@@ -110,22 +110,20 @@ describe("runLog", () => {
     expect(secondIdx).toBeLessThan(firstIdx);
   });
 
-  test("respects limit", async () => {
-    const c1 = makeContribution({ summary: "A", createdAt: "2026-01-01T00:00:00Z" });
-    const c2 = makeContribution({ summary: "B", createdAt: "2026-01-02T00:00:00Z" });
+  test("limit returns newest, not oldest (sort-before-slice)", async () => {
+    const oldest = makeContribution({ summary: "oldest-item", createdAt: "2026-01-01T00:00:00Z" });
+    const newest = makeContribution({ summary: "newest-item", createdAt: "2026-01-02T00:00:00Z" });
 
-    await deps.store.put(c1);
-    await deps.store.put(c2);
+    await deps.store.put(oldest);
+    await deps.store.put(newest);
 
     const output: string[] = [];
     await runLog({ limit: 1, json: false }, deps, (s) => output.push(s));
 
-    // Should only show 1 contribution
     const text = output.join("\n");
-    const lines = text
-      .split("\n")
-      .filter((l) => l.trim() && !l.startsWith("CID") && !l.startsWith("-"));
-    expect(lines.length).toBe(1);
+    // -n 1 must return the newest contribution, not the oldest
+    expect(text).toContain("newest-item");
+    expect(text).not.toContain("oldest-item");
   });
 
   test("outputs JSON when requested", async () => {

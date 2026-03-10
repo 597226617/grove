@@ -75,21 +75,23 @@ export async function runSearch(
   deps: CliDeps,
   writer: Writer = console.log,
 ): Promise<void> {
+  // Fetch all matching results (no limit yet — we must sort first, then slice)
   const filters: ContributionQuery = {
     kind: options.kind as ContributionKind | undefined,
     mode: options.mode as ContributionMode | undefined,
     tags: options.tag !== undefined ? [options.tag] : undefined,
     agentName: options.agent,
-    limit: options.limit,
   };
 
   let results = options.query
     ? await deps.store.search(options.query, filters)
     : await deps.store.list(filters);
 
-  // Sort
+  // Sort, then apply limit
   if (options.sort === "recency") {
-    results = [...results].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    results = [...results]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(0, options.limit);
   } else if (options.sort === "adoption") {
     // Count adoption + derives_from relations pointing at each result
     const allContributions = await deps.store.list();
@@ -107,9 +109,9 @@ export async function runSearch(
         }
       }
     }
-    results = [...results].sort(
-      (a, b) => (adoptionCounts.get(b.cid) ?? 0) - (adoptionCounts.get(a.cid) ?? 0),
-    );
+    results = [...results]
+      .sort((a, b) => (adoptionCounts.get(b.cid) ?? 0) - (adoptionCounts.get(a.cid) ?? 0))
+      .slice(0, options.limit);
   }
 
   if (options.json) {

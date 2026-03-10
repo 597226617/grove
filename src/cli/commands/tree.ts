@@ -11,6 +11,7 @@
 import { parseArgs } from "node:util";
 
 import type { Contribution } from "../../core/models.js";
+import { RelationType } from "../../core/models.js";
 import type { CliDeps, Writer } from "../context.js";
 import { contributionsToDagNodes, formatDag, renderDag } from "../format-dag.js";
 
@@ -78,9 +79,10 @@ async function collectSubgraph(
       }
     }
 
-    // Also follow incoming edges (children that derive from this node)
-    const children = await deps.store.children(item.cid);
-    for (const child of children) {
+    // Follow incoming derives_from and adopts edges (children of this node)
+    const derivesChildren = await deps.store.relatedTo(item.cid, RelationType.DerivesFrom);
+    const adoptsChildren = await deps.store.relatedTo(item.cid, RelationType.Adopts);
+    for (const child of [...derivesChildren, ...adoptsChildren]) {
       if (!visited.has(child.cid)) {
         queue.push({ cid: child.cid, depth: item.depth + 1 });
       }

@@ -170,6 +170,43 @@ describe("runSearch", () => {
     expect(popularIdx).toBeLessThan(unpopularIdx);
   });
 
+  test("limit returns most-adopted, not dropped (sort-before-slice)", async () => {
+    const popular = makeContribution({ summary: "popular-item" });
+    const unpopular = makeContribution({
+      summary: "unpopular-item",
+      createdAt: "2026-01-02T00:00:00Z",
+    });
+
+    await deps.store.put(popular);
+    await deps.store.put(unpopular);
+
+    // Create two adoptions for the popular contribution
+    const adopter1 = makeContribution({
+      summary: "adopter 1",
+      kind: ContributionKind.Adoption,
+      relations: [makeRelation({ targetCid: popular.cid, relationType: RelationType.Adopts })],
+      createdAt: "2026-01-03T00:00:00Z",
+    });
+    const adopter2 = makeContribution({
+      summary: "adopter 2",
+      kind: ContributionKind.Adoption,
+      relations: [makeRelation({ targetCid: popular.cid, relationType: RelationType.Adopts })],
+      createdAt: "2026-01-04T00:00:00Z",
+    });
+    await deps.store.put(adopter1);
+    await deps.store.put(adopter2);
+
+    const output: string[] = [];
+    // -n 1 with adoption sort must return the most-adopted item, not an arbitrary one
+    await runSearch({ kind: "work", sort: "adoption", limit: 1, json: false }, deps, (s) =>
+      output.push(s),
+    );
+
+    const text = output.join("\n");
+    expect(text).toContain("popular-item");
+    expect(text).not.toContain("unpopular-item");
+  });
+
   test("outputs JSON when requested", async () => {
     const c = makeContribution({ summary: "json search" });
     await deps.store.put(c);

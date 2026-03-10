@@ -55,18 +55,18 @@ export async function runLog(
   deps: CliDeps,
   writer: Writer = console.log,
 ): Promise<void> {
+  // Fetch all matching contributions (no limit yet — we must sort first)
   const query: ContributionQuery = {
     kind: options.kind as ContributionQuery["kind"],
     mode: options.mode as ContributionQuery["mode"],
-    limit: options.limit,
   };
 
   const contributions = await deps.store.list(query);
 
-  // Sort by createdAt descending (most recent first)
-  const sorted = [...contributions].sort(
-    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
-  );
+  // Sort by createdAt descending (most recent first), then apply limit
+  const sorted = [...contributions]
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, options.limit);
 
   if (options.json) {
     writer(JSON.stringify(sorted, null, 2));
