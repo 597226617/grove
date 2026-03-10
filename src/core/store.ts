@@ -33,6 +33,19 @@ export interface ContributionQuery {
 
 /** Store for immutable contributions and their typed relations. */
 export interface ContributionStore {
+  /**
+   * Optional persistent-state identity string.
+   *
+   * Stores backed by the same persistent state (e.g., the same SQLite
+   * database file) should return the same string so that enforcement
+   * wrappers can share a single write-serialization mutex across
+   * independently-constructed store objects.
+   *
+   * Stores that do not set this property fall back to per-object
+   * identity (WeakMap), which is safe only when a single wrapper
+   * exists per backing store.
+   */
+  readonly storeIdentity?: string | undefined;
   /** Store a contribution (idempotent — same CID is a no-op). */
   put(contribution: Contribution): Promise<void>;
 
@@ -121,6 +134,9 @@ export interface ExpireStaleOptions {
 
 /** Store for mutable claims (coordination objects). */
 export interface ClaimStore {
+  /** Optional persistent-state identity string. See ContributionStore.storeIdentity. */
+  readonly storeIdentity?: string | undefined;
+
   /** Create a new claim. Throws if claimId already exists. */
   createClaim(claim: Claim): Promise<Claim>;
 

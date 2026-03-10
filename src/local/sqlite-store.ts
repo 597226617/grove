@@ -446,6 +446,7 @@ function rowToClaim(row: ClaimRow, statusOverride?: ClaimStatus): Claim {
  * table for indexed tag queries, and cached prepared statements for hot paths.
  */
 export class SqliteContributionStore implements ContributionStore {
+  readonly storeIdentity: string;
   private readonly db: Database;
 
   // Cached prepared statements for fixed queries
@@ -460,6 +461,7 @@ export class SqliteContributionStore implements ContributionStore {
 
   constructor(db: Database) {
     this.db = db;
+    this.storeIdentity = db.filename;
 
     this.stmtGetByCid = db.query("SELECT manifest_json FROM contributions WHERE cid = ?");
     this.stmtInsertContribution = db.query(
@@ -718,6 +720,7 @@ const CLAIM_SELECT_COLS = `claim_id, target_ref, agent_id, status, intent_summar
  * for heartbeat and state transitions, and UPDATE RETURNING for expiry.
  */
 export class SqliteClaimStore implements ClaimStore {
+  readonly storeIdentity: string;
   private readonly db: Database;
 
   // Cached prepared statements
@@ -725,6 +728,7 @@ export class SqliteClaimStore implements ClaimStore {
 
   constructor(db: Database) {
     this.db = db;
+    this.storeIdentity = db.filename;
 
     this.stmtGetClaim = db.query(`SELECT ${CLAIM_SELECT_COLS} FROM claims WHERE claim_id = ?`);
   }
@@ -1082,6 +1086,7 @@ export class SqliteClaimStore implements ClaimStore {
  * new code.
  */
 export class SqliteStore implements ContributionStore, ClaimStore {
+  readonly storeIdentity: string;
   readonly dbPath: string;
   private readonly db: Database;
   private readonly contributions: SqliteContributionStore;
@@ -1090,6 +1095,7 @@ export class SqliteStore implements ContributionStore, ClaimStore {
   constructor(dbPath: string) {
     this.dbPath = dbPath;
     this.db = initSqliteDb(dbPath);
+    this.storeIdentity = this.db.filename;
     this.contributions = new SqliteContributionStore(this.db);
     this.claims = new SqliteClaimStore(this.db);
   }

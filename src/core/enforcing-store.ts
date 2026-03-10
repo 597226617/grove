@@ -74,21 +74,37 @@ class AsyncMutex {
 }
 
 /**
- * Shared mutex registries keyed by inner store identity.
+ * Shared mutex registries.
  *
- * Multiple EnforcingStore wrappers over the same inner store MUST share
- * a single mutex, otherwise concurrent callers using separate wrappers
- * can bypass limits via independent check-then-act sequences. WeakMaps
- * ensure the mutex is garbage-collected when the inner store is.
+ * Multiple EnforcingStore wrappers over the same backing store MUST
+ * share a single mutex, otherwise concurrent callers using separate
+ * wrappers can bypass limits via independent check-then-act sequences.
+ *
+ * Stores that implement storeIdentity (e.g., SQLite stores returning
+ * the database filename) use a string-keyed Map so that independently
+ * constructed store objects for the same database share a mutex.
+ *
+ * Stores without storeIdentity fall back to a WeakMap keyed by object
+ * identity — safe only when a single wrapper exists per backing store.
  */
-const contributionStoreMutexes = new WeakMap<ContributionStore, AsyncMutex>();
-const claimStoreMutexes = new WeakMap<ClaimStore, AsyncMutex>();
+const namedMutexes = new Map<string, AsyncMutex>();
+const anonymousMutexes = new WeakMap<object, AsyncMutex>();
 
-function getOrCreateMutex<T extends object>(registry: WeakMap<T, AsyncMutex>, key: T): AsyncMutex {
-  let mutex = registry.get(key);
+function getMutexForStore(store: ContributionStore | ClaimStore): AsyncMutex {
+  const identity = store.storeIdentity;
+  if (identity !== undefined) {
+    let mutex = namedMutexes.get(identity);
+    if (mutex === undefined) {
+      mutex = new AsyncMutex();
+      namedMutexes.set(identity, mutex);
+    }
+    return mutex;
+  }
+  // Fallback: per-object identity
+  let mutex = anonymousMutexes.get(store);
   if (mutex === undefined) {
     mutex = new AsyncMutex();
-    registry.set(key, mutex);
+    anonymousMutexes.set(store, mutex);
   }
   return mutex;
 }
@@ -123,7 +139,7 @@ export class EnforcingContributionStore implements ContributionStore {
     this.contract = contract;
     this.cas = options?.cas;
     this.clock = options?.clock ?? (() => new Date());
-    this.writeMutex = getOrCreateMutex(contributionStoreMutexes, inner);
+    this.writeMutex = getMutexForStore(inner);
   }
 
   put = async (contribution: Contribution): Promise<void> => {
@@ -382,7 +398,7 @@ export class EnforcingClaimStore implements ClaimStore {
   constructor(inner: ClaimStore, contract: GroveContract) {
     this.inner = inner;
     this.contract = contract;
-    this.writeMutex = getOrCreateMutex(claimStoreMutexes, inner);
+    this.writeMutex = getMutexForStore(inner);
   }
 
   createClaim = async (claim: Claim): Promise<Claim> => {

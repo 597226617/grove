@@ -3,7 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FsCas } from "../local/fs-cas.js";
-import { initSqliteDb, SqliteClaimStore, SqliteContributionStore } from "../local/sqlite-store.js";
+import {
+  createSqliteStores,
+  initSqliteDb,
+  SqliteClaimStore,
+  SqliteContributionStore,
+} from "../local/sqlite-store.js";
 import type { GroveContract } from "./contract.js";
 import { EnforcingClaimStore, EnforcingContributionStore } from "./enforcing-store.js";
 import {
@@ -533,13 +538,13 @@ describe("EnforcingContributionStore", () => {
   });
 
   describe("concurrent writes", () => {
-    test("shared mutex prevents cross-wrapper bypass", async () => {
+    test("shared mutex prevents cross-wrapper bypass (same inner store)", async () => {
       const { dir, db, contributionStore } = await setupStores();
       try {
         const contract = makeContract({
           rateLimits: { maxContributionsPerAgentPerHour: 1 },
         });
-        // Two separate wrappers over the same inner store
+        // Two separate wrappers over the same inner store object
         const store1 = new EnforcingContributionStore(contributionStore, contract);
         const store2 = new EnforcingContributionStore(contributionStore, contract);
 
@@ -556,6 +561,36 @@ describe("EnforcingContributionStore", () => {
         expect(await contributionStore.count()).toBe(1);
       } finally {
         await cleanup(dir, db);
+      }
+    });
+
+    test("shared mutex prevents cross-connection bypass (separate store objects, same DB)", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "enforcing-store-xconn-"));
+      const dbPath = join(dir, "test.db");
+      const stores1 = createSqliteStores(dbPath);
+      const stores2 = createSqliteStores(dbPath);
+      try {
+        const contract = makeContract({
+          rateLimits: { maxContributionsPerAgentPerHour: 1 },
+        });
+        // Two wrappers over DIFFERENT store objects backed by the same DB file
+        const wrapper1 = new EnforcingContributionStore(stores1.contributionStore, contract);
+        const wrapper2 = new EnforcingContributionStore(stores2.contributionStore, contract);
+
+        await wrapper1.put(makeRecentContribution({ summary: "from-conn-1" }));
+
+        try {
+          await wrapper2.put(makeRecentContribution({ summary: "from-conn-2" }));
+          expect.unreachable("should have thrown");
+        } catch (e) {
+          expect(e).toBeInstanceOf(RateLimitError);
+        }
+
+        expect(await stores1.contributionStore.count()).toBe(1);
+      } finally {
+        stores1.close();
+        stores2.close();
+        await rm(dir, { recursive: true, force: true });
       }
     });
 
@@ -617,13 +652,12 @@ describe("EnforcingClaimStore", () => {
       }
     });
 
-    test("shared mutex prevents cross-wrapper claim bypass", async () => {
+    test("shared mutex prevents cross-wrapper claim bypass (same inner store)", async () => {
       const { dir, db, claimStore } = await setupStores();
       try {
         const contract = makeContract({
           concurrency: { maxActiveClaims: 1 },
         });
-        // Two separate wrappers over the same inner store
         const store1 = new EnforcingClaimStore(claimStore, contract);
         const store2 = new EnforcingClaimStore(claimStore, contract);
 
@@ -643,6 +677,39 @@ describe("EnforcingClaimStore", () => {
         expect(await claimStore.countActiveClaims()).toBe(1);
       } finally {
         await cleanup(dir, db);
+      }
+    });
+
+    test("shared mutex prevents cross-connection claim bypass (separate store objects, same DB)", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "enforcing-claim-xconn-"));
+      const dbPath = join(dir, "test.db");
+      const stores1 = createSqliteStores(dbPath);
+      const stores2 = createSqliteStores(dbPath);
+      try {
+        const contract = makeContract({
+          concurrency: { maxActiveClaims: 1 },
+        });
+        const wrapper1 = new EnforcingClaimStore(stores1.claimStore, contract);
+        const wrapper2 = new EnforcingClaimStore(stores2.claimStore, contract);
+
+        await wrapper1.createClaim(
+          makeClaim({ claimId: "c1", targetRef: "t1", agent: { agentId: "a1" } }),
+        );
+
+        try {
+          await wrapper2.createClaim(
+            makeClaim({ claimId: "c2", targetRef: "t2", agent: { agentId: "a2" } }),
+          );
+          expect.unreachable("should have thrown");
+        } catch (e) {
+          expect(e).toBeInstanceOf(ConcurrencyLimitError);
+        }
+
+        expect(await stores1.claimStore.countActiveClaims()).toBe(1);
+      } finally {
+        stores1.close();
+        stores2.close();
+        await rm(dir, { recursive: true, force: true });
       }
     });
 
