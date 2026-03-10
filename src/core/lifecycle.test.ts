@@ -88,6 +88,25 @@ class InMemoryContributionStore implements ContributionStore {
   };
 
   search = async (): Promise<readonly Contribution[]> => [];
+
+  findExisting = async (
+    agentId: string,
+    targetCid: string,
+    kind: ContributionKind,
+    relationType?: RelationType,
+  ): Promise<readonly Contribution[]> => {
+    return [...this.contributions.values()].filter(
+      (c) =>
+        c.agent.agentId === agentId &&
+        c.kind === kind &&
+        c.relations.some(
+          (r) =>
+            r.targetCid === targetCid &&
+            (relationType === undefined || r.relationType === relationType),
+        ),
+    );
+  };
+
   close(): void {}
 }
 
