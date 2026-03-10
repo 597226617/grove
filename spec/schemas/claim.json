@@ -59,6 +59,11 @@
       "description": "Optional machine-readable metadata for this claim. Use for structured coordination data such as branch/commit being worked on, resource allocations, parent workflow identifiers, or priority indicators.",
       "additionalProperties": true,
       "maxProperties": 100
+    },
+    "attempt_count": {
+      "type": "integer",
+      "description": "Number of retry attempts for this claim. 0 for the first attempt. Incremented by the orchestrator on each retry.",
+      "minimum": 0
     }
   },
   "unevaluatedProperties": false,

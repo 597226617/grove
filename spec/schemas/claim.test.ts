@@ -111,6 +111,19 @@ describe("claim schema — valid claims", () => {
     });
     expect(validate(claim)).toBe(true);
   });
+
+  test("accepts claim with attempt_count", () => {
+    expect(validate(validClaim({ attempt_count: 0 }))).toBe(true);
+    expect(validate(validClaim({ attempt_count: 3 }))).toBe(true);
+  });
+
+  test("accepts claim without attempt_count (optional)", () => {
+    expect(validate(validClaim())).toBe(true);
+  });
+
+  test("rejects negative attempt_count", () => {
+    expect(validate(validClaim({ attempt_count: -1 }))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

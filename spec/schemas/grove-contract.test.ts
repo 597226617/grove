@@ -20,11 +20,20 @@ function createValidator() {
   return ajv.compile(groveContractSchema);
 }
 
-/** Minimal valid grove contract. */
+/** Minimal valid v1 grove contract. */
 function validContract(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     contract_version: 1,
     name: "test-grove",
+    ...overrides,
+  };
+}
+
+/** Minimal valid v2 grove contract. */
+function validV2Contract(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    contract_version: 2,
+    name: "test-grove-v2",
     ...overrides,
   };
 }
@@ -693,8 +702,8 @@ describe("grove-contract schema — required fields and strict mode", () => {
     expect(validate({})).toBe(false);
   });
 
-  test("rejects wrong contract_version", () => {
-    expect(validate(validContract({ contract_version: 2 }))).toBe(false);
+  test("rejects unsupported contract_version (3)", () => {
+    expect(validate(validContract({ contract_version: 3 }))).toBe(false);
   });
 
   test("rejects contract_version as string", () => {
@@ -901,5 +910,232 @@ describe("grove-contract schema — cross-schema consistency", () => {
       "min_reviews",
       "min_score",
     ]);
+  });
+
+  test("contract_version enum includes both versions", () => {
+    expect(groveContractSchema.properties.contract_version.enum).toEqual([1, 2]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V2 contract — valid contracts
+// ---------------------------------------------------------------------------
+
+describe("grove-contract schema — v2 valid contracts", () => {
+  const validate = createValidator();
+
+  test("accepts minimal v2 contract", () => {
+    expect(validate(validV2Contract())).toBe(true);
+  });
+
+  test("accepts v2 with all new sections", () => {
+    const contract = validV2Contract({
+      concurrency: {
+        max_active_claims: 10,
+        max_claims_per_agent: 3,
+        max_claims_per_target: 1,
+      },
+      execution: {
+        default_lease_seconds: 300,
+        max_lease_seconds: 3600,
+        heartbeat_interval_seconds: 60,
+        stall_timeout_seconds: 180,
+      },
+      rate_limits: {
+        max_contributions_per_agent_per_hour: 100,
+        max_contributions_per_grove_per_hour: 1000,
+        max_artifact_size_bytes: 10485760,
+        max_artifacts_per_contribution: 10,
+      },
+      retry: {
+        base_delay_ms: 1000,
+        max_backoff_ms: 60000,
+        max_attempts: 5,
+      },
+    });
+    expect(validate(contract)).toBe(true);
+  });
+
+  test("accepts v2 with shared sections (metrics, gates, etc.)", () => {
+    const contract = validV2Contract({
+      metrics: { val_bpb: { direction: "minimize" } },
+      gates: [{ type: "metric_improves", metric: "val_bpb" }],
+      stop_conditions: { budget: { max_contributions: 100 } },
+      agent_constraints: { allowed_kinds: ["work", "review"] },
+    });
+    expect(validate(contract)).toBe(true);
+  });
+
+  test("accepts v2 with empty concurrency", () => {
+    expect(validate(validV2Contract({ concurrency: {} }))).toBe(true);
+  });
+
+  test("accepts v2 with empty execution", () => {
+    expect(validate(validV2Contract({ execution: {} }))).toBe(true);
+  });
+
+  test("accepts v2 with empty rate_limits", () => {
+    expect(validate(validV2Contract({ rate_limits: {} }))).toBe(true);
+  });
+
+  test("accepts v2 with empty retry", () => {
+    expect(validate(validV2Contract({ retry: {} }))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V2 contract — concurrency section
+// ---------------------------------------------------------------------------
+
+describe("grove-contract schema — v2 concurrency", () => {
+  const validate = createValidator();
+
+  test("accepts max_active_claims only", () => {
+    expect(validate(validV2Contract({ concurrency: { max_active_claims: 50 } }))).toBe(true);
+  });
+
+  test("accepts max_claims_per_agent of 0 (unlimited)", () => {
+    expect(validate(validV2Contract({ concurrency: { max_claims_per_agent: 0 } }))).toBe(true);
+  });
+
+  test("rejects negative max_active_claims", () => {
+    expect(validate(validV2Contract({ concurrency: { max_active_claims: 0 } }))).toBe(false);
+  });
+
+  test("rejects unknown concurrency properties", () => {
+    expect(validate(validV2Contract({ concurrency: { max_threads: 4 } }))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V2 contract — execution section
+// ---------------------------------------------------------------------------
+
+describe("grove-contract schema — v2 execution", () => {
+  const validate = createValidator();
+
+  test("accepts all execution fields", () => {
+    const contract = validV2Contract({
+      execution: {
+        default_lease_seconds: 300,
+        max_lease_seconds: 3600,
+        heartbeat_interval_seconds: 60,
+        stall_timeout_seconds: 180,
+      },
+    });
+    expect(validate(contract)).toBe(true);
+  });
+
+  test("rejects default_lease_seconds below minimum (30)", () => {
+    expect(validate(validV2Contract({ execution: { default_lease_seconds: 10 } }))).toBe(false);
+  });
+
+  test("rejects max_lease_seconds below minimum (60)", () => {
+    expect(validate(validV2Contract({ execution: { max_lease_seconds: 30 } }))).toBe(false);
+  });
+
+  test("accepts max_lease_seconds up to 604800 (1 week)", () => {
+    expect(validate(validV2Contract({ execution: { max_lease_seconds: 604800 } }))).toBe(true);
+  });
+
+  test("rejects unknown execution properties", () => {
+    expect(validate(validV2Contract({ execution: { auto_extend: true } }))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V2 contract — rate_limits section
+// ---------------------------------------------------------------------------
+
+describe("grove-contract schema — v2 rate_limits", () => {
+  const validate = createValidator();
+
+  test("accepts all rate_limits fields", () => {
+    const contract = validV2Contract({
+      rate_limits: {
+        max_contributions_per_agent_per_hour: 50,
+        max_contributions_per_grove_per_hour: 500,
+        max_artifact_size_bytes: 1048576,
+        max_artifacts_per_contribution: 5,
+      },
+    });
+    expect(validate(contract)).toBe(true);
+  });
+
+  test("rejects 0 contributions per agent", () => {
+    expect(
+      validate(validV2Contract({ rate_limits: { max_contributions_per_agent_per_hour: 0 } })),
+    ).toBe(false);
+  });
+
+  test("rejects 0 artifacts per contribution", () => {
+    expect(validate(validV2Contract({ rate_limits: { max_artifacts_per_contribution: 0 } }))).toBe(
+      false,
+    );
+  });
+
+  test("rejects unknown rate_limits properties", () => {
+    expect(validate(validV2Contract({ rate_limits: { max_tokens: 1000 } }))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V2 contract — retry section
+// ---------------------------------------------------------------------------
+
+describe("grove-contract schema — v2 retry", () => {
+  const validate = createValidator();
+
+  test("accepts all retry fields", () => {
+    const contract = validV2Contract({
+      retry: { base_delay_ms: 1000, max_backoff_ms: 60000, max_attempts: 10 },
+    });
+    expect(validate(contract)).toBe(true);
+  });
+
+  test("rejects base_delay_ms below minimum (100)", () => {
+    expect(validate(validV2Contract({ retry: { base_delay_ms: 50 } }))).toBe(false);
+  });
+
+  test("rejects max_backoff_ms below minimum (1000)", () => {
+    expect(validate(validV2Contract({ retry: { max_backoff_ms: 500 } }))).toBe(false);
+  });
+
+  test("rejects max_attempts of 0", () => {
+    expect(validate(validV2Contract({ retry: { max_attempts: 0 } }))).toBe(false);
+  });
+
+  test("rejects unknown retry properties", () => {
+    expect(validate(validV2Contract({ retry: { jitter: true } }))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Version-specific property exclusion
+// ---------------------------------------------------------------------------
+
+describe("grove-contract schema — version-specific constraints", () => {
+  const validate = createValidator();
+
+  test("v1 rejects concurrency section", () => {
+    expect(validate(validContract({ concurrency: { max_active_claims: 10 } }))).toBe(false);
+  });
+
+  test("v1 rejects execution section", () => {
+    expect(validate(validContract({ execution: { max_lease_seconds: 3600 } }))).toBe(false);
+  });
+
+  test("v1 rejects rate_limits section", () => {
+    expect(
+      validate(validContract({ rate_limits: { max_contributions_per_agent_per_hour: 100 } })),
+    ).toBe(false);
+  });
+
+  test("v1 rejects retry section", () => {
+    expect(validate(validContract({ retry: { max_attempts: 5 } }))).toBe(false);
+  });
+
+  test("v2 rejects claim_policy section", () => {
+    expect(validate(validV2Contract({ claim_policy: { default_lease_seconds: 300 } }))).toBe(false);
   });
 });

@@ -14,6 +14,12 @@ import type {
   RelationType,
 } from "./models.js";
 
+/** Filter for counting active claims. */
+export interface ActiveClaimFilter {
+  readonly agentId?: string | undefined;
+  readonly targetRef?: string | undefined;
+}
+
 /** Filters for querying contributions. */
 export interface ContributionQuery {
   readonly kind?: ContributionKind | undefined;
@@ -173,6 +179,26 @@ export interface ClaimStore {
    * @returns Number of claims deleted.
    */
   cleanCompleted(retentionMs: number): Promise<number>;
+
+  /**
+   * Count active claims matching the given filter.
+   *
+   * More efficient than `activeClaims().length` — implementations should
+   * use COUNT queries rather than materializing full Claim objects.
+   */
+  countActiveClaims(filter?: ActiveClaimFilter): Promise<number>;
+
+  /**
+   * Detect stalled claims: active claims with a valid lease but a stale heartbeat.
+   *
+   * A claim is stalled when:
+   * - status is 'active'
+   * - lease has not expired (lease_expires_at >= now)
+   * - heartbeat is older than stallTimeoutMs
+   *
+   * This is advisory — callers decide what to do with stalled claims.
+   */
+  detectStalled(stallTimeoutMs: number): Promise<readonly Claim[]>;
 
   /** Release resources (e.g., close database connections). */
   close(): void;

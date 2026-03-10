@@ -186,7 +186,7 @@ stop_conditions:
 name: no-version
 ---
 `;
-    expect(() => parseGroveContract(content)).toThrow("Invalid GROVE.md contract");
+    expect(() => parseGroveContract(content)).toThrow("missing required field 'contract_version'");
   });
 
   test("rejects missing name", () => {
@@ -330,7 +330,7 @@ describe("parseGroveContractObject", () => {
 
   test("rejects invalid object", () => {
     expect(() => parseGroveContractObject({ name: "no-version" })).toThrow(
-      "Invalid grove contract",
+      "missing required field 'contract_version'",
     );
   });
 });

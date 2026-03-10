@@ -168,4 +168,6 @@ export interface Claim {
   readonly heartbeatAt: string;
   readonly leaseExpiresAt: string;
   readonly context?: Readonly<Record<string, JsonValue>> | undefined;
+  /** Number of times this claim has been attempted (for retry/backoff). Defaults to 0. */
+  readonly attemptCount?: number | undefined;
 }

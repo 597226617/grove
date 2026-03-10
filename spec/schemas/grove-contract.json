@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://grove.dev/schemas/grove-contract.json",
   "title": "Grove Contract",
-  "description": "Schema for the structured YAML frontmatter of a GROVE.md workflow contract. GROVE.md is a repo-owned file that defines metrics, contribution gates, stop conditions, agent constraints, and claim policy for a grove. The YAML frontmatter is validated against this schema; the Markdown body is free-form prose for human/agent-readable context.",
+  "description": "Schema for the structured YAML frontmatter of a GROVE.md workflow contract. Supports contract_version 1 (legacy claim_policy) and contract_version 2 (concurrency, execution, rate_limits, retry). The YAML frontmatter is validated against this schema; the Markdown body is free-form prose for human/agent-readable context.",
   "type": "object",
   "required": ["contract_version", "name"],
   "properties": {
     "contract_version": {
       "type": "integer",
-      "const": 1,
-      "description": "Contract schema version. Must be 1 for this version of the spec. Future versions will increment this value."
+      "enum": [1, 2],
+      "description": "Contract schema version. Version 1 uses claim_policy; version 2 uses concurrency, execution, rate_limits, and retry sections."
     },
     "name": {
       "type": "string",
@@ -61,8 +61,47 @@
     },
     "claim_policy": {
       "$ref": "#/$defs/claim_policy"
+    },
+    "concurrency": {
+      "$ref": "#/$defs/concurrency"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "rate_limits": {
+      "$ref": "#/$defs/rate_limits"
+    },
+    "retry": {
+      "$ref": "#/$defs/retry"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "contract_version": { "const": 1 } },
+        "required": ["contract_version"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["concurrency"] },
+            { "required": ["execution"] },
+            { "required": ["rate_limits"] },
+            { "required": ["retry"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "contract_version": { "const": 2 } },
+        "required": ["contract_version"]
+      },
+      "then": {
+        "not": { "required": ["claim_policy"] }
+      }
+    }
+  ],
   "unevaluatedProperties": false,
   "$defs": {
     "metric_definition": {
@@ -305,7 +344,7 @@
     },
     "claim_policy": {
       "type": "object",
-      "description": "Policy for claim coordination in this grove.",
+      "description": "Policy for claim coordination (v1 only). Use concurrency/execution/rate_limits/retry for v2.",
       "properties": {
         "default_lease_seconds": {
           "type": "integer",
@@ -322,6 +361,117 @@
         "heartbeat_required": {
           "type": "boolean",
           "description": "Whether heartbeats are required to keep claims alive. Default: true."
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "concurrency": {
+      "type": "object",
+      "description": "Concurrency limits for claims (v2 only).",
+      "properties": {
+        "max_active_claims": {
+          "type": "integer",
+          "description": "Maximum number of active claims across all agents.",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "max_claims_per_agent": {
+          "type": "integer",
+          "description": "Maximum concurrent claims per agent. 0 means unlimited.",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "max_claims_per_target": {
+          "type": "integer",
+          "description": "Maximum concurrent claims per target_ref.",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "description": "Execution timeout and lease settings (v2 only).",
+      "properties": {
+        "default_lease_seconds": {
+          "type": "integer",
+          "description": "Default lease duration in seconds.",
+          "minimum": 30,
+          "maximum": 86400
+        },
+        "max_lease_seconds": {
+          "type": "integer",
+          "description": "Maximum lease duration in seconds.",
+          "minimum": 60,
+          "maximum": 604800
+        },
+        "heartbeat_interval_seconds": {
+          "type": "integer",
+          "description": "Expected heartbeat interval in seconds.",
+          "minimum": 10,
+          "maximum": 86400
+        },
+        "stall_timeout_seconds": {
+          "type": "integer",
+          "description": "Time without heartbeat before a claim is considered stalled.",
+          "minimum": 60,
+          "maximum": 604800
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "rate_limits": {
+      "type": "object",
+      "description": "Rate limits on contributions (v2 only).",
+      "properties": {
+        "max_contributions_per_agent_per_hour": {
+          "type": "integer",
+          "description": "Maximum contributions per agent per sliding 1-hour window.",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "max_contributions_per_grove_per_hour": {
+          "type": "integer",
+          "description": "Maximum contributions per grove per sliding 1-hour window.",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "max_artifact_size_bytes": {
+          "type": "integer",
+          "description": "Maximum size of a single artifact in bytes.",
+          "minimum": 1
+        },
+        "max_artifacts_per_contribution": {
+          "type": "integer",
+          "description": "Maximum number of artifacts per contribution.",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "retry": {
+      "type": "object",
+      "description": "Retry and backoff settings (v2 only).",
+      "properties": {
+        "base_delay_ms": {
+          "type": "integer",
+          "description": "Base delay in milliseconds for exponential backoff.",
+          "minimum": 100,
+          "maximum": 600000
+        },
+        "max_backoff_ms": {
+          "type": "integer",
+          "description": "Maximum backoff delay in milliseconds.",
+          "minimum": 1000,
+          "maximum": 3600000
+        },
+        "max_attempts": {
+          "type": "integer",
+          "description": "Maximum retry attempts.",
+          "minimum": 1,
+          "maximum": 100
         }
       },
       "unevaluatedProperties": false

@@ -1,0 +1,122 @@
+/**
+ * Typed error hierarchy for Grove enforcement violations.
+ *
+ * Each error class carries specific context so callers (CLI, server, MCP)
+ * can provide appropriate responses (e.g., HTTP 429 for rate limits,
+ * 409 for concurrency conflicts).
+ */
+
+/** Base class for all Grove-specific errors. */
+export class GroveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GroveError";
+  }
+}
+
+/** Thrown when a concurrency limit is exceeded (global, per-agent, or per-target). */
+export class ConcurrencyLimitError extends GroveError {
+  readonly limitType: "global" | "per_agent" | "per_target";
+  readonly current: number;
+  readonly limit: number;
+
+  constructor(opts: {
+    limitType: "global" | "per_agent" | "per_target";
+    current: number;
+    limit: number;
+    message?: string;
+  }) {
+    const msg =
+      opts.message ??
+      `Concurrency limit exceeded (${opts.limitType}): ${opts.current} active, limit is ${opts.limit}`;
+    super(msg);
+    this.name = "ConcurrencyLimitError";
+    this.limitType = opts.limitType;
+    this.current = opts.current;
+    this.limit = opts.limit;
+  }
+}
+
+/** Thrown when a rate limit is exceeded (per-agent or per-grove). */
+export class RateLimitError extends GroveError {
+  readonly limitType: "per_agent" | "per_grove";
+  readonly current: number;
+  readonly limit: number;
+  readonly windowSeconds: number;
+  readonly retryAfterMs: number;
+
+  constructor(opts: {
+    limitType: "per_agent" | "per_grove";
+    current: number;
+    limit: number;
+    windowSeconds: number;
+    retryAfterMs: number;
+    message?: string;
+  }) {
+    const msg =
+      opts.message ??
+      `Rate limit exceeded (${opts.limitType}): ${opts.current} contributions in last ${opts.windowSeconds}s, limit is ${opts.limit}`;
+    super(msg);
+    this.name = "RateLimitError";
+    this.limitType = opts.limitType;
+    this.current = opts.current;
+    this.limit = opts.limit;
+    this.windowSeconds = opts.windowSeconds;
+    this.retryAfterMs = opts.retryAfterMs;
+  }
+}
+
+/** Thrown when artifact constraints are violated (size or count). */
+export class ArtifactLimitError extends GroveError {
+  readonly limitType: "size" | "count";
+  readonly current: number;
+  readonly limit: number;
+
+  constructor(opts: {
+    limitType: "size" | "count";
+    current: number;
+    limit: number;
+    message?: string;
+  }) {
+    const unit = opts.limitType === "size" ? "bytes" : "artifacts";
+    const msg =
+      opts.message ??
+      `Artifact limit exceeded (${opts.limitType}): ${opts.current} ${unit}, limit is ${opts.limit}`;
+    super(msg);
+    this.name = "ArtifactLimitError";
+    this.limitType = opts.limitType;
+    this.current = opts.current;
+    this.limit = opts.limit;
+  }
+}
+
+/** Thrown when max retry attempts are exhausted. */
+export class RetryExhaustedError extends GroveError {
+  readonly attempts: number;
+  readonly maxAttempts: number;
+
+  constructor(opts: { attempts: number; maxAttempts: number; message?: string }) {
+    const msg =
+      opts.message ?? `Retry exhausted: ${opts.attempts} attempts made, max is ${opts.maxAttempts}`;
+    super(msg);
+    this.name = "RetryExhaustedError";
+    this.attempts = opts.attempts;
+    this.maxAttempts = opts.maxAttempts;
+  }
+}
+
+/** Thrown when a lease duration violates policy (exceeds max). */
+export class LeaseViolationError extends GroveError {
+  readonly requestedSeconds: number;
+  readonly maxSeconds: number;
+
+  constructor(opts: { requestedSeconds: number; maxSeconds: number; message?: string }) {
+    const msg =
+      opts.message ??
+      `Lease violation: requested ${opts.requestedSeconds}s exceeds max ${opts.maxSeconds}s`;
+    super(msg);
+    this.name = "LeaseViolationError";
+    this.requestedSeconds = opts.requestedSeconds;
+    this.maxSeconds = opts.maxSeconds;
+  }
+}
