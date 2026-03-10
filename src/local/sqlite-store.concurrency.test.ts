@@ -11,9 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Claim } from "../core/models.js";
-import { ClaimStatus } from "../core/models.js";
-import { makeContribution } from "../core/test-helpers.js";
+import { makeClaim, makeContribution } from "../core/test-helpers.js";
 import { createSqliteStores } from "./sqlite-store.js";
 
 async function withTwoStores<T>(
@@ -40,21 +38,6 @@ async function withTwoStores<T>(
     stores2.close();
     await rm(dir, { recursive: true, force: true });
   }
-}
-
-function makeClaim(overrides?: Partial<Claim>): Claim {
-  const now = new Date().toISOString();
-  const leaseExpires = new Date(Date.now() + 60_000).toISOString();
-  return {
-    claimId: "claim-1",
-    targetRef: "target-1",
-    agent: { agentId: "test-agent" },
-    status: ClaimStatus.Active,
-    heartbeatAt: now,
-    leaseExpiresAt: leaseExpires,
-    intentSummary: "Test claim",
-    ...overrides,
-  };
 }
 
 describe("concurrent contribution puts", () => {
