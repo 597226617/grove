@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DefaultFrontierCalculator } from "../../core/frontier.js";
@@ -149,6 +149,68 @@ describe("runCheckout", () => {
     const text = output.join("\n");
     expect(text).toContain("Resolved frontier best");
     expect(text).toContain("best model");
+  });
+
+  test("re-checkout removes stale files from previous checkout", async () => {
+    const dataV1 = new TextEncoder().encode("version 1");
+    const hashV1 = await deps.cas.put(dataV1);
+
+    const c1 = makeContribution({
+      summary: "v1",
+      artifacts: { "model.bin": hashV1, "stale-file.txt": hashV1 },
+    });
+    await deps.store.put(c1);
+
+    const outDir = join(tmpDir, "reuse-dir");
+    await runCheckout({ cid: c1.cid, to: outDir, agent: "test-agent" }, deps);
+    expect(existsSync(join(outDir, "stale-file.txt"))).toBe(true);
+
+    // Second contribution has only model.bin — stale-file.txt should disappear
+    const dataV2 = new TextEncoder().encode("version 2");
+    const hashV2 = await deps.cas.put(dataV2);
+
+    const c2 = makeContribution({
+      summary: "v2",
+      artifacts: { "model.bin": hashV2 },
+      createdAt: "2026-01-02T00:00:00Z",
+    });
+    await deps.store.put(c2);
+
+    await runCheckout({ cid: c2.cid, to: outDir, agent: "test-agent" }, deps);
+
+    // stale-file.txt must be gone
+    expect(existsSync(join(outDir, "stale-file.txt"))).toBe(false);
+    // model.bin should have the new content
+    const content = await readFile(join(outDir, "model.bin"), "utf-8");
+    expect(content).toBe("version 2");
+  });
+
+  test("missing CAS artifact leaves destination untouched (atomic staging)", async () => {
+    const goodData = new TextEncoder().encode("good artifact");
+    const goodHash = await deps.cas.put(goodData);
+
+    // A contribution that references a valid artifact and a bogus one
+    const badHash = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const c = makeContribution({
+      summary: "partial",
+      artifacts: { "good.txt": goodHash, "missing.txt": badHash },
+    });
+    await deps.store.put(c);
+
+    // Pre-populate destination with existing content that should survive
+    const outDir = join(tmpDir, "atomic-test");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(join(outDir, "existing.txt"), "do not lose me");
+
+    await expect(
+      runCheckout({ cid: c.cid, to: outDir, agent: "test-agent" }, deps),
+    ).rejects.toThrow("not found in CAS");
+
+    // Destination should be untouched — existing.txt still there, no partial good.txt
+    expect(existsSync(join(outDir, "existing.txt"))).toBe(true);
+    const preserved = await readFile(join(outDir, "existing.txt"), "utf-8");
+    expect(preserved).toBe("do not lose me");
+    expect(existsSync(join(outDir, "good.txt"))).toBe(false);
   });
 
   test("throws for missing contribution", async () => {

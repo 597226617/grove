@@ -6,7 +6,8 @@
  *   grove checkout --frontier throughput --to ./workspace/
  */
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -94,20 +95,39 @@ export async function runCheckout(
     throw new Error(`Contribution '${targetCid}' not found.`);
   }
 
-  // Materialize artifacts into the user-specified --to directory
+  // Stage artifacts into a temp directory, then atomically swap into --to.
+  // This prevents two failure modes:
+  //   1. Stale files left behind when re-checking out into the same directory
+  //   2. Partial snapshots when a later artifact is missing from CAS
   const destDir = resolve(options.to);
-  await mkdir(destDir, { recursive: true });
+  const stagingDir = join(
+    tmpdir(),
+    `grove-checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  await mkdir(stagingDir, { recursive: true });
 
-  for (const [name, contentHash] of Object.entries(contribution.artifacts)) {
-    validateArtifactName(name);
-    const destPath = join(destDir, name);
-    await assertWithinBoundary(destPath, destDir);
-    await ensureArtifactParentDir(name, destDir);
+  try {
+    for (const [name, contentHash] of Object.entries(contribution.artifacts)) {
+      validateArtifactName(name);
+      const stagedPath = join(stagingDir, name);
+      await assertWithinBoundary(stagedPath, stagingDir);
+      await ensureArtifactParentDir(name, stagingDir);
 
-    const found = await deps.cas.getToFile(contentHash, destPath);
-    if (!found) {
-      throw new Error(`Artifact '${name}' with hash '${contentHash}' not found in CAS.`);
+      const found = await deps.cas.getToFile(contentHash, stagedPath);
+      if (!found) {
+        throw new Error(`Artifact '${name}' with hash '${contentHash}' not found in CAS.`);
+      }
     }
+
+    // All artifacts staged successfully — swap into destination.
+    // Remove existing destination first to prevent stale files.
+    await rm(destDir, { recursive: true, force: true });
+    await mkdir(join(destDir, ".."), { recursive: true });
+    await rename(stagingDir, destDir);
+  } catch (err) {
+    // Clean up staging dir on failure — destination is untouched
+    await rm(stagingDir, { recursive: true, force: true });
+    throw err;
   }
 
   const artifactCount = Object.keys(contribution.artifacts).length;
