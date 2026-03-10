@@ -62,7 +62,8 @@ Frontier queries support the following filters (AND semantics):
 
 The `context` filter enables filtered frontiers scoped to specific execution
 environments. Each key-value pair in the context filter is matched against
-the contribution's `context` field using exact JSON equality.
+the contribution's `context` field using deep JSON equality (key-order-independent
+for objects, order-sensitive for arrays).
 
 Examples:
 - `{ context: { hardware: "H100" } }` — best contributions on H100 hardware

@@ -31,11 +31,16 @@ frontier.get("/", zValidator("query", querySchema), async (c) => {
 
   let contextFilter: Record<string, JsonValue> | undefined;
   if (query.context !== undefined) {
+    let parsed: unknown;
     try {
-      contextFilter = JSON.parse(query.context) as Record<string, JsonValue>;
+      parsed = JSON.parse(query.context);
     } catch {
       return c.json({ error: "Invalid context parameter: must be valid JSON object" }, 400);
     }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return c.json({ error: "Invalid context parameter: must be a JSON object, not an array or primitive" }, 400);
+    }
+    contextFilter = parsed as Record<string, JsonValue>;
   }
 
   const result = await calculator.compute({

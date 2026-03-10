@@ -883,6 +883,24 @@ export function runFrontierCalculatorTests(
       expect(frontier.byRecency[0]?.cid).toBe(match.cid);
     });
 
+    test("matches nested objects regardless of key order", async () => {
+      const contrib = makeContribution({
+        summary: "nested-context",
+        context: { config: { a: 1, b: 2 } },
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+
+      await store.put(contrib);
+
+      // Query with keys in different order than stored
+      const frontier = await calculator.compute({
+        context: { config: { b: 2, a: 1 } },
+      });
+
+      expect(frontier.byRecency).toHaveLength(1);
+      expect(frontier.byRecency[0]?.cid).toBe(contrib.cid);
+    });
+
     test("matches numeric context values exactly", async () => {
       const gpuCount4 = makeContribution({
         summary: "4-gpu",

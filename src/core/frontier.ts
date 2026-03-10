@@ -71,6 +71,26 @@ function compareEntries(a: FrontierEntry, b: FrontierEntry, descending: boolean)
   return a.cid < b.cid ? -1 : a.cid > b.cid ? 1 : 0;
 }
 
+/** Key-order-independent deep equality for JSON values. */
+function jsonDeepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => jsonDeepEqual(v, b[i]));
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const aObj = a as Record<string, unknown>;
+    const bObj = b as Record<string, unknown>;
+    const aKeys = Object.keys(aObj);
+    const bKeys = Object.keys(bObj);
+    if (aKeys.length !== bKeys.length) return false;
+    return aKeys.every((k) => k in bObj && jsonDeepEqual(aObj[k], bObj[k]));
+  }
+  return false;
+}
+
 /** Filter contributions by query tags, platform, kind, mode, and agent. */
 function matchesFilters(c: Contribution, query?: FrontierQuery): boolean {
   if (query?.tags && query.tags.length > 0) {
@@ -97,7 +117,7 @@ function matchesFilters(c: Contribution, query?: FrontierQuery): boolean {
     if (c.context === undefined) return false;
     for (const [key, expected] of Object.entries(query.context)) {
       if (!(key in c.context)) return false;
-      if (JSON.stringify(c.context[key]) !== JSON.stringify(expected)) return false;
+      if (!jsonDeepEqual(c.context[key], expected)) return false;
     }
   }
   return true;
