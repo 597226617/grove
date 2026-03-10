@@ -13,26 +13,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { toManifest } from "../core/manifest.js";
-import type { Claim } from "../core/models.js";
-import { ClaimStatus } from "../core/models.js";
-import { makeContribution } from "../core/test-helpers.js";
+import { makeClaim, makeContribution } from "../core/test-helpers.js";
 import { initSqliteDb, SqliteStore } from "./sqlite-store.js";
-
-function makeClaim(overrides?: Partial<Claim>): Claim {
-  const now = new Date().toISOString();
-  const leaseExpires = new Date(Date.now() + 300_000).toISOString();
-  return {
-    claimId: "claim-1",
-    targetRef: "target-1",
-    agent: { agentId: "test-agent" },
-    status: ClaimStatus.Active,
-    intentSummary: "Test claim",
-    createdAt: now,
-    heartbeatAt: now,
-    leaseExpiresAt: leaseExpires,
-    ...overrides,
-  };
-}
 
 describe("schema migration", () => {
   test("fresh DB creates schema_migrations with current version", async () => {

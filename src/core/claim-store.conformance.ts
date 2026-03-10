@@ -8,32 +8,15 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { Claim } from "./models.js";
 import { ClaimStatus } from "./models.js";
 import type { ClaimStore } from "./store.js";
+import { makeClaim } from "./test-helpers.js";
 
 /** Factory that creates a fresh ClaimStore and returns a cleanup function. */
 export type ClaimStoreFactory = () => Promise<{
   store: ClaimStore;
   cleanup: () => Promise<void>;
 }>;
-
-/** Create a Claim object for testing. */
-function makeClaim(overrides?: Partial<Claim>): Claim {
-  const now = new Date().toISOString();
-  const leaseExpires = new Date(Date.now() + 300_000).toISOString();
-  return {
-    claimId: "claim-1",
-    targetRef: "target-1",
-    agent: { agentId: "test-agent" },
-    status: ClaimStatus.Active,
-    intentSummary: "Test claim",
-    createdAt: now,
-    heartbeatAt: now,
-    leaseExpiresAt: leaseExpires,
-    ...overrides,
-  };
-}
 
 /**
  * Run the full ClaimStore conformance test suite.

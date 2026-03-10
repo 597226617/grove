@@ -80,7 +80,7 @@ export interface ClaimStore {
    *
    * @param claimId - The claim to heartbeat.
    * @param leaseDurationMs - Optional lease duration in milliseconds.
-   *   If omitted, the implementation uses a default (e.g., 60 seconds).
+   *   If omitted, the implementation uses a default (e.g., 300 seconds / 5 minutes).
    * @returns The updated claim snapshot. Throws if claim is not active.
    */
   heartbeat(claimId: string, leaseDurationMs?: number): Promise<Claim>;
