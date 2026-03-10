@@ -42,45 +42,61 @@ const cidParamSchema = z.object({
   cid: z.string().regex(CID_REGEX, "CID must be in format blake3:<64-hex-chars>"),
 });
 
-const manifestSchema = z.object({
-  kind: z.enum(["work", "review", "discussion", "adoption", "reproduction"]),
-  mode: z.enum(["evaluation", "exploration"]),
-  summary: z.string().min(1),
-  description: z.string().optional(),
-  artifacts: z.record(z.string(), z.string()).optional(),
-  relations: z
-    .array(
-      z.object({
-        targetCid: z.string().regex(CID_REGEX, "targetCid must be blake3:<64-hex>"),
-        relationType: z.enum(["derives_from", "responds_to", "reviews", "reproduces", "adopts"]),
-        metadata: z.record(z.string(), z.unknown()).optional(),
-      }),
-    )
-    .default([]),
-  scores: z
-    .record(
-      z.string(),
-      z.object({
-        value: z.number(),
-        direction: z.enum(["minimize", "maximize"]),
-        unit: z.string().optional(),
-      }),
-    )
-    .optional(),
-  tags: z.array(z.string()).default([]),
-  context: z.record(z.string(), z.unknown()).optional(),
-  agent: z.object({
-    agentId: z.string().min(1),
-    agentName: z.string().optional(),
-    provider: z.string().optional(),
-    model: z.string().optional(),
-    platform: z.string().optional(),
-    version: z.string().optional(),
-    toolchain: z.string().optional(),
-    runtime: z.string().optional(),
-  }),
-  createdAt: z.string().datetime({ offset: true }).optional(),
-});
+const manifestSchema = z
+  .object({
+    kind: z.enum(["work", "review", "discussion", "adoption", "reproduction"]),
+    mode: z.enum(["evaluation", "exploration"]),
+    summary: z.string().min(1),
+    description: z.string().optional(),
+    artifacts: z
+      .record(z.string(), z.string().regex(CID_REGEX, "artifact hash must be blake3:<64-hex>"))
+      .optional(),
+    relations: z
+      .array(
+        z
+          .object({
+            targetCid: z.string().regex(CID_REGEX, "targetCid must be blake3:<64-hex>"),
+            relationType: z.enum([
+              "derives_from",
+              "responds_to",
+              "reviews",
+              "reproduces",
+              "adopts",
+            ]),
+            metadata: z.record(z.string(), z.unknown()).optional(),
+          })
+          .strict(),
+      )
+      .default([]),
+    scores: z
+      .record(
+        z.string(),
+        z
+          .object({
+            value: z.number(),
+            direction: z.enum(["minimize", "maximize"]),
+            unit: z.string().optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+    tags: z.array(z.string()).default([]),
+    context: z.record(z.string(), z.unknown()).optional(),
+    agent: z
+      .object({
+        agentId: z.string().min(1),
+        agentName: z.string().optional(),
+        provider: z.string().optional(),
+        model: z.string().optional(),
+        platform: z.string().optional(),
+        version: z.string().optional(),
+        toolchain: z.string().optional(),
+        runtime: z.string().optional(),
+      })
+      .strict(),
+    createdAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
 
 /** Build ContributionQuery from validated query params. */
 function toContributionQuery(raw: {
@@ -167,7 +183,11 @@ contributions.post("/", async (c) => {
       }
     }
   } else {
-    manifestData = await c.req.json();
+    try {
+      manifestData = await c.req.json();
+    } catch {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } }, 400);
+    }
   }
 
   // Validate manifest
@@ -177,7 +197,20 @@ contributions.post("/", async (c) => {
   const artifacts: Record<string, string> = {};
   if (parsed.artifacts) {
     for (const [name, hash] of Object.entries(parsed.artifacts)) {
-      if (typeof hash === "string" && hash.startsWith("blake3:")) {
+      if (typeof hash === "string") {
+        // Verify pre-computed hash exists in CAS
+        const exists = await cas.exists(hash);
+        if (!exists) {
+          return c.json(
+            {
+              error: {
+                code: "VALIDATION_ERROR",
+                message: `Artifact '${name}' references non-existent hash ${hash}`,
+              },
+            },
+            400,
+          );
+        }
         artifacts[name] = hash;
       }
     }

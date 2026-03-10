@@ -116,6 +116,50 @@ describe("POST /api/contributions", () => {
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
+  test("rejects malformed JSON body with 400", async () => {
+    const res = await ctx.app.request("/api/contributions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not valid json{{{",
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toBe("Invalid JSON body");
+  });
+
+  test("rejects manifest with unknown fields (strict mode)", async () => {
+    const body = {
+      ...validManifestBody(),
+      unknownField: "should be rejected",
+    };
+
+    const res = await ctx.app.request("/api/contributions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects pre-computed artifact hash that does not exist in CAS", async () => {
+    const fakeHash = `blake3:${"f".repeat(64)}`;
+    const body = validManifestBody({ artifacts: { "ghost.py": fakeHash } });
+
+    const res = await ctx.app.request("/api/contributions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toContain("non-existent hash");
+  });
+
   test("rejects manifest missing required fields", async () => {
     const res = await ctx.app.request("/api/contributions", {
       method: "POST",
