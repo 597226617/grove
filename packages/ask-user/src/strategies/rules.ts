@@ -61,6 +61,7 @@ function pickOption(options: readonly string[], prefer: "simpler" | "existing" |
     throw new Error("No options provided");
   }
   if (options.length === 1 || prefer === "first") {
+    // biome-ignore lint/style/noNonNullAssertion: bounds-checked above
     return options[0]!;
   }
 
@@ -89,12 +90,15 @@ function pickOption(options: readonly string[], prefer: "simpler" | "existing" |
           shortestIdx = i;
         }
       }
+      // biome-ignore lint/style/noNonNullAssertion: bounds-checked via shortestIdx
       return options[shortestIdx]!;
     }
     // For "existing" with no matches, default to first option
+    // biome-ignore lint/style/noNonNullAssertion: bounds-checked above
     return options[0]!;
   }
 
+  // biome-ignore lint/style/noNonNullAssertion: bounds-checked via bestIdx loop
   return options[bestIdx]!;
 }
 

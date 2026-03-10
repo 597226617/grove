@@ -47,6 +47,7 @@ describe("createAgentStrategy", () => {
     expect(capturedCmd[0]).toBe("acpx");
     expect(capturedCmd[1]).toBe("--approve-all");
     expect(capturedCmd[2]).toBe("claude");
+    // biome-ignore lint/style/noNonNullAssertion: index 3 is always the prompt arg
     const prompt = capturedCmd[3]!;
     expect(prompt).toContain("Which DB?");
     expect(prompt).toContain("Postgres, MySQL");

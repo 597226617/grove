@@ -65,6 +65,7 @@ export function createInteractiveStrategy(readline?: ReadlineFn): AnswerStrategy
       if (input.options && input.options.length > 0 && /^\d+$/.test(raw)) {
         const idx = Number.parseInt(raw, 10);
         if (idx >= 1 && idx <= input.options.length) {
+          // biome-ignore lint/style/noNonNullAssertion: bounds-checked above
           return input.options[idx - 1]!;
         }
       }

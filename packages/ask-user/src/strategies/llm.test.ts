@@ -44,6 +44,7 @@ describe("createLlmStrategy", () => {
     let capturedContent = "";
     const capturingClient: AnthropicMessagesClient = {
       async create(params) {
+        // biome-ignore lint/style/noNonNullAssertion: test always has one message
         capturedContent = params.messages[0]!.content;
         return { content: [{ type: "text", text: "A" }] };
       },
