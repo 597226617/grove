@@ -9,8 +9,8 @@
 
 import { parseArgs } from "node:util";
 
-import { ClaimStatus } from "../../core/models.js";
 import type { Claim } from "../../core/models.js";
+import { ClaimStatus } from "../../core/models.js";
 import type { ClaimStore } from "../../core/store.js";
 import { formatClaimsTable } from "../utils/output.js";
 
