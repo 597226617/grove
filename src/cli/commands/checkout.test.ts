@@ -1,0 +1,151 @@
+/**
+ * Tests for grove checkout command.
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DefaultFrontierCalculator } from "../../core/frontier.js";
+import { ScoreDirection } from "../../core/models.js";
+import { makeContribution } from "../../core/test-helpers.js";
+import { FsCas } from "../../local/fs-cas.js";
+import { initSqliteDb, SqliteContributionStore } from "../../local/sqlite-store.js";
+import { LocalWorkspaceManager } from "../../local/workspace.js";
+import type { CliDeps } from "../context.js";
+import { parseCheckoutArgs, runCheckout } from "./checkout.js";
+
+let tmpDir: string;
+let deps: CliDeps;
+
+beforeEach(async () => {
+  tmpDir = await mkdtemp(join(tmpdir(), "grove-checkout-test-"));
+  const groveDir = join(tmpDir, ".grove");
+  await mkdir(groveDir, { recursive: true });
+
+  const db = initSqliteDb(join(groveDir, "grove.db"));
+  const store = new SqliteContributionStore(db);
+  const cas = new FsCas(join(groveDir, "cas"));
+  const frontier = new DefaultFrontierCalculator(store);
+  const workspace = new LocalWorkspaceManager({
+    groveRoot: groveDir,
+    db,
+    contributionStore: store,
+    cas,
+  });
+
+  deps = {
+    store,
+    frontier,
+    workspace,
+    cas,
+    groveRoot: tmpDir,
+    close: () => {
+      store.close();
+      workspace.close();
+    },
+  };
+});
+
+afterEach(async () => {
+  deps.close();
+  await rm(tmpDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// parseCheckoutArgs
+// ---------------------------------------------------------------------------
+
+describe("parseCheckoutArgs", () => {
+  test("parses CID + --to", () => {
+    const opts = parseCheckoutArgs(["blake3:abc123", "--to", "./workspace"]);
+    expect(opts.cid).toBe("blake3:abc123");
+    expect(opts.to).toBe("./workspace");
+    expect(opts.frontierMetric).toBeUndefined();
+  });
+
+  test("parses --frontier + --to", () => {
+    const opts = parseCheckoutArgs(["--frontier", "throughput", "--to", "./ws"]);
+    expect(opts.frontierMetric).toBe("throughput");
+    expect(opts.cid).toBeUndefined();
+  });
+
+  test("rejects missing --to", () => {
+    expect(() => parseCheckoutArgs(["blake3:abc123"])).toThrow("Missing required --to");
+  });
+
+  test("rejects neither CID nor --frontier", () => {
+    expect(() => parseCheckoutArgs(["--to", "./ws"])).toThrow(
+      "Provide a CID positional argument or --frontier",
+    );
+  });
+
+  test("rejects both CID and --frontier", () => {
+    expect(() => parseCheckoutArgs(["blake3:abc123", "--frontier", "tp", "--to", "./ws"])).toThrow(
+      "Provide either a CID or --frontier, not both",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runCheckout
+// ---------------------------------------------------------------------------
+
+describe("runCheckout", () => {
+  test("checks out a contribution by CID", async () => {
+    // Create a contribution with an artifact in CAS
+    const data = new TextEncoder().encode("hello world");
+    const hash = await deps.cas.put(data);
+
+    const c = makeContribution({
+      summary: "test checkout",
+      artifacts: { "readme.txt": hash },
+    });
+    await deps.store.put(c);
+
+    const output: string[] = [];
+    await runCheckout({ cid: c.cid, to: join(tmpDir, "out"), agent: "test-agent" }, deps, (s) =>
+      output.push(s),
+    );
+
+    const text = output.join("\n");
+    expect(text).toContain("Checked out");
+    expect(text).toContain("test checkout");
+    expect(text).toContain("Artifacts: 1");
+  });
+
+  test("resolves CID from frontier metric", async () => {
+    const c = makeContribution({
+      summary: "best model",
+      scores: { throughput: { value: 100, direction: ScoreDirection.Maximize } },
+    });
+    await deps.store.put(c);
+
+    const output: string[] = [];
+    await runCheckout(
+      { frontierMetric: "throughput", to: join(tmpDir, "out"), agent: "test-agent" },
+      deps,
+      (s) => output.push(s),
+    );
+
+    const text = output.join("\n");
+    expect(text).toContain("Resolved frontier best");
+    expect(text).toContain("best model");
+  });
+
+  test("throws for missing contribution", async () => {
+    const badCid = "blake3:0000000000000000000000000000000000000000000000000000000000000000";
+    await expect(
+      runCheckout({ cid: badCid, to: join(tmpDir, "out"), agent: "test-agent" }, deps),
+    ).rejects.toThrow("not found");
+  });
+
+  test("throws for missing frontier metric", async () => {
+    await expect(
+      runCheckout(
+        { frontierMetric: "nonexistent", to: join(tmpDir, "out"), agent: "test-agent" },
+        deps,
+      ),
+    ).rejects.toThrow("No frontier entries");
+  });
+});
