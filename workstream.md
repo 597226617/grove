@@ -7,18 +7,18 @@ from another.
 ```
   ┌───────────────────────────┐   ┌───────────────────────────┐
   │  Stream 1: Protocol/Spec  │   │  Stream 2: Core Engine    │
-  │  (7 issues)               │   │  (7 issues)               │
+  │  (7 issues)               │   │  (8 issues)               │
   │  Schemas + contracts      │   │  Models, store, CAS,      │
   │  #1,#2,#3,#4 (parallel)   │   │  frontier, Symphony ops   │
   │  → #5 → #23 → #26        │   │  #7 → #8,#9 → #10        │
-  │                           │   │  → #24, #25, #27          │
+  │                           │   │  → #24, #25, #27, #39     │
   └───────────────────────────┘   └──────┬──────────┬─────────┘
                                          │          │
               ┌──────────────────────────▼┐  ┌──────▼──────────────────┐
               │  Stream 3: CLI &          │  │  Stream 4: Network,     │
-              │  Agent Surface (6 issues) │  │  Integration & Scale    │
+              │  Agent Surface (7 issues) │  │  Integration & Scale    │
               │  #11→#12→#13→#14          │  │  (7 issues)             │
-              │  #16, #28                 │  │  #15→#17→#18            │
+              │  #16, #39, #28            │  │  #15→#17→#18            │
               └───────────────────────────┘  │  #19→#20→#21→#22        │
                                              └─────────────────────────┘
 ```
@@ -31,7 +31,7 @@ review, no special sync needed.
 **Streams 3 & 4** start once Stream 2's core engine (#7-#10) is
 functional, and run in parallel with each other.
 
-**Total: 27 issues + #6 (done) = 28**
+**Total: 28 issues + #6 (done) = 29**
 
 ---
 
@@ -88,6 +88,7 @@ filesystem I/O. No network, no CLI parsing.
 | 2.5 | [#24](https://github.com/windoliver/grove/issues/24) | Workspace isolation and path containment | P1 |
 | 2.6 | [#25](https://github.com/windoliver/grove/issues/25) | Reconciliation and idempotency | P1 |
 | 2.7 | [#27](https://github.com/windoliver/grove/issues/27) | Bounded concurrency and execution limits | P1 |
+| 2.8 | [#39](https://github.com/windoliver/grove/issues/39) | Discussion ergonomics: thread queries (store helpers) | P1 |
 
 **Dependencies:** None — starts immediately, in parallel with Stream 1.
 Works directly from the proposal document.
@@ -107,6 +108,7 @@ Works directly from the proposal document.
 - #24 depends on #9 (workspaces use CAS for checkout)
 - #25 depends on #8 (reconciliation sweeps the store)
 - #27 depends on #8 (concurrency limits enforced at store layer)
+- #39 store helpers depend on #8 (thread/replyCounts extend store protocol); CLI/MCP depend on #11, #16
 
 **Sync point → Streams 3 & 4:** Core engine (#7-#10) must be functional
 before CLI (#11) or server (#15) can be built. #8 and #9 are the critical
@@ -131,7 +133,8 @@ commands, MCP tools, operator TUI. Depends on Stream 2 core engine.
 | 3.3 | [#13](https://github.com/windoliver/grove/issues/13) | CLI: grove checkout, frontier, search, log, tree | P1 |
 | 3.4 | [#14](https://github.com/windoliver/grove/issues/14) | End-to-end validation: autoresearch scenario | P1 |
 | 3.5 | [#16](https://github.com/windoliver/grove/issues/16) | grove-mcp: MCP tools for agents | P2 |
-| 3.6 | [#28](https://github.com/windoliver/grove/issues/28) | Operator TUI for swarm visibility (k9s-style) | P2 |
+| 3.6 | [#39](https://github.com/windoliver/grove/issues/39) | Discussion ergonomics: CLI/MCP shorthands + activity | P1 |
+| 3.7 | [#28](https://github.com/windoliver/grove/issues/28) | Operator TUI for swarm visibility (k9s-style) | P2 |
 
 **Dependencies:** Stream 2 (#7-#10 at minimum).
 
@@ -148,7 +151,8 @@ commands, MCP tools, operator TUI. Depends on Stream 2 core engine.
 - #13 depends on #11, #12 (checkout/frontier/search assume data exists)
 - #14 depends on #11-#13 (E2E exercises all CLI commands)
 - #16 can start once #11-#12 are stable (MCP wraps the same core)
-- #28 can start once #13 is stable (TUI visualizes frontier/tree/claims)
+- #39 CLI depends on #11 (discuss/thread/threads are CLI commands); MCP depends on #16
+- #28 can start once #13 is stable (TUI visualizes frontier/tree/claims); #39 store helpers unblock #28 threaded views
 
 **CLI commands mapped to proposal §12.2:**
 | Proposal command | Issue |
@@ -164,6 +168,9 @@ commands, MCP tools, operator TUI. Depends on Stream 2 core engine.
 | `grove search` | #13 |
 | `grove log` | #13 |
 | `grove tree` | #13 |
+| `grove discuss` | #39 |
+| `grove thread` | #39 |
+| `grove threads` | #39 |
 
 **MCP tools mapped to proposal §12.3:**
 | Proposal tool | Issue |
@@ -176,6 +183,8 @@ commands, MCP tools, operator TUI. Depends on Stream 2 core engine.
 | `grove_frontier` | #16 |
 | `grove_search` | #16 |
 | `grove_checkout` | #16 |
+| `grove_discuss` | #39 |
+| `grove_thread` | #39 |
 
 ---
 
@@ -234,6 +243,7 @@ Week   Stream 1         Stream 2         Stream 3         Stream 4
 
  7-8   (done)            #25 (reconcile)  #12 (claim)       (continues)
                          #27 (concurrency) #13 (query CLIs)
+                         #39 (thread qry)  #39 (discuss CLI)
 
  9-10                    (done)           #14 (E2E local)   #18 (multi-
                                           #16 (MCP)         agent E2E)
@@ -270,8 +280,8 @@ to at least one issue:
 | §8.1 Recommended split | #6 ✅ | ✅ |
 | §9 Agent loop | #18 | ✅ |
 | §9.3 Stop conditions | #26 | ✅ |
-| §10 Discussion/deliberation | #1, #26 | ✅ |
-| §10.1 Bounded deliberation | #26 | ✅ |
+| §10 Discussion/deliberation | #1, #26, #39 | ✅ |
+| §10.1 Bounded deliberation | #26, #39 | ✅ |
 | §10.2 Decision policies | #26 | ✅ |
 | §10 Agent metadata | #7 | ⚠️ minor |
 | §11.1 Frontier dimensions | #5, #10 | ✅ |
