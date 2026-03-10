@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { AskUserConfig } from "./config.js";
 import type { AnswerStrategy, AskUserInput } from "./strategy.js";
-import { createStrategyChain } from "./strategy.js";
+import { buildStrategyFromConfig, createStrategyChain } from "./strategy.js";
 
 function mockStrategy(name: string, answer: string): AnswerStrategy {
   return {
@@ -110,5 +111,65 @@ describe("createStrategyChain", () => {
     const chain = createStrategyChain(primary, mockStrategy("fallback", "ok"));
     const answer = await chain.answer({ question: "test" });
     expect(answer).toBe("ok");
+  });
+});
+
+describe("buildStrategyFromConfig — lazy fallback", () => {
+  test("starts successfully when fallback is 'agent' but acpx is missing", async () => {
+    // This should NOT throw — the fallback is lazy
+    const config: AskUserConfig = {
+      strategy: "rules",
+      fallback: "agent",
+      llm: {
+        model: "claude-haiku-4-5-20251001",
+        systemPrompt: "test",
+        timeoutMs: 30_000,
+        maxTokens: 256,
+      },
+      rules: {
+        prefer: "first",
+        defaultResponse: "default",
+      },
+      agent: {
+        command: "nonexistent-binary-xyz",
+        args: [],
+        timeoutMs: 5000,
+      },
+    };
+
+    const strategy = await buildStrategyFromConfig(config);
+    // Primary should work fine
+    const answer = await strategy.answer({
+      question: "test",
+      options: ["A", "B"],
+    });
+    expect(answer).toBe("A");
+  });
+
+  test("lazy fallback fires when primary fails", async () => {
+    const config: AskUserConfig = {
+      strategy: "rules",
+      fallback: "rules",
+      llm: {
+        model: "claude-haiku-4-5-20251001",
+        systemPrompt: "test",
+        timeoutMs: 30_000,
+        maxTokens: 256,
+      },
+      rules: {
+        prefer: "first",
+        defaultResponse: "from rules",
+      },
+      agent: {
+        command: "acpx",
+        args: [],
+        timeoutMs: 5000,
+      },
+    };
+
+    const strategy = await buildStrategyFromConfig(config);
+    // No options → returns default response from rules
+    const answer = await strategy.answer({ question: "open-ended question" });
+    expect(answer).toBe("from rules");
   });
 });

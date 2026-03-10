@@ -2,9 +2,10 @@
  * Agent-based answering strategy.
  *
  * Routes questions to another acpx agent via subprocess.
- * Guards against missing acpx binary at initialization time.
+ * Uses node:child_process for cross-runtime compatibility (Node + Bun).
  */
 
+import { execFile } from "node:child_process";
 import type { AgentConfigType } from "../config.js";
 import type { AnswerStrategy, AskUserInput } from "../strategy.js";
 
@@ -15,44 +16,41 @@ export type SpawnFn = (
 ) => Promise<{ stdout: string; exitCode: number }>;
 
 /**
- * Default spawn implementation using Bun.spawn.
+ * Default spawn implementation using node:child_process.
+ * Works in both Node.js and Bun runtimes.
  */
-async function defaultSpawn(
+function defaultSpawn(
   cmd: string[],
   opts: { timeout: number },
 ): Promise<{ stdout: string; exitCode: number }> {
-  const proc = Bun.spawn(cmd, {
-    stdout: "pipe",
-    stderr: "pipe",
+  const [command, ...args] = cmd;
+  return new Promise((resolve, reject) => {
+    if (!command) {
+      reject(new Error("Empty command"));
+      return;
+    }
+    execFile(command, args, { timeout: opts.timeout }, (error, stdout) => {
+      if (error && error.killed) {
+        reject(new Error(`Agent process timed out after ${opts.timeout}ms`));
+        return;
+      }
+      // execFile sets error for non-zero exit, but we handle that ourselves
+      const exitCode = error?.code != null ? (typeof error.code === "number" ? error.code : 1) : 0;
+      resolve({ stdout: stdout.trim(), exitCode });
+    });
   });
-
-  const timeoutId = setTimeout(() => {
-    proc.kill();
-  }, opts.timeout);
-
-  try {
-    const stdout = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    return { stdout: stdout.trim(), exitCode };
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 /**
  * Check if a command is available on PATH.
+ * Uses node:child_process for cross-runtime compatibility.
  */
-async function isCommandAvailable(command: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(["which", command], {
-      stdout: "pipe",
-      stderr: "pipe",
+function isCommandAvailable(command: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("which", [command], (error) => {
+      resolve(error === null);
     });
-    const exitCode = await proc.exited;
-    return exitCode === 0;
-  } catch {
-    return false;
-  }
+  });
 }
 
 /**
@@ -83,14 +81,16 @@ function formatAgentPrompt(input: AskUserInput): string {
  *
  * @param config - Agent configuration (command, args, timeout).
  * @param spawn - Optional spawn function for testing.
- * @throws If the configured command is not available on PATH.
+ * @param skipAvailabilityCheck - If true, skip the command availability check
+ *   (used internally when the strategy is created lazily as a fallback).
  */
 export async function createAgentStrategy(
   config: AgentConfigType,
   spawn?: SpawnFn,
+  skipAvailabilityCheck?: boolean,
 ): Promise<AnswerStrategy> {
-  // Guard: check if acpx is available
-  if (!spawn) {
+  // Guard: check if acpx is available (skip when DI spawn provided or when lazy)
+  if (!spawn && !skipAvailabilityCheck) {
     const available = await isCommandAvailable(config.command);
     if (!available) {
       throw new Error(

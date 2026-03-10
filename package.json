@@ -29,13 +29,13 @@
     "grove-server": "./dist/server/serve.js"
   },
   "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc --noEmit",
+    "build": "tsup && bun run --cwd packages/ask-user build",
+    "typecheck": "tsc --noEmit && bun run --cwd packages/ask-user typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
     "start:server": "bun run src/server/serve.ts",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
+    "test": "bun test && bun test --cwd packages/ask-user",
+    "test:coverage": "bun test --coverage && bun test --cwd packages/ask-user --coverage",
     "check": "biome check .",
     "postinstall": "lefthook install"
   },

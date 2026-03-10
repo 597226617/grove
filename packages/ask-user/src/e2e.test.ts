@@ -71,7 +71,7 @@ describe("E2E: MCP ask_user tool", () => {
     expect(result.content).toEqual([{ type: "text", text: "Postgres" }]);
   });
 
-  test("answers yes/no question without options", async () => {
+  test("returns default response for question without options", async () => {
     const result = await client.callTool({
       name: "ask_user",
       arguments: {
@@ -79,8 +79,8 @@ describe("E2E: MCP ask_user tool", () => {
       },
     });
 
-    // Rules strategy answers "Yes" for "should I" questions
-    expect(result.content).toEqual([{ type: "text", text: "Yes" }]);
+    // Rules strategy returns default response (does NOT auto-approve)
+    expect(result.content).toEqual([{ type: "text", text: "Just do it." }]);
   });
 
   test("answers open-ended question with default response", async () => {

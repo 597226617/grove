@@ -55,6 +55,24 @@ describe("createInteractiveStrategy", () => {
     expect(answer).toBe("custom answer");
   });
 
+  test("returns digit-prefixed text verbatim, not as option index", async () => {
+    const strategy = createInteractiveStrategy(mockReadline("2 bananas"));
+    const answer = await strategy.answer({
+      question: "Pick one",
+      options: ["Alpha", "Beta"],
+    });
+    expect(answer).toBe("2 bananas");
+  });
+
+  test("returns digit-containing word verbatim, not as option index", async () => {
+    const strategy = createInteractiveStrategy(mockReadline("1password"));
+    const answer = await strategy.answer({
+      question: "Pick one",
+      options: ["Alpha", "Beta"],
+    });
+    expect(answer).toBe("1password");
+  });
+
   test("throws on empty input", async () => {
     const strategy = createInteractiveStrategy(mockReadline(""));
     await expect(strategy.answer({ question: "test" })).rejects.toThrow(

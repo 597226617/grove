@@ -59,42 +59,31 @@ describe("createRulesStrategy", () => {
         question: "Should I proceed?",
         options: [],
       });
-      return expect(result).resolves.toBe("Yes");
+      // Empty options = no options, returns default (does NOT auto-approve)
+      return expect(result).resolves.toBe(DEFAULT_RULES.defaultResponse);
     });
   });
 
-  describe("without options", () => {
-    test("answers yes for 'should I' questions", () => {
+  describe("without options — always returns default response", () => {
+    test("returns default for 'should I' questions (does not auto-approve)", () => {
       const strategy = createRulesStrategy(DEFAULT_RULES);
-      const result = strategy.answer({ question: "Should I refactor this module?" });
-      return expect(result).resolves.toBe("Yes");
+      const result = strategy.answer({ question: "Should I drop the backup table?" });
+      return expect(result).resolves.toBe(DEFAULT_RULES.defaultResponse);
     });
 
-    test("answers yes for 'do you want' questions", () => {
+    test("returns default for 'do you want' questions", () => {
       const strategy = createRulesStrategy(DEFAULT_RULES);
-      const result = strategy.answer({ question: "Do you want me to add tests?" });
-      return expect(result).resolves.toBe("Yes");
+      const result = strategy.answer({ question: "Do you want me to delete all logs?" });
+      return expect(result).resolves.toBe(DEFAULT_RULES.defaultResponse);
     });
 
-    test("answers yes for 'shall I' questions", () => {
+    test("returns default for 'can I' questions (does not auto-approve)", () => {
       const strategy = createRulesStrategy(DEFAULT_RULES);
-      const result = strategy.answer({ question: "Shall I continue?" });
-      return expect(result).resolves.toBe("Yes");
+      const result = strategy.answer({ question: "Can I remove the production database?" });
+      return expect(result).resolves.toBe(DEFAULT_RULES.defaultResponse);
     });
 
-    test("answers yes for 'is it ok' questions", () => {
-      const strategy = createRulesStrategy(DEFAULT_RULES);
-      const result = strategy.answer({ question: "Is it ok to delete the old file?" });
-      return expect(result).resolves.toBe("Yes");
-    });
-
-    test("answers yes for 'can I' questions", () => {
-      const strategy = createRulesStrategy(DEFAULT_RULES);
-      const result = strategy.answer({ question: "Can I use TypeScript here?" });
-      return expect(result).resolves.toBe("Yes");
-    });
-
-    test("returns default response for open-ended questions", () => {
+    test("returns default for open-ended questions", () => {
       const strategy = createRulesStrategy(DEFAULT_RULES);
       const result = strategy.answer({
         question: "What database technology would you recommend?",
@@ -116,9 +105,11 @@ describe("createRulesStrategy", () => {
     test("handles unicode in question", () => {
       const strategy = createRulesStrategy(DEFAULT_RULES);
       const result = strategy.answer({
-        question: "Should I add emoji support? \u{1F680}",
+        question: "Which emoji? \u{1F680}",
+        options: ["rocket", "star"],
       });
-      return expect(result).resolves.toBe("Yes");
+      // picks shorter option
+      return expect(result).resolves.toBe("star");
     });
 
     test("handles very long question", () => {

@@ -3,6 +3,11 @@
  *
  * Deterministic keyword matching and option selection heuristics.
  * Fully testable without external dependencies.
+ *
+ * SAFETY: When no options are provided, this strategy always returns the
+ * configured default response rather than trying to infer yes/no intent.
+ * This prevents auto-approving destructive prompts like "Should I drop
+ * the backup table?" when used as a fallback after an LLM failure.
  */
 
 import type { RulesConfigType } from "../config.js";
@@ -103,19 +108,9 @@ export function createRulesStrategy(config: RulesConfigType): AnswerStrategy {
         return pickOption(input.options, config.prefer);
       }
 
-      // For yes/no questions, answer "yes"
-      const lower = input.question.toLowerCase();
-      if (
-        lower.includes("should i") ||
-        lower.includes("do you want") ||
-        lower.includes("shall i") ||
-        lower.includes("is it ok") ||
-        lower.includes("can i")
-      ) {
-        return "Yes";
-      }
-
-      // Fall back to default response
+      // Without explicit options we cannot safely infer intent.
+      // Returning a conservative default avoids auto-approving
+      // potentially destructive actions (e.g. "Should I drop the table?").
       return config.defaultResponse;
     },
   };

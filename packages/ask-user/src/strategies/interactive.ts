@@ -60,10 +60,11 @@ export function createInteractiveStrategy(readline?: ReadlineFn): AnswerStrategy
       const prompt = parts.join("\n");
       const raw = await readlineFn(prompt);
 
-      // If options provided and user typed a number, resolve to the option text
-      if (input.options && input.options.length > 0) {
+      // If options provided and user typed exactly a number, resolve to the option text.
+      // Only match bare integers (e.g. "2") — not "2 bananas" or "1password".
+      if (input.options && input.options.length > 0 && /^\d+$/.test(raw)) {
         const idx = Number.parseInt(raw, 10);
-        if (!Number.isNaN(idx) && idx >= 1 && idx <= input.options.length) {
+        if (idx >= 1 && idx <= input.options.length) {
           return input.options[idx - 1]!;
         }
       }
