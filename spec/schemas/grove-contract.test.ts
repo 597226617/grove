@@ -269,18 +269,18 @@ describe("grove-contract schema — gates", () => {
     expect(validate(contract)).toBe(false);
   });
 
-  test("rejects threshold above 1", () => {
+  test("accepts min_score gate with raw metric threshold (non-normalized)", () => {
     const contract = validContract({
-      gates: [{ type: "min_reviews", count: 1, threshold: 1.5 }],
+      gates: [{ type: "min_score", metric: "latency_ms", threshold: 10 }],
     });
-    expect(validate(contract)).toBe(false);
+    expect(validate(contract)).toBe(true);
   });
 
-  test("rejects threshold below 0", () => {
+  test("accepts min_score gate with negative threshold", () => {
     const contract = validContract({
-      gates: [{ type: "min_reviews", count: 1, threshold: -0.1 }],
+      gates: [{ type: "min_score", metric: "log_loss", threshold: -2.5 }],
     });
-    expect(validate(contract)).toBe(false);
+    expect(validate(contract)).toBe(true);
   });
 
   test("rejects count of 0", () => {
@@ -590,6 +590,13 @@ describe("grove-contract schema — agent constraints", () => {
   test("rejects empty required_artifacts array", () => {
     const contract = validContract({
       agent_constraints: { required_artifacts: { work: [] } },
+    });
+    expect(validate(contract)).toBe(false);
+  });
+
+  test("rejects empty required_relations array", () => {
+    const contract = validContract({
+      agent_constraints: { required_relations: { review: [] } },
     });
     expect(validate(contract)).toBe(false);
   });

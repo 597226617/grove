@@ -145,7 +145,7 @@ gates:
 | `has_artifact` | Contribution must include a named artifact | `name` |
 | `has_relation` | Contribution must have a relation of the given type | `relation_type` |
 | `min_reviews` | Contribution must have N reviews (optionally above a score threshold) | `count`, optional `threshold` |
-| `min_score` | Contribution must meet a minimum score on a metric | `metric`, `threshold` |
+| `min_score` | Contribution must meet a minimum score on a metric (raw metric value) | `metric`, `threshold` |
 
 ### Field Applicability
 
@@ -160,6 +160,18 @@ ignored at runtime.
 | `has_relation` | — | — | Required | — | — |
 | `min_reviews` | — | — | — | Required | Optional |
 | `min_score` | Required | — | — | — | Required |
+
+### Threshold Semantics
+
+The `threshold` field is an unrestricted number. Its meaning depends
+on the gate type:
+
+- **`min_reviews`**: Review score threshold (0-1 by convention, per
+  RELATIONS.md review metadata). Not enforced by the schema.
+- **`min_score`**: Raw metric threshold in the metric's native units.
+  For example, `threshold: 10` on a `latency_ms` metric means
+  "latency must be at or below 10ms" (respecting the metric's
+  direction).
 
 ### Cross-Section References
 

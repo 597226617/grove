@@ -125,9 +125,7 @@
         },
         "threshold": {
           "type": "number",
-          "description": "Minimum score threshold (0-1). Optional for min_reviews gates, required for min_score gates.",
-          "minimum": 0,
-          "maximum": 1
+          "description": "Minimum score threshold. For min_reviews gates, this is a review score (0-1 by convention). For min_score gates, this is a raw metric value in the metric's native units."
         }
       },
       "allOf": [
@@ -301,6 +299,7 @@
       "items": {
         "$ref": "https://grove.dev/schemas/contribution.json#/$defs/relation_type"
       },
+      "minItems": 1,
       "maxItems": 5,
       "uniqueItems": true
     },
