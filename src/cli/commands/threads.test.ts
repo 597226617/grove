@@ -85,6 +85,14 @@ describe("runThreads", () => {
     expect(lines.join("")).toContain("no active threads");
   });
 
+  test("outputs valid JSON array when empty and --json is set", async () => {
+    const lines: string[] = [];
+    await runThreads({ tags: [], limit: 10, json: true }, deps, (msg) => lines.push(msg));
+    const parsed = JSON.parse(lines.join(""));
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(0);
+  });
+
   test("lists hot threads sorted by reply count", async () => {
     // Thread A: 2 replies
     const rootA = makeContribution({

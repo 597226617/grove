@@ -93,6 +93,22 @@ describe("parseDiscussArgs", () => {
   test("throws on invalid mode", () => {
     expect(() => parseDiscussArgs(["--mode", "invalid", "Topic"])).toThrow("Invalid mode");
   });
+
+  test("joins multiple positionals into root message", () => {
+    const opts = parseDiscussArgs(["hello", "world"]);
+    expect(opts.respondsTo).toBeUndefined();
+    expect(opts.message).toBe("hello world");
+  });
+
+  test("joins extra positionals into reply message", () => {
+    const opts = parseDiscussArgs(["blake3:abc123", "this", "needs", "work"]);
+    expect(opts.respondsTo).toBe("blake3:abc123");
+    expect(opts.message).toBe("this needs work");
+  });
+
+  test("throws on CID with no message", () => {
+    expect(() => parseDiscussArgs(["blake3:abc123"])).toThrow("empty");
+  });
 });
 
 // ---------------------------------------------------------------------------

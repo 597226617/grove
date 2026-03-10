@@ -52,13 +52,13 @@ export function parseDiscussArgs(args: readonly string[]): DiscussOptions {
   let respondsTo: string | undefined;
   let message: string;
 
-  if (positionals.length === 1) {
-    // Root discussion — message only
-    message = positionals[0] ?? "";
-  } else {
-    // Reply — CID + message
+  if (positionals[0]?.startsWith("blake3:")) {
+    // First positional is a CID — reply mode. Rest is the message.
     respondsTo = positionals[0];
-    message = positionals[1] ?? "";
+    message = positionals.slice(1).join(" ");
+  } else {
+    // Root discussion — all positionals form the message.
+    message = positionals.join(" ");
   }
 
   if (message.trim().length === 0) {

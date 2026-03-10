@@ -57,7 +57,11 @@ export async function runThreads(
   });
 
   if (summaries.length === 0) {
-    writer("(no active threads)");
+    if (options.json) {
+      writer("[]");
+    } else {
+      writer("(no active threads)");
+    }
     return;
   }
 
