@@ -7,6 +7,7 @@
  * Tests cover:
  * - Checkout creates workspace with artifacts
  * - Idempotent re-checkout
+ * - Per-agent workspace isolation
  * - Workspace listing and filtering
  * - Cleanup lifecycle
  * - Stale detection
@@ -117,6 +118,31 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       expect(second.status).toBe(WorkspaceStatus.Active);
     });
 
+    test("different agents get separate workspaces for same CID", async () => {
+      const contribution = await ctx.createContributionWithArtifacts({
+        "file.txt": new TextEncoder().encode("shared data"),
+      });
+      const alice = makeAgent({ agentId: "alice" });
+      const bob = makeAgent({ agentId: "bob" });
+
+      const aliceWs = await ctx.manager.checkout(contribution.cid, { agent: alice });
+      const bobWs = await ctx.manager.checkout(contribution.cid, { agent: bob });
+
+      // Different workspace paths
+      expect(bobWs.workspacePath).not.toBe(aliceWs.workspacePath);
+
+      // Each reports the correct owner
+      expect(aliceWs.agent.agentId).toBe("alice");
+      expect(bobWs.agent.agentId).toBe("bob");
+
+      // Both have the artifact materialized
+      const aliceFile = Bun.file(`${aliceWs.workspacePath}/file.txt`);
+      expect(await aliceFile.text()).toBe("shared data");
+
+      const bobFile = Bun.file(`${bobWs.workspacePath}/file.txt`);
+      expect(await bobFile.text()).toBe("shared data");
+    });
+
     test("throws for non-existent contribution", async () => {
       const fakeCid = "blake3:0000000000000000000000000000000000000000000000000000000000000000";
       const agent = makeAgent();
@@ -145,6 +171,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
     test("returns undefined for non-existent workspace", async () => {
       const result = await ctx.manager.getWorkspace(
         "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+        "test-agent",
       );
       expect(result).toBeUndefined();
     });
@@ -154,11 +181,21 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       const agent = makeAgent({ agentId: "test-get" });
 
       await ctx.manager.checkout(contribution.cid, { agent });
-      const info = await ctx.manager.getWorkspace(contribution.cid);
+      const info = await ctx.manager.getWorkspace(contribution.cid, "test-get");
 
       expect(info).toBeDefined();
       expect(info?.cid).toBe(contribution.cid);
       expect(info?.agent.agentId).toBe("test-get");
+    });
+
+    test("returns undefined for wrong agent", async () => {
+      const contribution = await ctx.createContributionWithArtifacts({});
+      const agent = makeAgent({ agentId: "alice" });
+
+      await ctx.manager.checkout(contribution.cid, { agent });
+      const info = await ctx.manager.getWorkspace(contribution.cid, "bob");
+
+      expect(info).toBeUndefined();
     });
   });
 
@@ -182,6 +219,20 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       expect(list).toHaveLength(2);
     });
 
+    test("lists per-agent workspaces for same CID", async () => {
+      const contribution = await ctx.createContributionWithArtifacts({});
+
+      await ctx.manager.checkout(contribution.cid, {
+        agent: makeAgent({ agentId: "alice" }),
+      });
+      await ctx.manager.checkout(contribution.cid, {
+        agent: makeAgent({ agentId: "bob" }),
+      });
+
+      const list = await ctx.manager.listWorkspaces();
+      expect(list).toHaveLength(2);
+    });
+
     test("filters by status", async () => {
       const c1 = await ctx.createContributionWithArtifacts({});
       const c2 = await ctx.createContributionWithArtifacts({
@@ -191,7 +242,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
 
       await ctx.manager.checkout(c1.cid, { agent });
       await ctx.manager.checkout(c2.cid, { agent });
-      await ctx.manager.cleanWorkspace(c1.cid);
+      await ctx.manager.cleanWorkspace(c1.cid, agent.agentId);
 
       const active = await ctx.manager.listWorkspaces({
         status: WorkspaceStatus.Active,
@@ -254,7 +305,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
 
       const info = await ctx.manager.checkout(contribution.cid, { agent });
 
-      const result = await ctx.manager.cleanWorkspace(contribution.cid);
+      const result = await ctx.manager.cleanWorkspace(contribution.cid, agent.agentId);
       expect(result).toBe(true);
 
       // Verify directory is removed
@@ -262,7 +313,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       expect(await file.exists()).toBe(false);
 
       // Verify status updated
-      const updated = await ctx.manager.getWorkspace(contribution.cid);
+      const updated = await ctx.manager.getWorkspace(contribution.cid, agent.agentId);
       expect(updated).toBeDefined();
       expect(updated?.status).toBe(WorkspaceStatus.Cleaned);
     });
@@ -270,6 +321,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
     test("returns false for non-existent workspace", async () => {
       const result = await ctx.manager.cleanWorkspace(
         "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+        "test-agent",
       );
       expect(result).toBe(false);
     });
@@ -281,7 +333,34 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       await ctx.manager.checkout(contribution.cid, { agent });
       await ctx.createActiveClaim(contribution.cid);
 
-      await expect(ctx.manager.cleanWorkspace(contribution.cid)).rejects.toThrow("still active");
+      await expect(ctx.manager.cleanWorkspace(contribution.cid, agent.agentId)).rejects.toThrow(
+        "still active",
+      );
+    });
+
+    test("cleans one agent workspace without affecting another", async () => {
+      const contribution = await ctx.createContributionWithArtifacts({
+        "file.txt": new TextEncoder().encode("data"),
+      });
+      const alice = makeAgent({ agentId: "alice" });
+      const bob = makeAgent({ agentId: "bob" });
+
+      const aliceWs = await ctx.manager.checkout(contribution.cid, { agent: alice });
+      const bobWs = await ctx.manager.checkout(contribution.cid, { agent: bob });
+
+      // Clean alice's workspace
+      await ctx.manager.cleanWorkspace(contribution.cid, "alice");
+
+      // Alice's is cleaned
+      const aliceFile = Bun.file(`${aliceWs.workspacePath}/file.txt`);
+      expect(await aliceFile.exists()).toBe(false);
+
+      // Bob's is still active
+      const bobFile = Bun.file(`${bobWs.workspacePath}/file.txt`);
+      expect(await bobFile.text()).toBe("data");
+
+      const bobInfo = await ctx.manager.getWorkspace(contribution.cid, "bob");
+      expect(bobInfo?.status).toBe(WorkspaceStatus.Active);
     });
   });
 
@@ -328,7 +407,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
 
       await ctx.manager.checkout(c1.cid, { agent });
       await ctx.manager.checkout(c2.cid, { agent });
-      await ctx.manager.cleanWorkspace(c1.cid);
+      await ctx.manager.cleanWorkspace(c1.cid, agent.agentId);
 
       // Small delay to ensure lastActivityAt is in the past
       await new Promise((r) => setTimeout(r, 20));
@@ -354,7 +433,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       // Small delay to ensure timestamp changes
       await new Promise((r) => setTimeout(r, 10));
 
-      const touched = await ctx.manager.touchWorkspace(contribution.cid);
+      const touched = await ctx.manager.touchWorkspace(contribution.cid, agent.agentId);
 
       expect(touched.lastActivityAt).not.toBe(initial.lastActivityAt);
       expect(new Date(touched.lastActivityAt).getTime()).toBeGreaterThan(
@@ -366,6 +445,7 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
       await expect(
         ctx.manager.touchWorkspace(
           "blake3:3333333333333333333333333333333333333333333333333333333333333333",
+          "test-agent",
         ),
       ).rejects.toThrow("not found");
     });

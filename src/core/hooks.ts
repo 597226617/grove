@@ -22,9 +22,15 @@ export type HookEntry = string | { readonly cmd: string; readonly timeout?: numb
 
 /** Schema for a single hook — either a command string or an object with options. */
 export const HookEntrySchema: z.ZodType<HookEntry> = z.union([
-  z.string().min(1),
+  z
+    .string()
+    .min(1)
+    .refine((s) => s.trim().length > 0, "hook command must not be whitespace-only"),
   z.object({
-    cmd: z.string().min(1),
+    cmd: z
+      .string()
+      .min(1)
+      .refine((s) => s.trim().length > 0, "hook command must not be whitespace-only"),
     timeout: z.number().int().positive().optional(),
   }),
 ]);

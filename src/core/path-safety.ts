@@ -227,6 +227,10 @@ export function validateWorkspaceKey(key: string): string {
       `Workspace key '${key}' contains unsafe characters: only [A-Za-z0-9._-] allowed`,
     );
   }
+  // Reject dot-segments that are valid directory traversals
+  if (key === "." || key === "..") {
+    throw new Error(`Workspace key '${key}' is a reserved path component`);
+  }
   return key;
 }
 

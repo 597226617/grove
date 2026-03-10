@@ -43,9 +43,23 @@ describe("HooksConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("rejects whitespace-only string hook", () => {
+    const result = HooksConfigSchema.safeParse({
+      before_contribute: "   ",
+    });
+    expect(result.success).toBe(false);
+  });
+
   test("rejects object hook with empty cmd", () => {
     const result = HooksConfigSchema.safeParse({
       before_contribute: { cmd: "" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects object hook with whitespace-only cmd", () => {
+    const result = HooksConfigSchema.safeParse({
+      before_contribute: { cmd: "  \t  " },
     });
     expect(result.success).toBe(false);
   });

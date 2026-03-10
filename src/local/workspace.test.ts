@@ -236,7 +236,7 @@ describe("LocalWorkspaceManager implementation", () => {
       const _firstPath = first.workspacePath;
 
       // Clean
-      await ctx.manager.cleanWorkspace(contribution.cid);
+      await ctx.manager.cleanWorkspace(contribution.cid, agent.agentId);
 
       // Second checkout — should create fresh workspace
       const second = await ctx.manager.checkout(contribution.cid, { agent });

@@ -30,7 +30,7 @@ import type { ClaimStore, ContributionQuery, ContributionStore } from "../core/s
 // ---------------------------------------------------------------------------
 
 const DEFAULT_LEASE_DURATION_MS = 300_000;
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 /**
  * Normalize an ISO 8601 timestamp to UTC Z-format.
@@ -123,15 +123,17 @@ const SCHEMA_DDL = `
   CREATE INDEX IF NOT EXISTS idx_claims_target ON claims(target_ref);
   CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
 
-  -- Workspaces table for agent session isolation
+  -- Workspaces table for agent session isolation (per-agent isolation)
   CREATE TABLE IF NOT EXISTS workspaces (
-    cid TEXT PRIMARY KEY,
+    cid TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
     workspace_path TEXT NOT NULL,
     agent_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL,
     last_activity_at TEXT NOT NULL,
-    context_json TEXT
+    context_json TEXT,
+    PRIMARY KEY (cid, agent_id)
   );
 
   CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
@@ -213,6 +215,27 @@ export function initSqliteDb(dbPath: string): Database {
       // The workspaces table is in SCHEMA_DDL with CREATE TABLE IF NOT EXISTS,
       // so it's automatically created for both fresh and migrated databases.
       // No additional ALTER TABLE needed.
+    }
+
+    // Migration v3 → v4: add agent_id to workspaces PK for per-agent isolation
+    if (currentVersion !== null && currentVersion < 4 && currentVersion >= 3) {
+      // Drop and recreate — workspaces are transient (can be re-checked out).
+      db.run("DROP TABLE IF EXISTS workspaces");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspaces (
+          cid TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          workspace_path TEXT NOT NULL,
+          agent_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          last_activity_at TEXT NOT NULL,
+          context_json TEXT,
+          PRIMARY KEY (cid, agent_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
+        CREATE INDEX IF NOT EXISTS idx_workspaces_activity ON workspaces(last_activity_at);
+      `);
     }
 
     db.run("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)", [

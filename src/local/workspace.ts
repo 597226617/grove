@@ -25,6 +25,7 @@ import {
   ensureArtifactParentDir,
   sanitizeCidForPath,
   validateArtifactName,
+  validateWorkspaceKey,
 } from "../core/path-safety.js";
 import type { ContributionStore } from "../core/store.js";
 import type {
@@ -50,6 +51,7 @@ const WORKSPACES_DIR = "workspaces";
 /** Row shape from the workspaces table. */
 interface WorkspaceRow {
   readonly cid: string;
+  readonly agent_id: string;
   readonly workspace_path: string;
   readonly agent_json: string;
   readonly status: string;
@@ -119,8 +121,13 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   }
 
   async checkout(cid: string, options: CheckoutOptions): Promise<WorkspaceInfo> {
-    // Check for existing active workspace (idempotent re-checkout)
-    const existing = await this.getWorkspace(cid);
+    const agentId = options.agent.agentId;
+
+    // Validate agentId for safe use as a directory name
+    validateWorkspaceKey(agentId);
+
+    // Check for existing active workspace for this (cid, agent) pair
+    const existing = await this.getWorkspace(cid, agentId);
     if (existing !== undefined && existing.status === WorkspaceStatus.Active) {
       return existing;
     }
@@ -131,9 +138,9 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       throw new Error(`Contribution '${cid}' not found`);
     }
 
-    // Compute workspace directory path
+    // Compute workspace directory path — scoped by CID + agent
     const cidHex = sanitizeCidForPath(cid);
-    const workspacePath = join(this.workspacesRoot, cidHex);
+    const workspacePath = join(this.workspacesRoot, `${cidHex}-${agentId}`);
 
     // Ensure workspaces root exists
     await mkdir(this.workspacesRoot, { recursive: true });
@@ -191,6 +198,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     const now = new Date().toISOString();
     this.upsertWorkspaceRow({
       cid,
+      agentId,
       workspacePath,
       agent: options.agent,
       status: WorkspaceStatus.Active,
@@ -213,21 +221,21 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     };
   }
 
-  async getWorkspace(cid: string): Promise<WorkspaceInfo | undefined> {
+  async getWorkspace(cid: string, agentId: string): Promise<WorkspaceInfo | undefined> {
     const row = this.db
       .prepare(
-        `SELECT cid, workspace_path, agent_json, status, created_at,
+        `SELECT cid, agent_id, workspace_path, agent_json, status, created_at,
                 last_activity_at, context_json
-         FROM workspaces WHERE cid = ?`,
+         FROM workspaces WHERE cid = ? AND agent_id = ?`,
       )
-      .get(cid) as WorkspaceRow | null;
+      .get(cid, agentId) as WorkspaceRow | null;
 
     if (row === null) return undefined;
     return rowToWorkspaceInfo(row);
   }
 
   async listWorkspaces(query?: WorkspaceQuery): Promise<readonly WorkspaceInfo[]> {
-    let sql = `SELECT cid, workspace_path, agent_json, status, created_at,
+    let sql = `SELECT cid, agent_id, workspace_path, agent_json, status, created_at,
                       last_activity_at, context_json
                FROM workspaces`;
     const conditions: string[] = [];
@@ -254,8 +262,8 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     return rows.map(rowToWorkspaceInfo);
   }
 
-  async cleanWorkspace(cid: string): Promise<boolean> {
-    const workspace = await this.getWorkspace(cid);
+  async cleanWorkspace(cid: string, agentId: string): Promise<boolean> {
+    const workspace = await this.getWorkspace(cid, agentId);
     if (workspace === undefined) return false;
 
     // Check if there's an active claim for this CID
@@ -291,8 +299,10 @@ export class LocalWorkspaceManager implements WorkspaceManager {
 
     // Update status in SQLite
     this.db
-      .prepare("UPDATE workspaces SET status = ?, last_activity_at = ? WHERE cid = ?")
-      .run(WorkspaceStatus.Cleaned, new Date().toISOString(), cid);
+      .prepare(
+        "UPDATE workspaces SET status = ?, last_activity_at = ? WHERE cid = ? AND agent_id = ?",
+      )
+      .run(WorkspaceStatus.Cleaned, new Date().toISOString(), cid, agentId);
 
     return true;
   }
@@ -304,7 +314,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       .prepare(
         `UPDATE workspaces SET status = ?
          WHERE status = ? AND last_activity_at < ?
-         RETURNING cid, workspace_path, agent_json, status,
+         RETURNING cid, agent_id, workspace_path, agent_json, status,
                    created_at, last_activity_at, context_json`,
       )
       .all(WorkspaceStatus.Stale, WorkspaceStatus.Active, cutoff) as readonly WorkspaceRow[];
@@ -312,12 +322,14 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     return rows.map(rowToWorkspaceInfo);
   }
 
-  async touchWorkspace(cid: string): Promise<WorkspaceInfo> {
+  async touchWorkspace(cid: string, agentId: string): Promise<WorkspaceInfo> {
     const now = new Date().toISOString();
 
-    this.db.prepare("UPDATE workspaces SET last_activity_at = ? WHERE cid = ?").run(now, cid);
+    this.db
+      .prepare("UPDATE workspaces SET last_activity_at = ? WHERE cid = ? AND agent_id = ?")
+      .run(now, cid, agentId);
 
-    const workspace = await this.getWorkspace(cid);
+    const workspace = await this.getWorkspace(cid, agentId);
     if (workspace === undefined) {
       throw new Error(`Workspace for '${cid}' not found`);
     }
@@ -394,6 +406,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   /** Insert or update a workspace row in SQLite. */
   private upsertWorkspaceRow(info: {
     cid: string;
+    agentId: string;
     workspacePath: string;
     agent: AgentIdentity;
     status: WorkspaceStatus;
@@ -404,11 +417,12 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     this.db
       .prepare(
         `INSERT OR REPLACE INTO workspaces
-           (cid, workspace_path, agent_json, status, created_at, last_activity_at, context_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (cid, agent_id, workspace_path, agent_json, status, created_at, last_activity_at, context_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         info.cid,
+        info.agentId,
         info.workspacePath,
         JSON.stringify(info.agent),
         info.status,

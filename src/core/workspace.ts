@@ -91,8 +91,10 @@ export interface WorkspaceManager {
    * Check out a contribution's artifacts into an isolated workspace.
    *
    * Creates the workspace directory and copies artifacts from CAS.
-   * Idempotent: if a workspace for this CID already exists and is active,
-   * returns the existing workspace info.
+   * Idempotent: if a workspace for this CID + agent already exists and
+   * is active, returns the existing workspace info.
+   *
+   * Different agents checking out the same CID get separate workspaces.
    *
    * @param cid - The contribution CID to check out.
    * @param options - Agent identity and optional metadata.
@@ -103,10 +105,10 @@ export interface WorkspaceManager {
   checkout(cid: string, options: CheckoutOptions): Promise<WorkspaceInfo>;
 
   /**
-   * Get workspace info by CID.
-   * Returns undefined if no workspace exists for this CID.
+   * Get workspace info by CID and agent ID.
+   * Returns undefined if no workspace exists for this (CID, agent) pair.
    */
-  getWorkspace(cid: string): Promise<WorkspaceInfo | undefined>;
+  getWorkspace(cid: string, agentId: string): Promise<WorkspaceInfo | undefined>;
 
   /**
    * List workspaces matching optional filters.
@@ -121,7 +123,7 @@ export interface WorkspaceManager {
    *
    * @throws If the workspace has an active claim (must release/complete first).
    */
-  cleanWorkspace(cid: string): Promise<boolean>;
+  cleanWorkspace(cid: string, agentId: string): Promise<boolean>;
 
   /**
    * Find and mark workspaces that have been idle longer than maxIdleMs.
@@ -133,7 +135,7 @@ export interface WorkspaceManager {
    * Update the lastActivityAt timestamp for a workspace.
    * Used to keep a workspace from being marked stale.
    */
-  touchWorkspace(cid: string): Promise<WorkspaceInfo>;
+  touchWorkspace(cid: string, agentId: string): Promise<WorkspaceInfo>;
 
   /** Release resources. */
   close(): void;

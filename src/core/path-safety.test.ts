@@ -352,6 +352,14 @@ describe("validateWorkspaceKey", () => {
   test("rejects key with colon", () => {
     expect(() => validateWorkspaceKey("blake3:abc")).toThrow("unsafe characters");
   });
+
+  test("rejects single dot", () => {
+    expect(() => validateWorkspaceKey(".")).toThrow("reserved path component");
+  });
+
+  test("rejects double dot", () => {
+    expect(() => validateWorkspaceKey("..")).toThrow("reserved path component");
+  });
 });
 
 // ---------------------------------------------------------------------------
