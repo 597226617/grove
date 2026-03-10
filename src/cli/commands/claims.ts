@@ -10,7 +10,8 @@
 import { parseArgs } from "node:util";
 
 import { ClaimStatus } from "../../core/models.js";
-import type { ClaimQuery, ClaimStore } from "../../core/store.js";
+import type { Claim } from "../../core/models.js";
+import type { ClaimStore } from "../../core/store.js";
 import { formatClaimsTable } from "../utils/output.js";
 
 export interface ClaimsDeps {
@@ -30,19 +31,23 @@ export async function runClaims(args: readonly string[], deps: ClaimsDeps): Prom
     strict: true,
   });
 
-  const query: ClaimQuery = {};
-  const mutableQuery = query as { status?: string | readonly string[]; agentId?: string };
+  let claims: readonly Claim[];
 
   if (values.expired) {
-    mutableQuery.status = [ClaimStatus.Expired, ClaimStatus.Released, ClaimStatus.Completed];
+    // Terminal claims: use listClaims with status filter
+    claims = await deps.claimStore.listClaims({
+      status: [ClaimStatus.Expired, ClaimStatus.Released, ClaimStatus.Completed],
+      agentId: values.agent,
+    });
   } else {
-    mutableQuery.status = ClaimStatus.Active;
+    // Active claims: use activeClaims() which applies lease cutoff,
+    // then filter by agent in-memory (active set is always small)
+    claims = await deps.claimStore.activeClaims();
+    if (values.agent) {
+      const agentId = values.agent;
+      claims = claims.filter((c) => c.agent.agentId === agentId);
+    }
   }
 
-  if (values.agent) {
-    mutableQuery.agentId = values.agent;
-  }
-
-  const claims = await deps.claimStore.listClaims(query);
   deps.stdout(formatClaimsTable(claims));
 }

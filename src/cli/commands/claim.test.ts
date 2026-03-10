@@ -92,17 +92,35 @@ describe("grove claim", () => {
     expect(claims[0]?.intentSummary).toBe("optimize the parser");
   });
 
-  test("warns on existing active claims", async () => {
-    // Create first claim
+  test("renews lease when same agent reclaims same target", async () => {
     await runClaim(["target-A", "--lease", "1h"], deps);
     stdout = [];
     stderr = [];
 
-    // Try to create second claim on same target — should fail (protocol invariant)
-    await expect(runClaim(["target-A", "--lease", "30m"], deps)).rejects.toThrow(/active claim/);
+    // Same agent reclaims — should renew, not fail
+    await runClaim(["target-A", "--lease", "30m", "--intent", "updated"], deps);
+    expect(stdout.length).toBe(1);
+    expect(stdout[0]).toContain("Renewed");
+    expect(stderr.length).toBe(0);
+
+    // Still one active claim
+    const claims = await claimStore.activeClaims("target-A");
+    expect(claims.length).toBe(1);
+    expect(claims[0]?.intentSummary).toBe("updated");
+  });
+
+  test("warns when different agent holds the target", async () => {
+    await runClaim(["target-B", "--lease", "1h", "--agent-id", "agent-a"], deps);
+    stdout = [];
+    stderr = [];
+
+    // Different agent tries to claim — warns and then fails
+    await expect(
+      runClaim(["target-B", "--lease", "30m", "--agent-id", "agent-b"], deps),
+    ).rejects.toThrow(/active claim/);
     expect(stderr.length).toBe(1);
     expect(stderr[0]).toContain("Warning");
-    expect(stderr[0]).toContain("target-A");
+    expect(stderr[0]).toContain("agent-a");
   });
 
   test("shows error when target is missing", async () => {

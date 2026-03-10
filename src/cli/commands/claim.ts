@@ -1,6 +1,10 @@
 /**
  * grove claim — claim work to prevent duplication.
  *
+ * Uses claimOrRenew() so re-running the same claim from the same agent
+ * renews the lease instead of failing. Only fails when a different agent
+ * holds the target.
+ *
  * Usage:
  *   grove claim "optimize the parser module" --lease 30m
  *   grove claim blake3:abc123 --intent "extend with caching" --lease 1h
@@ -48,10 +52,10 @@ export async function runClaim(args: readonly string[], deps: ClaimDeps): Promis
   const agentId = resolveAgentId(values["agent-id"]);
   const intent = values.intent ?? target;
 
-  // Warn about existing active claims on this target
+  // Warn about existing active claims by other agents on this target
   const existing = await deps.claimStore.activeClaims(target);
-  if (existing.length > 0) {
-    for (const c of existing) {
+  for (const c of existing) {
+    if (c.agent.agentId !== agentId) {
       deps.stderr(
         `Warning: target '${target}' has active claim '${c.claimId}' by '${c.agent.agentId}'`,
       );
@@ -59,7 +63,7 @@ export async function runClaim(args: readonly string[], deps: ClaimDeps): Promis
   }
 
   const now = new Date();
-  const claim = await deps.claimStore.createClaim({
+  const claim = await deps.claimStore.claimOrRenew({
     claimId: randomUUID(),
     targetRef: target,
     agent: { agentId },
@@ -70,5 +74,7 @@ export async function runClaim(args: readonly string[], deps: ClaimDeps): Promis
     leaseExpiresAt: new Date(now.getTime() + leaseMs).toISOString(),
   });
 
-  deps.stdout(formatClaimSummary(claim, "Claimed"));
+  // Distinguish new claim from renewal
+  const isRenewal = existing.some((c) => c.agent.agentId === agentId);
+  deps.stdout(formatClaimSummary(claim, isRenewal ? "Renewed" : "Claimed"));
 }

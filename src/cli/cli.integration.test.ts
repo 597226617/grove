@@ -25,7 +25,7 @@ describe("grove CLI integration", () => {
   });
 
   function extractClaimId(stdout: string): string {
-    const match = stdout.match(/Claimed: (.+)/);
+    const match = stdout.match(/(?:Claimed|Renewed): (.+)/);
     if (!match?.[1]) throw new Error(`Could not extract claim ID from output: ${stdout}`);
     return match[1].trim();
   }
@@ -103,6 +103,30 @@ describe("grove CLI integration", () => {
     const completeResult = await runGrove(["release", claimId, "--completed"]);
     expect(completeResult.exitCode).toBe(0);
     expect(completeResult.stdout).toContain("Completed");
+  });
+
+  test("grove claim renews lease for same agent", async () => {
+    const first = await runGrove(["claim", "renew-target", "--lease", "30m"]);
+    expect(first.exitCode).toBe(0);
+    expect(first.stdout).toContain("Claimed");
+
+    // Same agent reclaims — should renew
+    const second = await runGrove(["claim", "renew-target", "--lease", "1h"]);
+    expect(second.exitCode).toBe(0);
+    expect(second.stdout).toContain("Renewed");
+  });
+
+  test("grove claims shows full claim ID usable by grove release", async () => {
+    const claimResult = await runGrove(["claim", "id-test", "--lease", "1h"]);
+    const claimId = extractClaimId(claimResult.stdout);
+
+    // The full claim ID should appear in the listing
+    const listResult = await runGrove(["claims"]);
+    expect(listResult.stdout).toContain(claimId);
+
+    // And it should be usable in grove release
+    const releaseResult = await runGrove(["release", claimId]);
+    expect(releaseResult.exitCode).toBe(0);
   });
 
   test("grove unknown-command shows error", async () => {

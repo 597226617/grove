@@ -15,7 +15,7 @@ interface Column {
 }
 
 const COLUMNS: readonly Column[] = [
-  { header: "CLAIM_ID", width: 14, getValue: (c) => truncate(c.claimId, 14) },
+  { header: "CLAIM_ID", width: 36, getValue: (c) => c.claimId },
   { header: "TARGET", width: 20, getValue: (c) => truncate(c.targetRef, 20) },
   { header: "AGENT", width: 18, getValue: (c) => truncate(c.agent.agentId, 18) },
   { header: "STATUS", width: 10, getValue: (c) => claimStatusDisplay(c) },
