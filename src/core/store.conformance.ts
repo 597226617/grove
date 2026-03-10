@@ -421,11 +421,7 @@ export function runContributionStoreTests(factory: ContributionStoreFactory): vo
       });
       await store.putMany([target1, target2, review]);
 
-      const existing = await store.findExisting(
-        "reviewer-2",
-        target2.cid,
-        ContributionKind.Review,
-      );
+      const existing = await store.findExisting("reviewer-2", target2.cid, ContributionKind.Review);
       expect(existing.length).toBe(0);
     });
 
@@ -480,11 +476,7 @@ export function runContributionStoreTests(factory: ContributionStoreFactory): vo
       });
       await store.putMany([target, review1, review2]);
 
-      const existing = await store.findExisting(
-        "reviewer-3",
-        target.cid,
-        ContributionKind.Review,
-      );
+      const existing = await store.findExisting("reviewer-3", target.cid, ContributionKind.Review);
       expect(existing.length).toBe(2);
       // Most recent first
       expect(existing[0]?.cid).toBe(review2.cid);
@@ -512,11 +504,7 @@ export function runContributionStoreTests(factory: ContributionStoreFactory): vo
       });
       await store.putMany([target, earlier, later]);
 
-      const existing = await store.findExisting(
-        "reviewer-tz",
-        target.cid,
-        ContributionKind.Review,
-      );
+      const existing = await store.findExisting("reviewer-tz", target.cid, ContributionKind.Review);
       expect(existing.length).toBe(2);
       // Later UTC time should be first (most recent)
       expect(existing[0]?.cid).toBe(later.cid);
@@ -532,4 +520,3 @@ export function runContributionStoreTests(factory: ContributionStoreFactory): vo
     });
   });
 }
-

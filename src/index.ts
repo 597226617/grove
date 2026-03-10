@@ -17,7 +17,17 @@ export type {
   NamedArtifact,
   Relation,
 } from "./core/models.js";
-export type { Reconciler, ReconcilerConfig, ReconcileResult, StartupReconcileResult } from "./core/reconciler.js";
+export type {
+  ReconcileResult,
+  Reconciler,
+  ReconcilerConfig,
+  StartupReconcileResult,
+} from "./core/reconciler.js";
 export { DefaultReconciler } from "./core/reconciler.js";
-export type { ClaimStore, ContributionStore, ExpiredClaim, ExpireStaleOptions } from "./core/store.js";
+export type {
+  ClaimStore,
+  ContributionStore,
+  ExpiredClaim,
+  ExpireStaleOptions,
+} from "./core/store.js";
 export { ExpiryReason } from "./core/store.js";

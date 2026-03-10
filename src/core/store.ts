@@ -7,7 +7,6 @@
 
 import type {
   Claim,
-  ClaimStatus,
   Contribution,
   ContributionKind,
   ContributionMode,
