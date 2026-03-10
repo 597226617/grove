@@ -65,15 +65,18 @@ describe("exploration mode basics", () => {
 // ---------------------------------------------------------------------------
 
 describe("no-metric frontier", () => {
-  test("byMetric is empty for exploration contributions", async () => {
+  test("byMetric has no training metrics for exploration contributions", async () => {
     const frontier = await ctx.frontier.compute({ mode: ContributionMode.Exploration });
-    // Exploration mode contributions should not appear in metric-based frontier
-    // (they have no val_bpb or similar)
     const metricKeys = Object.keys(frontier.byMetric);
-    // quality score exists on the review, but byMetric uses scores from work contributions
-    // The frontier should have quality as a metric key from the review
-    // but there should be no "val_bpb" or training metrics
+    // No training metrics should appear — only exploration contributions here
     expect(metricKeys).not.toContain("val_bpb");
+    expect(metricKeys).not.toContain("peak_vram_gb");
+    // byMetric entries (if any) should only reference exploration-mode contributions
+    for (const entries of Object.values(frontier.byMetric)) {
+      for (const entry of entries) {
+        expect(entry.contribution.mode).toBe(ContributionMode.Exploration);
+      }
+    }
   });
 
   test("byRecency orders newest first", async () => {
@@ -91,11 +94,11 @@ describe("no-metric frontier", () => {
 
   test("byReviewScore captures review quality scores", async () => {
     const frontier = await ctx.frontier.compute({ mode: ContributionMode.Exploration });
-    // findingA was reviewed with quality=9
+    // findingA was reviewed with quality=9 — it must appear in byReviewScore
     const reviewScored = frontier.byReviewScore;
-    if (reviewScored.length > 0) {
-      expect(reviewScored[0].cid).toBe(result.findingA.cid);
-    }
+    expect(reviewScored.length).toBeGreaterThanOrEqual(1);
+    expect(reviewScored[0].cid).toBe(result.findingA.cid);
+    expect(reviewScored[0].value).toBe(9);
   });
 });
 
@@ -117,21 +120,27 @@ describe("search", () => {
   });
 
   test("search with kind filter narrows results", async () => {
-    const discussions = await ctx.contributionStore.search("database", {
+    // "endpoint" appears in responseB's summary (N+1 query in user endpoint)
+    const discussions = await ctx.contributionStore.search("endpoint", {
       kind: ContributionKind.Discussion,
     });
+    expect(discussions.length).toBeGreaterThanOrEqual(1);
     for (const c of discussions) {
       expect(c.kind).toBe(ContributionKind.Discussion);
     }
+    expect(discussions.some((c) => c.cid === result.responseB.cid)).toBe(true);
   });
 
   test("search with tag filter narrows results", async () => {
-    const tagged = await ctx.contributionStore.search("performance", {
+    // "query" appears in responseB's summary; responseB is tagged with n-plus-one
+    const tagged = await ctx.contributionStore.search("query", {
       tags: ["n-plus-one"],
     });
+    expect(tagged.length).toBeGreaterThanOrEqual(1);
     for (const c of tagged) {
       expect(c.tags).toContain("n-plus-one");
     }
+    expect(tagged.some((c) => c.cid === result.responseB.cid)).toBe(true);
   });
 
   test("search returns empty for non-matching query", async () => {

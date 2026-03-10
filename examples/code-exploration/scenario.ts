@@ -12,6 +12,8 @@
 import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { GroveContract } from "../../src/core/contract.js";
+import { EnforcingClaimStore, EnforcingContributionStore } from "../../src/core/enforcing-store.js";
 import { DefaultFrontierCalculator } from "../../src/core/frontier.js";
 import { createContribution } from "../../src/core/manifest.js";
 import type { AgentIdentity, Contribution } from "../../src/core/models.js";
@@ -21,6 +23,7 @@ import {
   RelationType,
   ScoreDirection,
 } from "../../src/core/models.js";
+import type { ClaimStore, ContributionStore } from "../../src/core/store.js";
 import { createSqliteStores } from "../../src/local/sqlite-store.js";
 
 // ---------------------------------------------------------------------------
@@ -49,9 +52,33 @@ export const agentC: AgentIdentity = {
 // Grove setup
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
+
+export const contract: GroveContract = {
+  contractVersion: 2,
+  name: "code-exploration",
+  description: "Investigate performance bottlenecks",
+  mode: ContributionMode.Exploration,
+  concurrency: {
+    maxActiveClaims: 3,
+    maxClaimsPerAgent: 1,
+    maxClaimsPerTarget: 1,
+  },
+  rateLimits: {
+    maxContributionsPerAgentPerHour: 100,
+    maxContributionsPerGrovePerHour: 300,
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Grove setup
+// ---------------------------------------------------------------------------
+
 export interface GroveContext {
-  readonly contributionStore: ReturnType<typeof createSqliteStores>["contributionStore"];
-  readonly claimStore: ReturnType<typeof createSqliteStores>["claimStore"];
+  readonly contributionStore: ContributionStore;
+  readonly claimStore: ClaimStore;
   readonly frontier: DefaultFrontierCalculator;
   readonly dbPath: string;
   readonly close: () => void;
@@ -62,9 +89,16 @@ let dbCounter = 0;
 export function setupGrove(): GroveContext {
   dbCounter += 1;
   const dbPath = join(tmpdir(), `grove-e2e-exploration-${Date.now()}-${dbCounter}.db`);
-  const { contributionStore, claimStore, close } = createSqliteStores(dbPath);
+  const stores = createSqliteStores(dbPath);
+  // Provide a clock matching the scenario's deterministic timestamps (2026-03-10T14:…)
+  // so the enforcing wrapper's clock-skew check doesn't reject them.
+  const clock = () => new Date("2026-03-10T14:05:00Z");
+  const contributionStore = new EnforcingContributionStore(stores.contributionStore, contract, {
+    clock,
+  });
+  const claimStore = new EnforcingClaimStore(stores.claimStore, contract);
   const frontier = new DefaultFrontierCalculator(contributionStore);
-  return { contributionStore, claimStore, frontier, dbPath, close };
+  return { contributionStore, claimStore, frontier, dbPath, close: stores.close };
 }
 
 export function cleanupGrove(ctx: GroveContext): void {

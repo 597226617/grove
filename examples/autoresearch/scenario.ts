@@ -14,10 +14,12 @@ import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GroveContract } from "../../src/core/contract.js";
+import { EnforcingClaimStore, EnforcingContributionStore } from "../../src/core/enforcing-store.js";
 import { DefaultFrontierCalculator } from "../../src/core/frontier.js";
 import { evaluateStopConditions } from "../../src/core/lifecycle.js";
 import { createContribution } from "../../src/core/manifest.js";
 import type { AgentIdentity, Contribution } from "../../src/core/models.js";
+import type { ClaimStore, ContributionStore } from "../../src/core/store.js";
 import {
   ContributionKind,
   ContributionMode,
@@ -96,8 +98,8 @@ export const contract: GroveContract = {
 // ---------------------------------------------------------------------------
 
 export interface GroveContext {
-  readonly contributionStore: ReturnType<typeof createSqliteStores>["contributionStore"];
-  readonly claimStore: ReturnType<typeof createSqliteStores>["claimStore"];
+  readonly contributionStore: ContributionStore;
+  readonly claimStore: ClaimStore;
   readonly frontier: DefaultFrontierCalculator;
   readonly dbPath: string;
   readonly close: () => void;
@@ -108,9 +110,16 @@ let dbCounter = 0;
 export function setupGrove(): GroveContext {
   dbCounter += 1;
   const dbPath = join(tmpdir(), `grove-e2e-autoresearch-${Date.now()}-${dbCounter}.db`);
-  const { contributionStore, claimStore, close } = createSqliteStores(dbPath);
+  const stores = createSqliteStores(dbPath);
+  // Provide a clock matching the scenario's deterministic timestamps (2026-03-10T10:…)
+  // so the enforcing wrapper's clock-skew check doesn't reject them.
+  const clock = () => new Date("2026-03-10T10:05:00Z");
+  const contributionStore = new EnforcingContributionStore(stores.contributionStore, contract, {
+    clock,
+  });
+  const claimStore = new EnforcingClaimStore(stores.claimStore, contract);
   const frontier = new DefaultFrontierCalculator(contributionStore);
-  return { contributionStore, claimStore, frontier, dbPath, close };
+  return { contributionStore, claimStore, frontier, dbPath, close: stores.close };
 }
 
 export function cleanupGrove(ctx: GroveContext): void {

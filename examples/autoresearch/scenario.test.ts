@@ -223,11 +223,16 @@ describe("frontier by metric", () => {
 // ---------------------------------------------------------------------------
 
 describe("frontier by adoption", () => {
-  test("adoption counts are correct", async () => {
+  test("adoption counts reflect derives_from and adopts relations", async () => {
     const frontier = await ctx.frontier.compute();
-    // workA has the most incoming edges (derives_from + adopts + reproduces)
-    // Check that adoption frontier has entries
-    expect(frontier.byAdoption.length).toBeGreaterThanOrEqual(1);
+    // byAdoption counts incoming derives_from + adopts edges (NOT reproduces)
+    // workA: derives_from by B + adopts by adoptionB = 2
+    // workB: derives_from by adoptionB = 1
+    expect(frontier.byAdoption.length).toBeGreaterThanOrEqual(2);
+    expect(frontier.byAdoption[0].cid).toBe(result.workA.cid);
+    expect(frontier.byAdoption[0].value).toBe(2);
+    expect(frontier.byAdoption[1].cid).toBe(result.workB.cid);
+    expect(frontier.byAdoption[1].value).toBe(1);
   });
 });
 
