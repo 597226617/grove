@@ -286,9 +286,11 @@ async function handleShuffle(args: readonly string[], writer: Writer): Promise<v
   const { peerUrl, peerId, json } = parseDirectArgs([...args]);
 
   const transport = new HttpGossipTransport();
+  // Use the target URL as our address — not routable for incoming gossip,
+  // but satisfies the sender schema and identifies the request origin.
   const selfPeer: PeerInfo = {
     peerId,
-    address: "", // CLI is ephemeral — not routable
+    address: peerUrl,
     age: 0,
     lastSeen: new Date().toISOString(),
   };
@@ -338,15 +340,18 @@ async function handleSync(args: readonly string[], deps: CliDeps, writer: Writer
   const peerId = values["peer-id"] ?? `cli-${hostname()}-${process.pid}`;
   const json = values.json ?? false;
   const transport = new HttpGossipTransport();
-  const selfPeer: PeerInfo = {
-    peerId,
-    address: "", // CLI is ephemeral — not routable
-    age: 0,
-    lastSeen: new Date().toISOString(),
-  };
 
   // Parse seeds: either "peerId@url" or just "url"
   const seeds = parseSeedList(seedsArg);
+
+  // Use the first seed's address as our sender address — not routable for
+  // incoming gossip, but satisfies the sender schema and identifies origin.
+  const selfPeer: PeerInfo = {
+    peerId,
+    address: seeds[0]?.address ?? `cli://${hostname()}`,
+    age: 0,
+    lastSeen: new Date().toISOString(),
+  };
   const sampler = new CyclonPeerSampler(selfPeer, { maxViewSize: 10, shuffleLength: 5 }, seeds);
 
   const message = await buildGossipMessage(peerId, deps);

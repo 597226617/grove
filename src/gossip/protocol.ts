@@ -21,6 +21,7 @@ import {
   DEFAULT_PARTIAL_VIEW_SIZE,
   DEFAULT_SHUFFLE_LENGTH,
   DEFAULT_SUSPICION_TIMEOUT_MS,
+  MAX_GOSSIP_FRONTIER_ENTRIES,
   MAX_MERGED_FRONTIER_ENTRIES,
 } from "../core/constants.js";
 import type { FrontierCalculator, FrontierEntry } from "../core/frontier.js";
@@ -382,10 +383,16 @@ export class DefaultGossipService implements GossipService {
     addDimension("review_score", frontier.byReviewScore);
     addDimension("reproduction", frontier.byReproduction);
 
-    // Cache for mergedFrontier()
-    this.localDigest = entries;
+    // Cap total to stay within the schema limit accepted by peers
+    const capped =
+      entries.length > MAX_GOSSIP_FRONTIER_ENTRIES
+        ? entries.slice(0, MAX_GOSSIP_FRONTIER_ENTRIES)
+        : entries;
 
-    return entries;
+    // Cache for mergedFrontier()
+    this.localDigest = capped;
+
+    return capped;
   }
 
   private mergeRemoteFrontier(remote: readonly FrontierDigestEntry[]): void {
