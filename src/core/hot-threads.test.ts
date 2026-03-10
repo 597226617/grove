@@ -264,6 +264,40 @@ function hotThreadsTests(createBackend: () => TestBackend): void {
       cleanup();
     }
   });
+
+  test("correctly orders timestamps with timezone offsets", async () => {
+    const { store, cleanup } = createBackend();
+    try {
+      const root = makeTimedContribution({ summary: "Root" });
+      await store.put(root);
+
+      // Reply A: 2026-01-01T10:00:00+05:00 = 2026-01-01T05:00:00Z (earlier in UTC)
+      const replyA = makeContribution({
+        summary: "Reply A (offset)",
+        createdAt: "2026-01-01T10:00:00+05:00",
+        relations: [{ targetCid: root.cid, relationType: RelationType.RespondsTo }],
+      });
+      await store.put(replyA);
+
+      // Reply B: 2026-01-01T06:00:00Z (later in UTC)
+      const replyB = makeContribution({
+        summary: "Reply B (UTC)",
+        createdAt: "2026-01-01T06:00:00Z",
+        relations: [{ targetCid: root.cid, relationType: RelationType.RespondsTo }],
+      });
+      await store.put(replyB);
+
+      const results = await store.hotThreads();
+      expect(results).toHaveLength(1);
+      // lastReplyAt should reflect the truly latest reply (Reply B at 06:00Z),
+      // not Reply A which only looks later as a raw string (10:00:00+05:00)
+      const lastReplyUtc = new Date(results[0]!.lastReplyAt).getTime();
+      const replyBUtc = new Date("2026-01-01T06:00:00Z").getTime();
+      expect(lastReplyUtc).toBe(replyBUtc);
+    } finally {
+      cleanup();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

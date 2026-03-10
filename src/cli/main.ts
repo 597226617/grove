@@ -127,7 +127,7 @@ function buildCommands(groveOverride: string | undefined): readonly Command[] {
       needsStore: false,
       handler: async (args) => {
         const { handleDiscuss } = await import("./commands/discuss.js");
-        await handleDiscuss(args);
+        await handleDiscuss(args, groveOverride);
       },
     },
     {

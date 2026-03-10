@@ -261,7 +261,8 @@ export class InMemoryContributionStore implements ContributionStore {
             threadInfo.set(rel.targetCid, { replyCount: 1, lastReplyAt: c.createdAt });
           } else {
             existing.replyCount += 1;
-            if (c.createdAt > existing.lastReplyAt) {
+            // Compare by UTC epoch to handle timezone offsets correctly
+            if (new Date(c.createdAt).getTime() > new Date(existing.lastReplyAt).getTime()) {
               existing.lastReplyAt = c.createdAt;
             }
           }
@@ -287,10 +288,10 @@ export class InMemoryContributionStore implements ContributionStore {
       });
     }
 
-    // Sort: reply count DESC, then last reply timestamp DESC
+    // Sort: reply count DESC, then last reply UTC epoch DESC
     summaries.sort((a, b) => {
       if (b.replyCount !== a.replyCount) return b.replyCount - a.replyCount;
-      return b.lastReplyAt.localeCompare(a.lastReplyAt);
+      return new Date(b.lastReplyAt).getTime() - new Date(a.lastReplyAt).getTime();
     });
 
     if (opts?.limit !== undefined) {

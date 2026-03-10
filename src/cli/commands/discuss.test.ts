@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { initSqliteDb, SqliteContributionStore } from "../../local/sqlite-store.js";
 import { executeContribute } from "./contribute.js";
 import { parseDiscussArgs, executeDiscuss } from "./discuss.js";
 import type { InitOptions } from "./init.js";
@@ -143,6 +144,36 @@ describe("executeDiscuss", () => {
       });
 
       expect(cid).toMatch(/^blake3:/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("respects grove default mode when --mode is omitted", async () => {
+    const dir = await createTempDir();
+    try {
+      // Init a grove (default mode is "evaluation")
+      await executeInit(makeInitOptions(dir));
+
+      // Discuss without explicit --mode
+      const { cid } = await executeDiscuss({
+        message: "Topic without mode",
+        tags: [],
+        cwd: dir,
+      });
+
+      // Read back the stored contribution — should use resolveMode default ("evaluation"),
+      // not a hardcoded "exploration"
+      const dbPath = join(dir, ".grove", "grove.db");
+      const db = initSqliteDb(dbPath);
+      const store = new SqliteContributionStore(db);
+      try {
+        const contribution = await store.get(cid);
+        expect(contribution).toBeDefined();
+        expect(contribution!.mode).toBe("evaluation");
+      } finally {
+        store.close();
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

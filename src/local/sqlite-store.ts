@@ -742,7 +742,7 @@ export class SqliteContributionStore implements ContributionStore {
     const sql = `
       SELECT c.manifest_json,
              COUNT(DISTINCT r.source_cid) as reply_count,
-             MAX(reply_c.created_at) as last_reply_at
+             MAX(strftime('%Y-%m-%dT%H:%M:%SZ', reply_c.created_at)) as last_reply_at
       FROM contributions c
       INNER JOIN relations r ON r.target_cid = c.cid AND r.relation_type = 'responds_to'
       INNER JOIN contributions reply_c ON reply_c.cid = r.source_cid

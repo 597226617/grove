@@ -8,6 +8,7 @@
  *   grove discuss "New topic" --tag design --mode exploration
  */
 
+import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { executeContribute, type ContributeOptions } from "./contribute.js";
 
@@ -85,7 +86,7 @@ export function parseDiscussArgs(args: readonly string[]): DiscussOptions {
 export async function executeDiscuss(options: DiscussOptions): Promise<{ cid: string }> {
   const contributeOptions: ContributeOptions = {
     kind: "discussion",
-    mode: options.mode ?? "exploration",
+    mode: options.mode,
     summary: options.message,
     description: options.description,
     artifacts: [],
@@ -106,7 +107,12 @@ export async function executeDiscuss(options: DiscussOptions): Promise<{ cid: st
 }
 
 /** Handle the `grove discuss` CLI command. */
-export async function handleDiscuss(args: readonly string[]): Promise<void> {
+export async function handleDiscuss(
+  args: readonly string[],
+  groveOverride?: string,
+): Promise<void> {
   const options = parseDiscussArgs(args);
-  await executeDiscuss(options);
+  // If --grove override is provided, derive cwd from it (parent of .grove dir)
+  const cwd = groveOverride ? dirname(resolve(groveOverride)) : options.cwd;
+  await executeDiscuss({ ...options, cwd });
 }
