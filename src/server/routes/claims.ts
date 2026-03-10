@@ -10,11 +10,9 @@ import { zValidator } from "@hono/zod-validator";
 import type { Hono as HonoType } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
+import { DEFAULT_LEASE_MS } from "../../core/constants.js";
 import type { AgentIdentity, Claim, JsonValue } from "../../core/models.js";
 import type { ServerEnv } from "../deps.js";
-
-/** Default lease duration: 5 minutes. */
-const DEFAULT_LEASE_MS = 300_000;
 
 const createBodySchema = z.object({
   claimId: z.string().min(1).optional(),

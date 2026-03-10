@@ -18,6 +18,7 @@
  *   grove search        — Search contributions
  *   grove log           — Recent contributions
  *   grove tree          — DAG visualization
+ *   grove gossip        — Gossip protocol commands
  */
 
 import { createSqliteStores } from "../local/sqlite-store.js";
@@ -205,6 +206,15 @@ function buildCommands(groveOverride: string | undefined): readonly Command[] {
         }, args);
       },
     },
+    {
+      name: "gossip",
+      description: "Gossip protocol commands",
+      needsStore: false,
+      handler: async (args) => {
+        const { handleGossip } = await import("./commands/gossip.js");
+        await handleGossip(args, groveOverride, withCliDeps);
+      },
+    },
   ];
 }
 
@@ -294,6 +304,17 @@ Usage:
   grove export --to-pr <owner/repo> <cid>           Export to GitHub PR
   grove import --from-pr <owner/repo#number>        Import GitHub PR
   grove import --from-discussion <owner/repo#number> Import GitHub Discussion
+
+  grove gossip peers    [--server <url>]      List known peers
+  grove gossip status   [--server <url>]      Show gossip overview
+  grove gossip frontier [--server <url>]      Show merged frontier from gossip
+  grove gossip watch    [--server <url>]      Stream gossip events
+  grove gossip exchange <peer-url>            Push-pull frontier exchange
+  grove gossip shuffle  <peer-url>            CYCLON peer sampling shuffle
+  grove gossip sync     <seeds>               Full gossip round with seeds
+  grove gossip daemon   <seeds>               Run persistent gossip loop
+  grove gossip add-peer <id@address>          Add peer to local store
+  grove gossip remove-peer <id>               Remove peer from local store
 
 Global options:
   --grove <path>              Path to grove directory (or set GROVE_DIR)

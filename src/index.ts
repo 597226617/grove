@@ -33,6 +33,24 @@ export {
   RateLimitError,
   RetryExhaustedError,
 } from "./core/errors.js";
+// Gossip protocol
+export { GossipTimeoutError, PeerUnreachableError } from "./core/gossip/errors.js";
+export type {
+  FrontierDigestEntry,
+  GossipConfig,
+  GossipEvent,
+  GossipEventListener,
+  GossipMessage,
+  GossipService,
+  GossipTransport,
+  PeerCapabilities,
+  PeerInfo,
+  PeerLiveness,
+  PeerLoad,
+  ShuffleRequest,
+  ShuffleResponse,
+} from "./core/gossip/types.js";
+export { GossipEventType, PeerStatus } from "./core/gossip/types.js";
 export type { StopConditionResult, StopEvaluationResult } from "./core/lifecycle.js";
 export {
   deriveLifecycleState,
@@ -73,7 +91,6 @@ export type {
   ExpireStaleOptions,
 } from "./core/store.js";
 export { ExpiryReason } from "./core/store.js";
-
 // GitHub adapter
 export {
   createGitHubAdapter,
@@ -105,3 +122,9 @@ export type {
   PRRef,
   RepoRef,
 } from "./github/types.js";
+// Gossip implementations
+export { CachedFrontierCalculator } from "./gossip/cached-frontier.js";
+export { type CyclonConfig, CyclonPeerSampler } from "./gossip/cyclon.js";
+export { HttpGossipTransport, type HttpTransportConfig } from "./gossip/http-transport.js";
+export { DefaultGossipService } from "./gossip/protocol.js";
+export type { BackgroundWorker } from "./gossip/worker.js";

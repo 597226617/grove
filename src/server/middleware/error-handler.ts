@@ -20,6 +20,8 @@ const ERROR_MAP = new Map<string, ErrorMapping>([
   ["LeaseViolationError", { status: 422, code: "LEASE_VIOLATION" }],
   ["ArtifactLimitError", { status: 422, code: "ARTIFACT_LIMIT" }],
   ["RetryExhaustedError", { status: 503, code: "RETRY_EXHAUSTED" }],
+  ["PeerUnreachableError", { status: 502, code: "PEER_UNREACHABLE" }],
+  ["GossipTimeoutError", { status: 504, code: "GOSSIP_TIMEOUT" }],
 ]);
 
 /** Format error response body. */

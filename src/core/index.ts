@@ -16,6 +16,20 @@ export {
   validateHeartbeat,
   validateTransition,
 } from "./claim-logic.js";
+export {
+  DEFAULT_FAILURE_TIMEOUT_MS,
+  DEFAULT_FRONTIER_CACHE_TTL_MS,
+  DEFAULT_FRONTIER_DIGEST_LIMIT,
+  DEFAULT_GOSSIP_FAN_OUT,
+  DEFAULT_GOSSIP_INTERVAL_MS,
+  DEFAULT_GOSSIP_JITTER,
+  DEFAULT_PARTIAL_VIEW_SIZE,
+  DEFAULT_SHUFFLE_LENGTH,
+  DEFAULT_SUSPICION_TIMEOUT_MS,
+  MAX_GOSSIP_FRONTIER_ENTRIES,
+  MAX_GOSSIP_OFFERED_PEERS,
+  MAX_MERGED_FRONTIER_ENTRIES,
+} from "./constants.js";
 export type {
   AgentConstraints,
   Budget,
@@ -25,6 +39,7 @@ export type {
   ExecutionConfig,
   Gate,
   GateType,
+  GossipContractConfig,
   GroveContract,
   MetricDefinition,
   QuorumReviewScore,
