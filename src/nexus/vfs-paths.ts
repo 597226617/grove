@@ -71,9 +71,17 @@ export function relationIndexDir(zoneId: string, targetCid: string): string {
 // Claim paths
 // ---------------------------------------------------------------------------
 
+/**
+ * Encode an arbitrary string for safe use as a VFS path segment.
+ * Replaces `/` → `%2F`, `%` → `%25` (percent-encode first to avoid collisions).
+ */
+function encodeSegment(s: string): string {
+  return s.replaceAll("%", "%25").replaceAll("/", "%2F");
+}
+
 /** Path to a claim JSON file. */
 export function claimPath(zoneId: string, claimId: string): string {
-  return `/zones/${zoneId}/claims/${claimId}.json`;
+  return `/zones/${zoneId}/claims/${encodeSegment(claimId)}.json`;
 }
 
 /** Directory containing all claims. */
@@ -81,14 +89,19 @@ export function claimsDir(zoneId: string): string {
   return `/zones/${zoneId}/claims`;
 }
 
+/** Decode a VFS path segment back to the original string. */
+export function decodeSegment(segment: string): string {
+  return segment.replaceAll("%2F", "/").replaceAll("%25", "%");
+}
+
 /** Path to an active claim index marker. */
 export function activeClaimIndexPath(zoneId: string, targetRef: string, claimId: string): string {
-  return `/zones/${zoneId}/indexes/claims/active/${targetRef}/${claimId}`;
+  return `/zones/${zoneId}/indexes/claims/active/${encodeSegment(targetRef)}/${encodeSegment(claimId)}`;
 }
 
 /** Directory for active claims on a specific target. */
 export function activeClaimTargetDir(zoneId: string, targetRef: string): string {
-  return `/zones/${zoneId}/indexes/claims/active/${targetRef}`;
+  return `/zones/${zoneId}/indexes/claims/active/${encodeSegment(targetRef)}`;
 }
 
 /** Directory for all active claim indexes. */
@@ -101,5 +114,5 @@ export function activeClaimsDir(zoneId: string): string {
  * Written with ifNoneMatch="*" for atomic exclusivity; content is the owning claimId.
  */
 export function targetLockPath(zoneId: string, targetRef: string): string {
-  return `/zones/${zoneId}/indexes/claims/target-lock/${targetRef}`;
+  return `/zones/${zoneId}/indexes/claims/target-lock/${encodeSegment(targetRef)}`;
 }

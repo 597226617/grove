@@ -114,6 +114,8 @@ export class NexusCas implements ContentStore {
           );
         }
         this.existsCache.set(contentHash, true);
+        // Invalidate statCache — mediaType may have changed
+        this.statCache.delete(contentHash);
         return contentHash;
       }
     }
@@ -198,6 +200,8 @@ export class NexusCas implements ContentStore {
         );
       }
       this.existsCache.set(contentHash, true);
+      // Invalidate statCache — mediaType may have changed
+      this.statCache.delete(contentHash);
       return contentHash;
     }
 

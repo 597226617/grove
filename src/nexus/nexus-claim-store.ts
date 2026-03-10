@@ -38,6 +38,7 @@ import {
   activeClaimTargetDir,
   claimPath,
   claimsDir,
+  decodeSegment,
   targetLockPath,
 } from "./vfs-paths.js";
 
@@ -50,6 +51,12 @@ function encodeClaim(claim: Claim): Uint8Array {
 
 function decodeClaim(data: Uint8Array): Claim {
   return JSON.parse(decoder.decode(data)) as Claim;
+}
+
+/** A claim bundled with its VFS ETag for CAS writes. */
+interface ClaimWithEtag {
+  readonly claim: Claim;
+  readonly etag: string;
 }
 
 /**
@@ -130,7 +137,10 @@ export class NexusClaimStore implements ClaimStore {
     );
 
     if (resolution.action === "renew" && activeOnTarget !== undefined) {
-      const existing = activeOnTarget;
+      // Re-read with ETag for CAS write
+      const withEtag = await this.readClaimWithEtag(activeOnTarget.claimId);
+      const existing = withEtag?.claim ?? activeOnTarget;
+      const etag = withEtag?.etag;
       const durationMs = computeLeaseDuration(claim);
       const renewed: Claim = {
         ...existing,
@@ -139,7 +149,11 @@ export class NexusClaimStore implements ClaimStore {
         intentSummary: claim.intentSummary,
         revision: (existing.revision ?? 0) + 1,
       };
-      await this.writeClaim(renewed);
+      if (etag !== undefined) {
+        await this.writeClaimCas(renewed, etag);
+      } else {
+        await this.writeClaim(renewed);
+      }
       return renewed;
     }
 
@@ -179,9 +193,9 @@ export class NexusClaimStore implements ClaimStore {
   }
 
   async heartbeat(claimId: string, leaseDurationMs?: number): Promise<Claim> {
-    const existing = await this.readClaim(claimId);
-    validateHeartbeat(existing, claimId);
-    const validClaim = existing as Claim;
+    const result = await this.readClaimWithEtag(claimId);
+    validateHeartbeat(result?.claim, claimId);
+    const { claim: validClaim, etag } = result as ClaimWithEtag;
 
     const now = new Date();
     const duration = leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;
@@ -192,7 +206,7 @@ export class NexusClaimStore implements ClaimStore {
       revision: (validClaim.revision ?? 0) + 1,
     };
 
-    await this.writeClaim(updated);
+    await this.writeClaimCas(updated, etag);
     return updated;
   }
 
@@ -209,9 +223,9 @@ export class NexusClaimStore implements ClaimStore {
     const results: ExpiredClaim[] = [];
 
     // List all claim files (not just active index — need to catch lease-expired)
-    const allClaims = await this.listAllClaims();
+    const allClaimsWithEtags = await this.listAllClaimsWithEtags();
 
-    for (const claim of allClaims) {
+    for (const { claim, etag } of allClaimsWithEtags) {
       if (claim.status !== "active") continue;
 
       let reason: typeof ExpiryReason.LeaseExpired | typeof ExpiryReason.Stalled | undefined;
@@ -231,7 +245,7 @@ export class NexusClaimStore implements ClaimStore {
           status: "expired" as ClaimStatus,
           revision: (claim.revision ?? 0) + 1,
         };
-        await this.writeClaim(expired);
+        await this.writeClaimCas(expired, etag);
         await this.deleteActiveIndex(expired);
         results.push({ claim: expired, reason });
       }
@@ -254,7 +268,7 @@ export class NexusClaimStore implements ClaimStore {
     const claims: Claim[] = [];
     for (const entry of entries) {
       if (entry.isDirectory) continue;
-      const claimId = entry.name;
+      const claimId = decodeSegment(entry.name);
       const claim = await this.readClaim(claimId);
       if (claim !== undefined && claim.status === "active") {
         if (new Date(claim.leaseExpiresAt).getTime() >= now.getTime()) {
@@ -330,16 +344,16 @@ export class NexusClaimStore implements ClaimStore {
   // -----------------------------------------------------------------------
 
   private async transitionClaim(claimId: string, newStatus: ClaimStatus): Promise<Claim> {
-    const existing = await this.readClaim(claimId);
-    validateTransition(existing, claimId, newStatus);
-    const validClaim = existing as Claim;
+    const result = await this.readClaimWithEtag(claimId);
+    validateTransition(result?.claim, claimId, newStatus);
+    const { claim: validClaim, etag } = result as ClaimWithEtag;
 
     const updated: Claim = {
       ...validClaim,
       status: newStatus,
       revision: (validClaim.revision ?? 0) + 1,
     };
-    await this.writeClaim(updated);
+    await this.writeClaimCas(updated, etag);
     if (newStatus !== "active") {
       await this.deleteActiveIndex(updated);
     }
@@ -347,16 +361,33 @@ export class NexusClaimStore implements ClaimStore {
   }
 
   private async readClaim(claimId: string): Promise<Claim | undefined> {
-    const path = claimPath(this.zoneId, claimId);
-    const data = await this.withRetry(() => this.run(() => this.client.read(path)), "readClaim");
+    const result = await this.readClaimWithEtag(claimId);
+    return result?.claim;
+  }
+
+  /** Read a claim and its VFS ETag (needed for CAS writes via ifMatch). */
+  private async readClaimWithEtag(claimId: string): Promise<ClaimWithEtag | undefined> {
+    const p = claimPath(this.zoneId, claimId);
+    const data = await this.withRetry(() => this.run(() => this.client.read(p)), "readClaim");
     if (data === undefined) return undefined;
-    return decodeClaim(data);
+    const meta = await this.withRetry(() => this.run(() => this.client.stat(p)), "readClaim.stat");
+    if (meta === undefined) return undefined;
+    return { claim: decodeClaim(data), etag: meta.etag };
+  }
+
+  /** Write claim with ifMatch for CAS safety on mutations. */
+  private async writeClaimCas(claim: Claim, expectedEtag: string): Promise<void> {
+    const p = claimPath(this.zoneId, claim.claimId);
+    await this.withRetry(
+      () => this.run(() => this.client.write(p, encodeClaim(claim), { ifMatch: expectedEtag })),
+      "writeClaimCas",
+    );
   }
 
   private async writeClaim(claim: Claim): Promise<void> {
-    const path = claimPath(this.zoneId, claim.claimId);
+    const p = claimPath(this.zoneId, claim.claimId);
     await this.withRetry(
-      () => this.run(() => this.client.write(path, encodeClaim(claim))),
+      () => this.run(() => this.client.write(p, encodeClaim(claim))),
       "writeClaim",
     );
   }
@@ -446,7 +477,7 @@ export class NexusClaimStore implements ClaimStore {
     const claims: Claim[] = [];
     for (const entry of entries) {
       if (entry.isDirectory) continue;
-      const claimId = entry.name;
+      const claimId = decodeSegment(entry.name);
       const claim = await this.readClaim(claimId);
       if (claim !== undefined && claim.status === "active") {
         if (new Date(claim.leaseExpiresAt).getTime() >= now.getTime()) {
@@ -458,15 +489,21 @@ export class NexusClaimStore implements ClaimStore {
   }
 
   private async listAllClaims(): Promise<Claim[]> {
+    const results = await this.listAllClaimsWithEtags();
+    return results.map((r) => r.claim);
+  }
+
+  private async listAllClaimsWithEtags(): Promise<ClaimWithEtag[]> {
     const dir = claimsDir(this.zoneId);
     const entries = await this.listAllPages(dir);
 
-    const claims: Claim[] = [];
+    const claims: ClaimWithEtag[] = [];
     for (const entry of entries) {
       if (entry.isDirectory) continue;
-      const data = await this.run(() => this.client.read(entry.path));
-      if (data !== undefined) {
-        claims.push(decodeClaim(data));
+      const claimId = decodeSegment(entry.name.replace(/\.json$/, ""));
+      const result = await this.readClaimWithEtag(claimId);
+      if (result !== undefined) {
+        claims.push(result);
       }
     }
     return claims;

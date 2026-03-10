@@ -100,9 +100,12 @@ export function resolveClaimOrRenew(
 
 /**
  * Compute the lease duration from a claim's timestamps.
+ * Uses heartbeatAt (the moving lease anchor) rather than createdAt (immutable
+ * provenance), so renewals extend by the original duration, not by claim age.
  * Falls back to the default lease duration if the computed duration is non-positive.
  */
 export function computeLeaseDuration(claim: Claim): number {
-  const requested = new Date(claim.leaseExpiresAt).getTime() - new Date(claim.createdAt).getTime();
+  const requested =
+    new Date(claim.leaseExpiresAt).getTime() - new Date(claim.heartbeatAt).getTime();
   return requested > 0 ? requested : DEFAULT_LEASE_DURATION_MS;
 }
