@@ -420,6 +420,35 @@ export function runWorkspaceManagerTests(factory: WorkspaceManagerFactory): void
   });
 
   // =========================================================================
+  // markWorkspaceStale (targeted)
+  // =========================================================================
+
+  describe("markWorkspaceStale", () => {
+    test("marks a specific workspace as stale", async () => {
+      const contribution = await ctx.createContributionWithArtifacts({});
+      const agent = makeAgent();
+      await ctx.manager.checkout(contribution.cid, { agent });
+
+      const stale = await ctx.manager.markWorkspaceStale(contribution.cid, agent.agentId);
+      expect(stale.status).toBe(WorkspaceStatus.Stale);
+      expect(stale.cid).toBe(contribution.cid);
+
+      // Verify it persisted
+      const fetched = await ctx.manager.getWorkspace(contribution.cid, agent.agentId);
+      expect(fetched?.status).toBe(WorkspaceStatus.Stale);
+    });
+
+    test("throws for non-existent workspace", async () => {
+      await expect(
+        ctx.manager.markWorkspaceStale(
+          "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+          "test-agent",
+        ),
+      ).rejects.toThrow("not found");
+    });
+  });
+
+  // =========================================================================
   // Touch
   // =========================================================================
 

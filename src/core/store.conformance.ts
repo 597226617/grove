@@ -429,6 +429,39 @@ export function runContributionStoreTests(factory: ContributionStoreFactory): vo
       expect(existing.length).toBe(0);
     });
 
+    test("findExisting filters by relation type when provided", async () => {
+      const target = makeContribution({ summary: "target for relation type filter" });
+      // Review contribution with a responds_to relation (wrong relation type for review kind)
+      const wrongRelation = makeContribution({
+        summary: "responds to target but is a review",
+        kind: ContributionKind.Review,
+        agent: { agentId: "reviewer-rt" },
+        relations: [{ targetCid: target.cid, relationType: RelationType.RespondsTo }],
+      });
+      // Review contribution with a reviews relation (correct)
+      const correctRelation = makeContribution({
+        summary: "reviews target correctly",
+        kind: ContributionKind.Review,
+        agent: { agentId: "reviewer-rt" },
+        relations: [{ targetCid: target.cid, relationType: RelationType.Reviews }],
+      });
+      await store.putMany([target, wrongRelation, correctRelation]);
+
+      // Without relation type filter → both match
+      const all = await store.findExisting("reviewer-rt", target.cid, ContributionKind.Review);
+      expect(all.length).toBe(2);
+
+      // With relation type filter → only the correct one matches
+      const filtered = await store.findExisting(
+        "reviewer-rt",
+        target.cid,
+        ContributionKind.Review,
+        RelationType.Reviews,
+      );
+      expect(filtered.length).toBe(1);
+      expect(filtered[0]?.cid).toBe(correctRelation.cid);
+    });
+
     test("findExisting returns most recent first", async () => {
       const target = makeContribution({ summary: "target for ordering" });
       const review1 = makeContribution({
@@ -456,6 +489,38 @@ export function runContributionStoreTests(factory: ContributionStoreFactory): vo
       // Most recent first
       expect(existing[0]?.cid).toBe(review2.cid);
       expect(existing[1]?.cid).toBe(review1.cid);
+    });
+
+    test("findExisting orders correctly with offset timestamps", async () => {
+      const target = makeContribution({ summary: "target for offset ordering" });
+      // These two timestamps represent the same instant but in different formats:
+      // 2026-01-02T00:00:00+05:00 == 2026-01-01T19:00:00Z (earlier)
+      // 2026-01-01T20:00:00Z (later)
+      const earlier = makeContribution({
+        summary: "earlier (offset format)",
+        kind: ContributionKind.Review,
+        agent: { agentId: "reviewer-tz" },
+        relations: [{ targetCid: target.cid, relationType: RelationType.Reviews }],
+        createdAt: "2026-01-02T00:00:00+05:00",
+      });
+      const later = makeContribution({
+        summary: "later (UTC format)",
+        kind: ContributionKind.Review,
+        agent: { agentId: "reviewer-tz" },
+        relations: [{ targetCid: target.cid, relationType: RelationType.Reviews }],
+        createdAt: "2026-01-01T20:00:00Z",
+      });
+      await store.putMany([target, earlier, later]);
+
+      const existing = await store.findExisting(
+        "reviewer-tz",
+        target.cid,
+        ContributionKind.Review,
+      );
+      expect(existing.length).toBe(2);
+      // Later UTC time should be first (most recent)
+      expect(existing[0]?.cid).toBe(later.cid);
+      expect(existing[1]?.cid).toBe(earlier.cid);
     });
 
     // ------------------------------------------------------------------

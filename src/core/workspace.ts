@@ -132,6 +132,17 @@ export interface WorkspaceManager {
   markStale(options: StaleOptions): Promise<readonly WorkspaceInfo[]>;
 
   /**
+   * Mark a specific workspace as stale by (CID, agentId).
+   *
+   * Used by the reconciler to flag orphaned workspaces (active workspace
+   * with no corresponding active claim). Unlike markStale(), this targets
+   * a single workspace rather than scanning by idle time.
+   *
+   * @returns The updated workspace info. Throws if workspace not found.
+   */
+  markWorkspaceStale(cid: string, agentId: string): Promise<WorkspaceInfo>;
+
+  /**
    * Update the lastActivityAt timestamp for a workspace.
    * Used to keep a workspace from being marked stale.
    */

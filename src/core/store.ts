@@ -69,6 +69,7 @@ export interface ContributionStore {
    * - agent.agentId matches the given agentId
    * - kind matches the given kind
    * - at least one relation targets the given targetCid
+   * - if relationType is provided, only relations of that type are considered
    *
    * Results are ordered by created_at descending (most recent first).
    */
@@ -76,6 +77,7 @@ export interface ContributionStore {
     agentId: string,
     targetCid: string,
     kind: ContributionKind,
+    relationType?: RelationType,
   ): Promise<readonly Contribution[]>;
 
   /** Count contributions matching filters. */

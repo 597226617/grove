@@ -221,7 +221,12 @@ export class DefaultReconciler implements Reconciler {
     for (const ws of activeWorkspaces) {
       const key = `${ws.cid}::${ws.agent.agentId}`;
       if (!activeClaimKeys.has(key)) {
-        orphaned.push(ws);
+        // Mark orphaned workspace as stale so it's flagged for cleanup
+        const staleWs = await this.workspaceManager!.markWorkspaceStale(
+          ws.cid,
+          ws.agent.agentId,
+        );
+        orphaned.push(staleWs);
       }
     }
 

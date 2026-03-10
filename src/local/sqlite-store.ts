@@ -577,14 +577,25 @@ export class SqliteContributionStore implements ContributionStore {
     agentId: string,
     targetCid: string,
     kind: ContributionKind,
+    relationType?: RelationType,
   ): Promise<readonly Contribution[]> => {
-    const sql = `
+    let sql = `
       SELECT DISTINCT c.manifest_json FROM contributions c
       INNER JOIN relations r ON r.source_cid = c.cid
       WHERE c.agent_id = ? AND c.kind = ? AND r.target_cid = ?
-      ORDER BY c.created_at DESC
     `;
-    const rows = this.db.prepare(sql).all(agentId, kind, targetCid) as readonly {
+    const params: SQLQueryBindings[] = [agentId, kind, targetCid];
+
+    if (relationType !== undefined) {
+      sql += " AND r.relation_type = ?";
+      params.push(relationType);
+    }
+
+    // Use datetime() to normalize timestamps for reliable ordering
+    // across different timezone representations (e.g., Z vs +05:00)
+    sql += " ORDER BY datetime(c.created_at) DESC";
+
+    const rows = this.db.prepare(sql).all(...params) as readonly {
       manifest_json: string;
     }[];
     return rows.map(rowToContribution);
@@ -846,40 +857,47 @@ export class SqliteClaimStore implements ClaimStore {
   expireStale = async (options?: ExpireStaleOptions): Promise<readonly ExpiredClaim[]> => {
     const now = new Date();
     const nowIso = now.toISOString();
-    const results: ExpiredClaim[] = [];
 
-    // Step 1: Expire claims with expired leases
-    const leaseExpired = this.db
-      .prepare(
-        `UPDATE claims SET status = 'expired'
-         WHERE status = 'active' AND lease_expires_at < ?
-         RETURNING claim_id, target_ref, agent_id, status, intent_summary,
-                   created_at, heartbeat_at, lease_expires_at, context_json, agent_json`,
-      )
-      .all(nowIso) as readonly ClaimRow[];
+    // Both lease expiry and stall detection run in a single transaction
+    // to prevent concurrent heartbeats from landing between the two passes.
+    const expireTx = this.db.transaction(() => {
+      const results: ExpiredClaim[] = [];
 
-    for (const row of leaseExpired) {
-      results.push({ claim: rowToClaim(row), reason: ExpiryReason.LeaseExpired });
-    }
-
-    // Step 2: Expire stalled agents (heartbeat gap exceeds threshold)
-    if (options?.stallThresholdMs !== undefined) {
-      const stallCutoff = new Date(now.getTime() - options.stallThresholdMs).toISOString();
-      const stalled = this.db
+      // Step 1: Expire claims with expired leases
+      const leaseExpired = this.db
         .prepare(
           `UPDATE claims SET status = 'expired'
-           WHERE status = 'active' AND heartbeat_at < ?
+           WHERE status = 'active' AND lease_expires_at < ?
            RETURNING claim_id, target_ref, agent_id, status, intent_summary,
                      created_at, heartbeat_at, lease_expires_at, context_json, agent_json`,
         )
-        .all(stallCutoff) as readonly ClaimRow[];
+        .all(nowIso) as readonly ClaimRow[];
 
-      for (const row of stalled) {
-        results.push({ claim: rowToClaim(row), reason: ExpiryReason.Stalled });
+      for (const row of leaseExpired) {
+        results.push({ claim: rowToClaim(row), reason: ExpiryReason.LeaseExpired });
       }
-    }
 
-    return results;
+      // Step 2: Expire stalled agents (heartbeat gap exceeds threshold)
+      if (options?.stallThresholdMs !== undefined) {
+        const stallCutoff = new Date(now.getTime() - options.stallThresholdMs).toISOString();
+        const stalled = this.db
+          .prepare(
+            `UPDATE claims SET status = 'expired'
+             WHERE status = 'active' AND heartbeat_at < ?
+             RETURNING claim_id, target_ref, agent_id, status, intent_summary,
+                       created_at, heartbeat_at, lease_expires_at, context_json, agent_json`,
+          )
+          .all(stallCutoff) as readonly ClaimRow[];
+
+        for (const row of stalled) {
+          results.push({ claim: rowToClaim(row), reason: ExpiryReason.Stalled });
+        }
+      }
+
+      return results;
+    });
+
+    return expireTx.immediate();
   };
 
   activeClaims = async (targetRef?: string): Promise<readonly Claim[]> => {
@@ -1031,8 +1049,9 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     agentId: string,
     targetCid: string,
     kind: ContributionKind,
+    relationType?: RelationType,
   ): Promise<readonly Contribution[]> =>
-    this.contributions.findExisting(agentId, targetCid, kind);
+    this.contributions.findExisting(agentId, targetCid, kind, relationType);
   count = (query?: ContributionQuery): Promise<number> => this.contributions.count(query);
 
   // ClaimStore delegation
