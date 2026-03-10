@@ -7,6 +7,15 @@ export {
 } from "./backoff.js";
 export type { ContentStore, PutOptions } from "./cas.js";
 export { validateMediaType } from "./cas.js";
+export {
+  computeLeaseDuration,
+  DEFAULT_LEASE_DURATION_MS,
+  isClaimActiveAndValid,
+  resolveClaimOrRenew,
+  validateClaimContext,
+  validateHeartbeat,
+  validateTransition,
+} from "./claim-logic.js";
 export type {
   AgentConstraints,
   Budget,
@@ -112,6 +121,7 @@ export type {
   ExpireStaleOptions,
 } from "./store.js";
 export { ExpiryReason } from "./store.js";
+export { toUtcIso } from "./time.js";
 export type {
   CheckoutOptions,
   StaleOptions,

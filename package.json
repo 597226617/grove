@@ -21,6 +21,10 @@
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"
+    },
+    "./nexus": {
+      "types": "./dist/nexus/index.d.ts",
+      "import": "./dist/nexus/index.js"
     }
   },
   "bin": {
