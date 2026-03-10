@@ -1,50 +1,129 @@
 /**
  * Grove CLI — command-line interface for the contribution graph.
  *
- * Commands:
- *   grove init          — Create a new grove
- *   grove contribute    — Submit a contribution
- *   grove claim         — Claim work
- *   grove release       — Release a claim
- *   grove checkout      — Materialize contribution artifacts
- *   grove frontier      — Show current frontier
- *   grove search        — Search contributions
- *   grove log           — Recent contributions
- *   grove tree          — DAG visualization
+ * Dispatches subcommands to dedicated handlers. Each command parses
+ * its own arguments via `parseArgs` from `node:util`.
  *
- * TODO: Implement in #11, #12, #13
+ * Global flags (--help, --version, --verbose) are handled before dispatch.
  */
 
-function main(): void {
-  const args = process.argv.slice(2);
-  const command = args[0];
+/** Command handler type — receives the remaining args after the subcommand name. */
+type CommandHandler = (args: readonly string[]) => Promise<void>;
 
-  if (!command || command === "--help" || command === "-h") {
+/** A registered CLI command. */
+interface Command {
+  readonly name: string;
+  readonly description: string;
+  readonly handler: CommandHandler;
+}
+
+/**
+ * Command registry.
+ *
+ * Handlers use dynamic imports to avoid loading heavy dependencies
+ * (SQLite, BLAKE3, Zod) for simple commands like --help and --version.
+ */
+const COMMANDS: readonly Command[] = [
+  {
+    name: "init",
+    description: "Create a new grove",
+    handler: async (args) => {
+      const { handleInit } = await import("./commands/init.js");
+      await handleInit(args);
+    },
+  },
+  {
+    name: "contribute",
+    description: "Submit a contribution",
+    handler: async (args) => {
+      const { handleContribute } = await import("./commands/contribute.js");
+      await handleContribute(args);
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const first = args[0];
+
+  // Global flags — handled before dispatch
+  if (!first || first === "--help" || first === "-h") {
     printUsage();
     return;
   }
 
-  console.error(`grove: unknown command '${command}'. Run 'grove --help' for usage.`);
-  process.exit(1);
+  if (first === "--version" || first === "-v") {
+    console.log("grove 0.1.0");
+    return;
+  }
+
+  // Find command
+  const command = COMMANDS.find((c) => c.name === first);
+  if (!command) {
+    console.error(`grove: unknown command '${first}'. Run 'grove --help' for usage.`);
+    process.exit(1);
+  }
+
+  // Dispatch with centralized error handling
+  await command.handler(args.slice(1));
 }
+
+// ---------------------------------------------------------------------------
+// Help text
+// ---------------------------------------------------------------------------
 
 function printUsage(): void {
-  console.log(`grove — asynchronous multi-agent contribution graph
+  const lines = ["grove — asynchronous multi-agent contribution graph", "", "Usage:"];
 
-Usage:
-  grove init [name]           Create a new grove
-  grove contribute            Submit a contribution
-  grove claim <target>        Claim work to prevent duplication
-  grove release <claim-id>    Release a claim
-  grove checkout <cid>        Materialize contribution artifacts
-  grove frontier              Show current frontier
-  grove search [query]        Search contributions
-  grove log                   Recent contributions
-  grove tree                  DAG visualization
+  for (const cmd of COMMANDS) {
+    const padded = `  grove ${cmd.name}`.padEnd(30);
+    lines.push(`${padded}${cmd.description}`);
+  }
 
-Options:
-  --help, -h                  Show this help message
-  --version, -v               Show version`);
+  // Future commands (not yet implemented)
+  const futureCommands = [
+    ["claim <target>", "Claim work to prevent duplication"],
+    ["release <claim-id>", "Release a claim"],
+    ["checkout <cid>", "Materialize contribution artifacts"],
+    ["frontier", "Show current frontier"],
+    ["search [query]", "Search contributions"],
+    ["log", "Recent contributions"],
+    ["tree", "DAG visualization"],
+  ];
+
+  for (const [name, desc] of futureCommands) {
+    const padded = `  grove ${name}`.padEnd(30);
+    lines.push(`${padded}${desc} (coming soon)`);
+  }
+
+  lines.push("");
+  lines.push("Options:");
+  lines.push("  --help, -h                  Show this help message");
+  lines.push("  --version, -v               Show version");
+
+  console.log(lines.join("\n"));
 }
 
-main();
+// ---------------------------------------------------------------------------
+// Centralized error handling
+// ---------------------------------------------------------------------------
+
+main().catch((err: unknown) => {
+  // Check for --verbose in original args for stack trace display
+  const verbose = process.argv.includes("--verbose");
+
+  if (err instanceof Error) {
+    console.error(`grove: ${err.message}`);
+    if (verbose && err.stack) {
+      console.error(err.stack);
+    }
+  } else {
+    console.error(`grove: unexpected error: ${String(err)}`);
+  }
+
+  process.exit(1);
+});
