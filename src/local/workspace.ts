@@ -322,6 +322,28 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     return rows.map(rowToWorkspaceInfo);
   }
 
+  async markWorkspaceStale(cid: string, agentId: string): Promise<WorkspaceInfo> {
+    const workspace = await this.getWorkspace(cid, agentId);
+    if (workspace === undefined) {
+      throw new Error(`Workspace for '${cid}' (agent '${agentId}') not found`);
+    }
+
+    // Only transition active workspaces — already stale/cleaned is a no-op in terms of effect
+    if (workspace.status === WorkspaceStatus.Active) {
+      this.db
+        .prepare(
+          "UPDATE workspaces SET status = ?, last_activity_at = ? WHERE cid = ? AND agent_id = ?",
+        )
+        .run(WorkspaceStatus.Stale, new Date().toISOString(), cid, agentId);
+    }
+
+    const updated = await this.getWorkspace(cid, agentId);
+    if (updated === undefined) {
+      throw new Error(`Failed to read back workspace for '${cid}'`);
+    }
+    return updated;
+  }
+
   async touchWorkspace(cid: string, agentId: string): Promise<WorkspaceInfo> {
     const now = new Date().toISOString();
 

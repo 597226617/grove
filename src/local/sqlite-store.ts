@@ -19,11 +19,19 @@ import type {
   Claim,
   ClaimStatus,
   Contribution,
+  ContributionKind,
   JsonValue,
   Relation,
   RelationType,
 } from "../core/models.js";
-import type { ClaimStore, ContributionQuery, ContributionStore } from "../core/store.js";
+import type {
+  ClaimStore,
+  ContributionQuery,
+  ContributionStore,
+  ExpiredClaim,
+  ExpireStaleOptions,
+} from "../core/store.js";
+import { ExpiryReason } from "../core/store.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -565,6 +573,34 @@ export class SqliteContributionStore implements ContributionStore {
     return rows.map(rowToContribution);
   };
 
+  findExisting = async (
+    agentId: string,
+    targetCid: string,
+    kind: ContributionKind,
+    relationType?: RelationType,
+  ): Promise<readonly Contribution[]> => {
+    let sql = `
+      SELECT DISTINCT c.manifest_json FROM contributions c
+      INNER JOIN relations r ON r.source_cid = c.cid
+      WHERE c.agent_id = ? AND c.kind = ? AND r.target_cid = ?
+    `;
+    const params: SQLQueryBindings[] = [agentId, kind, targetCid];
+
+    if (relationType !== undefined) {
+      sql += " AND r.relation_type = ?";
+      params.push(relationType);
+    }
+
+    // Use datetime() to normalize timestamps for reliable ordering
+    // across different timezone representations (e.g., Z vs +05:00)
+    sql += " ORDER BY datetime(c.created_at) DESC";
+
+    const rows = this.db.prepare(sql).all(...params) as readonly {
+      manifest_json: string;
+    }[];
+    return rows.map(rowToContribution);
+  };
+
   count = async (query?: ContributionQuery): Promise<number> => {
     const { sql, params } = buildFilteredQuery({
       baseSelect: "SELECT COUNT(*) as cnt FROM contributions c",
@@ -680,13 +716,7 @@ export class SqliteClaimStore implements ClaimStore {
   }
 
   createClaim = async (claim: Claim): Promise<Claim> => {
-    // Validate context values are JSON-safe (reject Date, Map, Set, etc.)
-    if (claim.context !== undefined) {
-      const result = ContextSchema.safeParse(claim.context);
-      if (!result.success) {
-        throw new Error(`Invalid claim context: ${result.error.message}`);
-      }
-    }
+    this.validateClaimContext(claim);
 
     // Normalize timestamps to UTC for reliable SQL text comparison
     const createdAtUtc = toUtcIso(claim.createdAt);
@@ -717,30 +747,70 @@ export class SqliteClaimStore implements ClaimStore {
         );
       }
 
-      this.db
-        .prepare(
-          `INSERT INTO claims (claim_id, target_ref, agent_id, status, intent_summary,
-           created_at, heartbeat_at, lease_expires_at, context_json, agent_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          claim.claimId,
-          claim.targetRef,
-          claim.agent.agentId,
-          claim.status,
-          claim.intentSummary,
-          createdAtUtc,
-          heartbeatUtc,
-          leaseExpiresUtc,
-          claim.context !== undefined ? JSON.stringify(claim.context) : null,
-          JSON.stringify(claim.agent),
-        );
+      this.insertClaimRow(claim, createdAtUtc, heartbeatUtc, leaseExpiresUtc);
     });
     createTx.exclusive();
 
     const created = this.readClaim(claim.claimId);
     if (created === null) throw new Error(`Failed to read back claim '${claim.claimId}'`);
     return created;
+  };
+
+  claimOrRenew = async (claim: Claim): Promise<Claim> => {
+    this.validateClaimContext(claim);
+
+    const createdAtUtc = toUtcIso(claim.createdAt);
+    const heartbeatUtc = toUtcIso(claim.heartbeatAt);
+    const leaseExpiresUtc = toUtcIso(claim.leaseExpiresAt);
+
+    let resultClaimId: string = claim.claimId;
+
+    const tx = this.db.transaction(() => {
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const activeOnTarget = this.db
+        .prepare(
+          `SELECT claim_id, agent_id FROM claims
+           WHERE target_ref = ? AND status = 'active' AND lease_expires_at >= ?`,
+        )
+        .get(claim.targetRef, nowIso) as { claim_id: string; agent_id: string } | null;
+
+      if (activeOnTarget !== null) {
+        // Same agent → renew the existing claim from current time
+        if (activeOnTarget.agent_id === claim.agent.agentId) {
+          // Compute fresh lease from now, not from the (potentially stale) request payload.
+          // This ensures retries always extend the lease forward.
+          const freshExpiry = new Date(now.getTime() + DEFAULT_LEASE_DURATION_MS).toISOString();
+          this.db
+            .prepare(
+              `UPDATE claims SET heartbeat_at = ?, lease_expires_at = ?, intent_summary = ?
+               WHERE claim_id = ?`,
+            )
+            .run(nowIso, freshExpiry, claim.intentSummary, activeOnTarget.claim_id);
+          resultClaimId = activeOnTarget.claim_id;
+          return;
+        }
+        // Different agent → reject
+        throw new Error(
+          `Target '${claim.targetRef}' already has an active claim '${activeOnTarget.claim_id}' by agent '${activeOnTarget.agent_id}'`,
+        );
+      }
+
+      // No active claim → create new
+      const existingId = this.db
+        .prepare("SELECT claim_id FROM claims WHERE claim_id = ?")
+        .get(claim.claimId) as { claim_id: string } | null;
+      if (existingId !== null) {
+        throw new Error(`Claim with id '${claim.claimId}' already exists`);
+      }
+
+      this.insertClaimRow(claim, createdAtUtc, heartbeatUtc, leaseExpiresUtc);
+    });
+    tx.exclusive();
+
+    const result = this.readClaim(resultClaimId);
+    if (result === null) throw new Error(`Failed to read back claim '${resultClaimId}'`);
+    return result;
   };
 
   getClaim = async (claimId: string): Promise<Claim | undefined> => {
@@ -784,20 +854,50 @@ export class SqliteClaimStore implements ClaimStore {
     return this.transitionClaim(claimId, "completed" as ClaimStatus);
   };
 
-  expireStale = async (): Promise<readonly Claim[]> => {
-    const now = new Date().toISOString();
+  expireStale = async (options?: ExpireStaleOptions): Promise<readonly ExpiredClaim[]> => {
+    const now = new Date();
+    const nowIso = now.toISOString();
 
-    // Atomic UPDATE ... RETURNING — no SELECT-then-UPDATE race window
-    const rows = this.db
-      .prepare(
-        `UPDATE claims SET status = 'expired'
-         WHERE status = 'active' AND lease_expires_at < ?
-         RETURNING claim_id, target_ref, agent_id, status, intent_summary,
-                   created_at, heartbeat_at, lease_expires_at, context_json, agent_json`,
-      )
-      .all(now) as readonly ClaimRow[];
+    // Both lease expiry and stall detection run in a single transaction
+    // to prevent concurrent heartbeats from landing between the two passes.
+    const expireTx = this.db.transaction(() => {
+      const results: ExpiredClaim[] = [];
 
-    return rows.map((row) => rowToClaim(row));
+      // Step 1: Expire claims with expired leases
+      const leaseExpired = this.db
+        .prepare(
+          `UPDATE claims SET status = 'expired'
+           WHERE status = 'active' AND lease_expires_at < ?
+           RETURNING claim_id, target_ref, agent_id, status, intent_summary,
+                     created_at, heartbeat_at, lease_expires_at, context_json, agent_json`,
+        )
+        .all(nowIso) as readonly ClaimRow[];
+
+      for (const row of leaseExpired) {
+        results.push({ claim: rowToClaim(row), reason: ExpiryReason.LeaseExpired });
+      }
+
+      // Step 2: Expire stalled agents (heartbeat gap exceeds threshold)
+      if (options?.stallThresholdMs !== undefined) {
+        const stallCutoff = new Date(now.getTime() - options.stallThresholdMs).toISOString();
+        const stalled = this.db
+          .prepare(
+            `UPDATE claims SET status = 'expired'
+             WHERE status = 'active' AND heartbeat_at < ?
+             RETURNING claim_id, target_ref, agent_id, status, intent_summary,
+                       created_at, heartbeat_at, lease_expires_at, context_json, agent_json`,
+          )
+          .all(stallCutoff) as readonly ClaimRow[];
+
+        for (const row of stalled) {
+          results.push({ claim: rowToClaim(row), reason: ExpiryReason.Stalled });
+        }
+      }
+
+      return results;
+    });
+
+    return expireTx.immediate();
   };
 
   activeClaims = async (targetRef?: string): Promise<readonly Claim[]> => {
@@ -818,6 +918,22 @@ export class SqliteClaimStore implements ClaimStore {
     return rows.map((row) => rowToClaim(row));
   };
 
+  cleanCompleted = async (retentionMs: number): Promise<number> => {
+    const cutoff = new Date(Date.now() - retentionMs).toISOString();
+    // Use heartbeat_at (last activity) as the retention baseline, not created_at.
+    // A long-running claim that completed moments ago has a recent heartbeat_at,
+    // so it won't be prematurely deleted. An old expired claim whose agent died
+    // long ago has a stale heartbeat_at, so it gets cleaned up correctly.
+    const result = this.db
+      .prepare(
+        `DELETE FROM claims
+         WHERE status IN ('completed', 'expired', 'released')
+         AND heartbeat_at < ?`,
+      )
+      .run(cutoff);
+    return result.changes;
+  };
+
   /**
    * No-op when used via createSqliteStores() — the factory's close() owns the
    * shared Database handle. Calling this will NOT close the underlying DB.
@@ -829,6 +945,41 @@ export class SqliteClaimStore implements ClaimStore {
   // ========================================================================
   // Private helpers
   // ========================================================================
+
+  private validateClaimContext(claim: Claim): void {
+    if (claim.context !== undefined) {
+      const result = ContextSchema.safeParse(claim.context);
+      if (!result.success) {
+        throw new Error(`Invalid claim context: ${result.error.message}`);
+      }
+    }
+  }
+
+  private insertClaimRow(
+    claim: Claim,
+    createdAtUtc: string,
+    heartbeatUtc: string,
+    leaseExpiresUtc: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO claims (claim_id, target_ref, agent_id, status, intent_summary,
+         created_at, heartbeat_at, lease_expires_at, context_json, agent_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        claim.claimId,
+        claim.targetRef,
+        claim.agent.agentId,
+        claim.status,
+        claim.intentSummary,
+        createdAtUtc,
+        heartbeatUtc,
+        leaseExpiresUtc,
+        claim.context !== undefined ? JSON.stringify(claim.context) : null,
+        JSON.stringify(claim.agent),
+      );
+  }
 
   private readClaim(claimId: string): Claim | null {
     const row = this.stmtGetClaim.get(claimId) as ClaimRow | null;
@@ -894,18 +1045,29 @@ export class SqliteStore implements ContributionStore, ClaimStore {
     this.contributions.relatedTo(cid, relationType);
   search = (query: string, filters?: ContributionQuery): Promise<readonly Contribution[]> =>
     this.contributions.search(query, filters);
+  findExisting = (
+    agentId: string,
+    targetCid: string,
+    kind: ContributionKind,
+    relationType?: RelationType,
+  ): Promise<readonly Contribution[]> =>
+    this.contributions.findExisting(agentId, targetCid, kind, relationType);
   count = (query?: ContributionQuery): Promise<number> => this.contributions.count(query);
 
   // ClaimStore delegation
   createClaim = (claim: Claim): Promise<Claim> => this.claims.createClaim(claim);
+  claimOrRenew = (claim: Claim): Promise<Claim> => this.claims.claimOrRenew(claim);
   getClaim = (claimId: string): Promise<Claim | undefined> => this.claims.getClaim(claimId);
   heartbeat = (claimId: string, leaseDurationMs?: number): Promise<Claim> =>
     this.claims.heartbeat(claimId, leaseDurationMs);
   release = (claimId: string): Promise<Claim> => this.claims.release(claimId);
   complete = (claimId: string): Promise<Claim> => this.claims.complete(claimId);
-  expireStale = (): Promise<readonly Claim[]> => this.claims.expireStale();
+  expireStale = (options?: ExpireStaleOptions): Promise<readonly ExpiredClaim[]> =>
+    this.claims.expireStale(options);
   activeClaims = (targetRef?: string): Promise<readonly Claim[]> =>
     this.claims.activeClaims(targetRef);
+  cleanCompleted = (retentionMs: number): Promise<number> =>
+    this.claims.cleanCompleted(retentionMs);
 
   close(): void {
     this.db.close();

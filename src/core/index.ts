@@ -76,7 +76,21 @@ export {
   validateArtifactName,
   validateWorkspaceKey,
 } from "./path-safety.js";
-export type { ClaimStore, ContributionQuery, ContributionStore } from "./store.js";
+export type {
+  ReconcileResult,
+  Reconciler,
+  ReconcilerConfig,
+  StartupReconcileResult,
+} from "./reconciler.js";
+export { DefaultReconciler } from "./reconciler.js";
+export type {
+  ClaimStore,
+  ContributionQuery,
+  ContributionStore,
+  ExpiredClaim,
+  ExpireStaleOptions,
+} from "./store.js";
+export { ExpiryReason } from "./store.js";
 export type {
   CheckoutOptions,
   StaleOptions,
