@@ -150,8 +150,9 @@ gates:
 ### Field Applicability
 
 The schema enforces required fields per gate type via `if`/`then`
-conditional validation. Extra fields are allowed by the schema but
-ignored at runtime.
+conditional validation. Unknown fields are rejected by
+`unevaluatedProperties: false`. Only the fields listed below are
+permitted for each gate type.
 
 | Gate Type | `metric` | `name` | `relation_type` | `count` | `threshold` |
 |-----------|----------|--------|------------------|---------|-------------|
