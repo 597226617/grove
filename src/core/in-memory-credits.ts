@@ -31,6 +31,8 @@ interface PendingReservation {
   readonly expiresAt: string;
   readonly captured: boolean;
   readonly voided: boolean;
+  /** Agent that received the captured funds (set during capture with toAgentId). */
+  readonly capturedToAgentId?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,9 +81,17 @@ export class InMemoryCreditsService implements CreditsService {
 
     validatePositiveInteger(opts.amount, "reserve");
 
-    // Idempotent: return existing reservation
+    // Idempotent: return existing reservation if parameters match
     const existing = this.reservations.get(opts.reservationId);
     if (existing !== undefined) {
+      if (existing.agentId !== opts.agentId || existing.amount !== opts.amount) {
+        throw new PaymentError({
+          operation: "reserve",
+          message:
+            `Reservation '${opts.reservationId}' already exists with different parameters` +
+            ` (agent: ${existing.agentId}, amount: ${existing.amount})`,
+        });
+      }
       return {
         reservationId: existing.reservationId,
         amount: existing.amount,
@@ -115,7 +125,7 @@ export class InMemoryCreditsService implements CreditsService {
     };
   }
 
-  async capture(reservationId: string): Promise<void> {
+  async capture(reservationId: string, opts?: { toAgentId: string }): Promise<void> {
     if (this.failureConfig.capture) {
       throw this.failureConfig.capture;
     }
@@ -141,8 +151,18 @@ export class InMemoryCreditsService implements CreditsService {
     const current = this.balances.get(reservation.agentId) ?? 0;
     this.balances.set(reservation.agentId, current - reservation.amount);
 
+    // Credit the destination agent if specified (atomic capture+transfer)
+    if (opts?.toAgentId) {
+      const toBalance = this.balances.get(opts.toAgentId) ?? 0;
+      this.balances.set(opts.toAgentId, toBalance + reservation.amount);
+    }
+
     // Mark as captured
-    this.reservations.set(reservationId, { ...reservation, captured: true });
+    this.reservations.set(reservationId, {
+      ...reservation,
+      captured: true,
+      capturedToAgentId: opts?.toAgentId,
+    });
   }
 
   async void(reservationId: string): Promise<void> {
@@ -181,9 +201,21 @@ export class InMemoryCreditsService implements CreditsService {
 
     validatePositiveInteger(opts.amount, "transfer");
 
-    // Idempotent: return existing transfer
+    // Idempotent: return existing transfer if parameters match
     const existing = this.completedTransfers.get(opts.transferId);
     if (existing !== undefined) {
+      if (
+        existing.fromAgentId !== opts.fromAgentId ||
+        existing.toAgentId !== opts.toAgentId ||
+        existing.amount !== opts.amount
+      ) {
+        throw new PaymentError({
+          operation: "transfer",
+          message:
+            `Transfer '${opts.transferId}' already exists with different parameters` +
+            ` (from: ${existing.fromAgentId}, to: ${existing.toAgentId}, amount: ${existing.amount})`,
+        });
+      }
       return existing;
     }
 
@@ -237,9 +269,14 @@ export class InMemoryCreditsService implements CreditsService {
   }
 
   private getReserved(agentId: string): number {
+    const now = Date.now();
     let reserved = 0;
     for (const res of this.reservations.values()) {
       if (res.agentId === agentId && !res.captured && !res.voided) {
+        // Skip expired reservations — they no longer hold funds
+        if (new Date(res.expiresAt).getTime() <= now) {
+          continue;
+        }
         reserved += res.amount;
       }
     }

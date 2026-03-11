@@ -288,4 +288,109 @@ describe("InMemoryCreditsService edge cases", () => {
       }),
     ).rejects.toThrow(PaymentError);
   });
+
+  test("reserve idempotency rejects mismatched parameters", async () => {
+    const service = new InMemoryCreditsService();
+    service.seed("agent-1", 500);
+
+    await service.reserve({
+      reservationId: "r-dup",
+      agentId: "agent-1",
+      amount: 100,
+      timeoutMs: 60_000,
+    });
+
+    // Same ID but different amount
+    await expect(
+      service.reserve({
+        reservationId: "r-dup",
+        agentId: "agent-1",
+        amount: 200,
+        timeoutMs: 60_000,
+      }),
+    ).rejects.toThrow(PaymentError);
+
+    // Same ID but different agent
+    await expect(
+      service.reserve({
+        reservationId: "r-dup",
+        agentId: "agent-2",
+        amount: 100,
+        timeoutMs: 60_000,
+      }),
+    ).rejects.toThrow(PaymentError);
+  });
+
+  test("transfer idempotency rejects mismatched parameters", async () => {
+    const service = new InMemoryCreditsService();
+    service.seed("agent-1", 500);
+
+    await service.transfer({
+      transferId: "xfer-dup",
+      fromAgentId: "agent-1",
+      toAgentId: "agent-2",
+      amount: 100,
+    });
+
+    // Same ID but different destination
+    await expect(
+      service.transfer({
+        transferId: "xfer-dup",
+        fromAgentId: "agent-1",
+        toAgentId: "agent-3",
+        amount: 100,
+      }),
+    ).rejects.toThrow(PaymentError);
+
+    // Same ID but different amount
+    await expect(
+      service.transfer({
+        transferId: "xfer-dup",
+        fromAgentId: "agent-1",
+        toAgentId: "agent-2",
+        amount: 999,
+      }),
+    ).rejects.toThrow(PaymentError);
+  });
+
+  test("expired reservation releases hold on available balance", async () => {
+    const service = new InMemoryCreditsService();
+    service.seed("agent-1", 500);
+
+    // Reserve with already-expired timeout
+    await service.reserve({
+      reservationId: "r-expired",
+      agentId: "agent-1",
+      amount: 300,
+      timeoutMs: -1, // immediately expired
+    });
+
+    // The expired reservation should not hold funds
+    const bal = await service.balance("agent-1");
+    expect(bal.available).toBe(500);
+    expect(bal.reserved).toBe(0);
+  });
+
+  test("capture with toAgentId atomically credits recipient", async () => {
+    const service = new InMemoryCreditsService();
+    service.seed("creator", 500);
+
+    await service.reserve({
+      reservationId: "r-settle",
+      agentId: "creator",
+      amount: 200,
+      timeoutMs: 60_000,
+    });
+
+    // Capture and send to worker
+    await service.capture("r-settle", { toAgentId: "worker" });
+
+    const creatorBal = await service.balance("creator");
+    expect(creatorBal.total).toBe(300); // 500 - 200
+    expect(creatorBal.available).toBe(300);
+
+    const workerBal = await service.balance("worker");
+    expect(workerBal.total).toBe(200);
+    expect(workerBal.available).toBe(200);
+  });
 });

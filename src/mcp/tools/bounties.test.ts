@@ -286,6 +286,13 @@ describe("grove_bounty_settle", () => {
     expect(data.fulfilledByCid).toBe(contribution.cid);
     expect(data.amount).toBe(500);
     expect(data.paidTo).toBe("worker");
+
+    // Verify credit balances: creator debited, worker credited
+    const credits = deps.creditsService!;
+    const creatorBal = await credits.balance("creator");
+    expect(creatorBal.total).toBe(4500); // 5000 - 500
+    const workerBal = await credits.balance("worker");
+    expect(workerBal.total).toBe(500);
   });
 
   test("rejects settlement with non-existent contribution", async () => {

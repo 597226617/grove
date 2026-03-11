@@ -78,13 +78,18 @@ export interface CreditsService {
   /**
    * Capture a reservation (phase 2a — commit).
    *
-   * Finalizes the pending debit. Credits are permanently deducted.
+   * Finalizes the pending debit. Credits are permanently deducted from
+   * the source agent. When `toAgentId` is provided, the captured amount
+   * is atomically credited to that agent (matching TigerBeetle's
+   * two-phase transfer semantics).
    *
    * Idempotent: capturing an already-captured reservation is a no-op.
    *
+   * @param reservationId - The reservation to capture.
+   * @param opts - Optional: destination agent for the captured funds.
    * @throws PaymentError if reservation not found or already voided
    */
-  capture(reservationId: string): Promise<void>;
+  capture(reservationId: string, opts?: { toAgentId: string }): Promise<void>;
 
   /**
    * Void a reservation (phase 2b — rollback).

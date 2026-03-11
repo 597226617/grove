@@ -294,28 +294,21 @@ export function registerBountyTools(server: McpServer, deps: McpDeps): void {
           );
         }
 
-        // Mark as completed
-        const completed = await bountyStore.completeBounty(args.bountyId, args.contributionCid);
-
-        // Settlement: void the reservation to release the hold, then transfer
-        // credits from creator to fulfiller. void()+transfer() is the correct
-        // pattern — capture() would deduct from creator, making a subsequent
-        // transfer() double-charge.
-        if (completed.reservationId) {
-          await creditsService.void(completed.reservationId);
-        }
-
-        if (completed.claimedBy) {
-          await creditsService.transfer({
-            transferId: `bounty-payout:${args.bountyId}`,
-            fromAgentId: completed.creator.agentId,
-            toAgentId: completed.claimedBy.agentId,
-            amount: completed.amount,
+        // Settle payment BEFORE state transition: capture the reservation
+        // and atomically credit the fulfiller. If capture fails, the bounty
+        // stays in its current state with the escrow intact.
+        if (bounty.reservationId && bounty.claimedBy) {
+          await creditsService.capture(bounty.reservationId, {
+            toAgentId: bounty.claimedBy.agentId,
           });
+        } else if (bounty.reservationId) {
+          // No claimer — just capture (funds go to system/void)
+          await creditsService.capture(bounty.reservationId);
         }
 
-        // Mark as settled
-        const settled = await bountyStore.settleBounty(args.bountyId);
+        // Payment succeeded — now persist state transitions
+        const completed = await bountyStore.completeBounty(args.bountyId, args.contributionCid);
+        const settled = await bountyStore.settleBounty(completed.bountyId);
 
         return {
           content: [
