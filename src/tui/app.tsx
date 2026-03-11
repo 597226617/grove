@@ -305,12 +305,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
    * Grove coordination model.
    *
    * Lifecycle: workspace checkout -> claim (with workspacePath) -> tmux session.
+   * If claim creation fails, the spawn is aborted (no unmanaged sessions).
    *
-   * 1. Checks out a workspace (via provider.checkoutWorkspace) to get an
-   *    isolated directory for the agent. Falls back to process.cwd().
-   * 2. Creates a claim (via provider.createClaim) binding the agent to the
-   *    target, including the resolved workspacePath in the claim context.
-   * 3. Spawns the tmux session in the workspace directory.
+   * Each spawn uses a unique spawnId as both tmux session suffix and claim
+   * targetRef, avoiding claimOrRenew collisions under the protocol invariant
+   * of one active claim per targetRef.
    */
   const handleSpawn = useCallback(
     (agentId: string, command: string, target: string) => {
@@ -320,7 +319,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         return;
       }
 
-      // Check spawn depth (use 0 for TUI-spawned agents since nesting depth is not tracked)
+      // TUI operator spawns are always depth 0 — they're root-level,
+      // not part of an agent-to-agent chain. The max_depth constraint
+      // prevents recursive agent spawning, not operator-initiated spawns.
+      // max_children_per_agent likewise does not apply here because the
+      // TUI operator is not an agent in the topology graph.
       const depthCheck = checkSpawnDepth(topology, 0);
       if (!depthCheck.allowed) {
         return;
@@ -345,19 +348,19 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
           }
         }
 
-        // Step 2: Create a claim WITH workspacePath in context
+        // Step 2: Create a claim using spawnId as targetRef.
+        // Each spawn gets a unique targetRef to respect the
+        // one-active-claim-per-targetRef protocol invariant from claimOrRenew.
+        // If claim creation fails, the error propagates and aborts the spawn
+        // — preventing unmanaged tmux sessions without Grove claims.
         if (provider.createClaim) {
-          try {
-            await provider.createClaim({
-              targetRef: target,
-              agent,
-              intentSummary: `TUI-spawned: ${command}`,
-              leaseDurationMs: 300_000,
-              context: { workspacePath },
-            });
-          } catch {
-            // Claim creation failed — continue to spawn
-          }
+          await provider.createClaim({
+            targetRef: spawnId,
+            agent,
+            intentSummary: `TUI-spawned: ${command}`,
+            leaseDurationMs: 300_000,
+            context: { workspacePath },
+          });
         }
 
         return workspacePath;
@@ -368,7 +371,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
           const options: SpawnOptions = {
             agentId: spawnId,
             command,
-            targetRef: target,
+            targetRef: spawnId,
             workspacePath,
           };
           return tmux?.spawn(options);
