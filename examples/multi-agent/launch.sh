@@ -23,6 +23,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Add project binaries to PATH so grove / grove-mcp are discoverable
+export PATH="$PROJECT_ROOT/node_modules/.bin:$PATH"
+
 # Verify prerequisites
 command -v acpx >/dev/null 2>&1 || {
   echo "Error: acpx not found. Install with: npm install -g acpx@latest"
@@ -105,11 +108,22 @@ echo "Agent C (Reproducer):  PID $PID_C"
 echo ""
 echo "Waiting for all agents to complete..."
 
-# Wait for all agents
-wait $PID_A $PID_B $PID_C 2>/dev/null || true
+# Wait for each agent and track exit codes
+FAIL=0
+wait $PID_A 2>/dev/null; RC_A=$?
+wait $PID_B 2>/dev/null; RC_B=$?
+wait $PID_C 2>/dev/null; RC_C=$?
 
 echo ""
-echo "=== All agents completed ==="
+if [ $RC_A -ne 0 ]; then echo "Agent A (Implementer) FAILED (exit $RC_A)"; FAIL=1; fi
+if [ $RC_B -ne 0 ]; then echo "Agent B (Reviewer)    FAILED (exit $RC_B)"; FAIL=1; fi
+if [ $RC_C -ne 0 ]; then echo "Agent C (Reproducer)  FAILED (exit $RC_C)"; FAIL=1; fi
+
+if [ $FAIL -ne 0 ]; then
+  echo "=== Some agents failed ==="
+else
+  echo "=== All agents completed successfully ==="
+fi
 echo ""
 
 # Show results

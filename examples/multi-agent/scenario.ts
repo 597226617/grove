@@ -270,6 +270,9 @@ export async function runScenario2(ctx: GroveContext): Promise<Scenario2Result> 
   // Expire stale claims
   await claimStore.expireStale();
 
+  // Release Agent C's lexer claim before re-claiming (maxClaimsPerAgent=1)
+  await claimStore.release("claim-lexer-c");
+
   // Agent C can now claim the expired target
   const agentCReclaimAfterExpiry = await claimStore.claimOrRenew({
     claimId: "claim-cache-c",

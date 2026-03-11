@@ -31,6 +31,10 @@ let dbCounter = 0;
 /**
  * Create a temporary grove with SQLite stores and enforcing wrappers.
  *
+ * Also resets the timestamp generator to match the clock hour, so callers
+ * don't need a separate `resetTimestamps()` call before generating
+ * contribution timestamps.
+ *
  * @param contract - GROVE.md contract to enforce.
  * @param label - Optional label for the temp database file name.
  * @param clockIso - ISO timestamp for the enforcing wrapper's clock (must
@@ -42,6 +46,11 @@ export function setupGrove(
   label = "e2e",
   clockIso = "2026-03-10T10:05:00Z",
 ): GroveContext {
+  // Auto-sync the timestamp generator's hour with the enforcing clock so
+  // generated timestamps don't trip the clock-skew guard.
+  const clockHour = clockIso.slice(11, 13);
+  resetTimestamps(clockHour);
+
   dbCounter += 1;
   const dbPath = join(tmpdir(), `grove-${label}-${Date.now()}-${dbCounter}.db`);
   const stores = createSqliteStores(dbPath);

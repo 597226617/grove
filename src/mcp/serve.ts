@@ -57,18 +57,13 @@ try {
     cas,
   });
 
-  // Parse GROVE.md contract if it exists
-  let contract: GroveContract | undefined;
+  // Parse GROVE.md contract if it exists.
+  // Parse errors propagate and fail startup — silently ignoring a malformed
+  // contract would bypass enforcement (matching CLI contribute.ts behavior).
   const groveContractPath = join(groveDir, "..", "GROVE.md");
-  if (existsSync(groveContractPath)) {
-    try {
-      const content = readFileSync(groveContractPath, "utf-8");
-      contract = parseGroveContract(content);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`grove-mcp: warning: failed to parse GROVE.md: ${msg}\n`);
-    }
-  }
+  const contract: GroveContract | undefined = existsSync(groveContractPath)
+    ? parseGroveContract(readFileSync(groveContractPath, "utf-8"))
+    : undefined;
 
   deps = { contributionStore, claimStore, cas, frontier, workspace, contract };
   close = () => {
