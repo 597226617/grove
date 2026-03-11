@@ -12,6 +12,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { Claim, Contribution } from "../core/models.js";
 import { checkSpawn, checkSpawnDepth } from "./agents/spawn-validator.js";
 import type { SpawnOptions } from "./agents/tmux-manager.js";
+import { agentIdFromSession } from "./agents/tmux-manager.js";
 import { buildPaletteItems, CommandPalette } from "./components/command-palette.js";
 import { InputBar } from "./components/input-bar.js";
 import { StatusBar } from "./components/status-bar.js";
@@ -169,7 +170,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
             // Use $SHELL (or fallback to bash) as the tmux command.
             // "grove agent" doesn't exist; we spawn a shell in the workspace.
             const shell = process.env.SHELL ?? "bash";
-            handleSpawn(item.id, shell, "HEAD");
+            // Derive parentAgentId from the selected session (if any)
+            // so lineage is tracked: max_children_per_agent + depth.
+            const parentId = selectedSession ? agentIdFromSession(selectedSession) : undefined;
+            handleSpawn(item.id, shell, "HEAD", parentId);
           } else if (item.kind === "kill") {
             handleKill(item.id);
           }
@@ -312,25 +316,32 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
    * of one active claim per targetRef.
    */
   const handleSpawn = useCallback(
-    (agentId: string, command: string, target: string) => {
-      // Enforce topology spawn constraints using the role name (agentId)
-      const spawnCheck = checkSpawn(topology, agentId, activeClaims ?? []);
+    (agentId: string, command: string, _target: string, parentAgentId?: string) => {
+      // Enforce topology spawn constraints using the role name (agentId).
+      // Pass parentAgentId so max_children_per_agent is checked when known.
+      const spawnCheck = checkSpawn(topology, agentId, activeClaims ?? [], parentAgentId);
       if (!spawnCheck.allowed) {
         return;
       }
 
-      // TUI operator spawns are always depth 0 — they're root-level,
-      // not part of an agent-to-agent chain. The max_depth constraint
-      // prevents recursive agent spawning, not operator-initiated spawns.
-      // max_children_per_agent likewise does not apply here because the
-      // TUI operator is not an agent in the topology graph.
-      const depthCheck = checkSpawnDepth(topology, 0);
+      // Compute depth from the parent's claim context.
+      // Operator-initiated spawns (no parent) are depth 0.
+      // Child spawns inherit parent depth + 1.
+      let depth = 0;
+      if (parentAgentId !== undefined) {
+        const parentClaim = (activeClaims ?? []).find((c) => c.agent.agentId === parentAgentId);
+        const parentDepth =
+          typeof parentClaim?.context?.depth === "number" ? parentClaim.context.depth : 0;
+        depth = parentDepth + 1;
+      }
+
+      const depthCheck = checkSpawnDepth(topology, depth);
       if (!depthCheck.allowed) {
         return;
       }
 
-      // Generate a unique spawn ID so multiple instances of the same role
-      // don't collide on the same tmux session name (grove-{spawnId}).
+      // Generate a unique spawn ID — used as tmux session suffix, claim
+      // targetRef, and workspace CID so all three are correlated.
       const spawnId = `${agentId}-${Date.now().toString(36)}`;
 
       const resolveWorkspaceAndClaim = async (): Promise<string> => {
@@ -338,11 +349,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         const role = topology?.roles.find((r) => r.name === agentId)?.name;
         const agent = { agentId: spawnId, ...(role !== undefined ? { role } : {}) };
 
-        // Step 1: Check out a workspace first (to get the path for the claim)
+        // Step 1: Check out a workspace using spawnId as CID so the
+        // reconciler can correlate workspace ↔ claim via matching keys.
         let workspacePath = process.cwd();
         if (provider.checkoutWorkspace) {
           try {
-            workspacePath = await provider.checkoutWorkspace(target, agent);
+            workspacePath = await provider.checkoutWorkspace(spawnId, agent);
           } catch {
             // Workspace checkout failed — use fallback
           }
@@ -359,7 +371,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
             agent,
             intentSummary: `TUI-spawned: ${command}`,
             leaseDurationMs: 300_000,
-            context: { workspacePath },
+            context: {
+              workspacePath,
+              ...(parentAgentId !== undefined ? { parentAgentId, depth } : {}),
+            },
           });
         }
 
@@ -381,11 +396,34 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     [tmux, provider, topology, activeClaims],
   );
 
+  /** Kill tmux session → release claim → clean workspace. */
   const handleKill = useCallback(
     (sessionName: string) => {
-      tmux?.kill(sessionName).catch(() => {});
+      const cleanup = async (): Promise<void> => {
+        // Step 1: Kill the tmux session
+        await tmux?.kill(sessionName);
+
+        // Step 2: Release associated claim and clean workspace
+        const killedAgentId = agentIdFromSession(sessionName);
+        if (!killedAgentId) return;
+
+        const claims = await provider.getClaims({ agentId: killedAgentId, status: "active" });
+        for (const claim of claims) {
+          if (claim.agent.agentId === killedAgentId) {
+            // Release claim first (required before workspace cleanup)
+            if (provider.releaseClaim) {
+              await provider.releaseClaim(claim.claimId);
+            }
+            // Clean workspace (uses claim.targetRef which matches workspace CID)
+            if (provider.cleanWorkspace) {
+              await provider.cleanWorkspace(claim.targetRef, killedAgentId);
+            }
+          }
+        }
+      };
+      cleanup().catch(() => {});
     },
-    [tmux],
+    [tmux, provider],
   );
 
   return (

@@ -182,6 +182,12 @@ export interface TuiDataProvider {
   /** Check out a workspace for an agent (optional). Returns the workspace path. */
   checkoutWorkspace?(targetRef: string, agent: AgentIdentity): Promise<string>;
 
+  /** Release a claim by transitioning it to "released" status (optional). */
+  releaseClaim?(claimId: string): Promise<void>;
+
+  /** Clean up a workspace directory by targetRef and agentId (optional). */
+  cleanWorkspace?(targetRef: string, agentId: string): Promise<void>;
+
   /** Release resources. */
   close(): void;
 }

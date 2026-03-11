@@ -152,6 +152,19 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
     return info.workspacePath;
   }
 
+  async releaseClaim(claimId: string): Promise<void> {
+    await this.claims.release(claimId);
+  }
+
+  async cleanWorkspace(targetRef: string, agentId: string): Promise<void> {
+    if (!this.workspace) return;
+    try {
+      await this.workspace.cleanWorkspace(targetRef, agentId);
+    } catch {
+      // Workspace might already be cleaned or not exist
+    }
+  }
+
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {
     return this.calc.compute(query);
   }

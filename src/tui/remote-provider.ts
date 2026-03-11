@@ -130,6 +130,15 @@ export class RemoteDataProvider
     return (await resp.json()) as Claim;
   }
 
+  async releaseClaim(claimId: string): Promise<void> {
+    const resp = await fetch(`${this.baseUrl}/api/claims/${encodeURIComponent(claimId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "release" }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}: ${resp.statusText}`);
+  }
+
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {
     const params = new URLSearchParams();
     if (query?.limit) params.set("limit", String(query.limit));
