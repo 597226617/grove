@@ -77,6 +77,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     paletteVisible && tmux !== undefined,
   );
 
+  // Derive parentAgentId from the selected session for lineage-aware palette display
+  const paletteParentId = selectedSession ? agentIdFromSession(selectedSession) : undefined;
+
   // Derive the palette items so the keyboard handler can look up the selected action
   const paletteItems = useMemo(
     () =>
@@ -87,8 +90,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         tmux !== undefined,
         true,
         true,
+        paletteParentId,
       ),
-    [topology, activeClaims, paletteSessions, tmux],
+    [topology, activeClaims, paletteSessions, tmux, paletteParentId],
   );
 
   const handleContributionsLoaded = useCallback((contributions: readonly Contribution[]) => {
@@ -170,10 +174,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
             // Use $SHELL (or fallback to bash) as the tmux command.
             // "grove agent" doesn't exist; we spawn a shell in the workspace.
             const shell = process.env.SHELL ?? "bash";
-            // Derive parentAgentId from the selected session (if any)
-            // so lineage is tracked: max_children_per_agent + depth.
-            const parentId = selectedSession ? agentIdFromSession(selectedSession) : undefined;
-            handleSpawn(item.id, shell, "HEAD", parentId);
+            handleSpawn(item.id, shell, "HEAD", paletteParentId);
           } else if (item.kind === "kill") {
             handleKill(item.id);
           }
@@ -439,6 +440,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         activeClaims={activeClaims ?? undefined}
         selectedIndex={paletteIndex}
         sessions={paletteSessions ?? undefined}
+        parentAgentId={paletteParentId}
       />
       <InputBar
         visible={panels.state.mode === InputMode.TerminalInput}

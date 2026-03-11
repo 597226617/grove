@@ -35,6 +35,8 @@ export interface CommandPaletteProps {
   readonly selectedIndex?: number | undefined;
   /** Live tmux sessions for kill actions. */
   readonly sessions?: readonly string[] | undefined;
+  /** Parent agent ID for lineage-aware capacity display. */
+  readonly parentAgentId?: string | undefined;
 }
 
 /** Build the unified list of palette items from topology roles and tmux sessions. */
@@ -45,13 +47,14 @@ export function buildPaletteItems(
   hasTmux: boolean,
   hasSpawn: boolean,
   hasKill: boolean,
+  parentAgentId?: string | undefined,
 ): readonly PaletteItem[] {
   const items: PaletteItem[] = [];
 
   // Spawn items from topology roles
   if (topology && hasTmux && hasSpawn) {
     for (const role of topology.roles) {
-      const check = checkSpawn(topology, role.name, activeClaims);
+      const check = checkSpawn(topology, role.name, activeClaims, parentAgentId);
       const max = check.maxInstances !== undefined ? String(check.maxInstances) : "\u221E";
       const suffix = !check.allowed ? " (at capacity)" : "";
       items.push({
@@ -92,6 +95,7 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
     activeClaims,
     selectedIndex,
     sessions,
+    parentAgentId,
   }: CommandPaletteProps): React.ReactNode {
     const hasTmux = tmux !== undefined;
 
@@ -110,8 +114,9 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
           hasTmux,
           onSpawn !== undefined,
           onKill !== undefined,
+          parentAgentId,
         ),
-      [topology, activeClaims, sessions, hasTmux, onSpawn, onKill],
+      [topology, activeClaims, sessions, hasTmux, onSpawn, onKill, parentAgentId],
     );
 
     if (!visible) {
