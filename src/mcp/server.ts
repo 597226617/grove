@@ -10,9 +10,11 @@ import { registerAskUserTools } from "@grove/ask-user";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { McpDeps } from "./deps.js";
+import { registerBountyTools } from "./tools/bounties.js";
 import { registerClaimTools } from "./tools/claims.js";
 import { registerContributionTools } from "./tools/contributions.js";
 import { registerQueryTools } from "./tools/queries.js";
+import { registerStopTools } from "./tools/stop.js";
 import { registerWorkspaceTools } from "./tools/workspace.js";
 
 /**
@@ -31,6 +33,8 @@ export async function createMcpServer(deps: McpDeps): Promise<McpServer> {
   registerClaimTools(server, deps);
   registerQueryTools(server, deps);
   registerWorkspaceTools(server, deps);
+  registerStopTools(server, deps);
+  registerBountyTools(server, deps);
   await registerAskUserTools(server);
 
   return server;
