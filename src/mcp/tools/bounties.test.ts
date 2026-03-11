@@ -376,7 +376,7 @@ describe("grove_bounty_settle", () => {
     expect(result.text).toContain("not found");
   });
 
-  test("settles without creditsService (local dev mode)", async () => {
+  test("settles without creditsService when bounty has no escrow (local dev mode)", async () => {
     const noCreditsDeps = { ...deps, creditsService: undefined } as unknown as McpDeps;
     const s = new McpServer({ name: "test", version: "0.0.1" }, { capabilities: { tools: {} } });
     registerBountyTools(s, noCreditsDeps);
@@ -384,7 +384,7 @@ describe("grove_bounty_settle", () => {
     const contribution = makeContribution({ summary: "Fulfills bounty" });
     await deps.contributionStore.put(contribution);
 
-    // Create bounty without credits
+    // Create bounty without credits (no reservationId)
     const createResult = await callTool(s, "grove_bounty_create", {
       title: "No credits settle",
       amount: 100,
@@ -399,7 +399,7 @@ describe("grove_bounty_settle", () => {
       agent: { agentId: "worker" },
     });
 
-    // Settle — should succeed without creditsService
+    // Settle — should succeed without creditsService since no escrow
     const result = await callTool(s, "grove_bounty_settle", {
       bountyId,
       contributionCid: contribution.cid,
@@ -408,5 +408,38 @@ describe("grove_bounty_settle", () => {
     expect(result.isError).toBeUndefined();
     const data = JSON.parse(result.text);
     expect(data.status).toBe("settled");
+  });
+
+  test("rejects settlement of escrowed bounty when creditsService is absent", async () => {
+    // Create bounty WITH creditsService (escrow established)
+    const contribution = makeContribution({ summary: "Fulfills bounty" });
+    await deps.contributionStore.put(contribution);
+
+    const createResult = await callTool(server, "grove_bounty_create", {
+      title: "Escrowed bounty",
+      amount: 200,
+      criteria: { description: "test" },
+      agent: { agentId: "creator" },
+    });
+    const created = JSON.parse(createResult.text);
+    expect(created.reservationId).toBeDefined();
+
+    await callTool(server, "grove_bounty_claim", {
+      bountyId: created.bountyId,
+      agent: { agentId: "worker" },
+    });
+
+    // Now try to settle without creditsService — should refuse
+    const noCreditsDeps = { ...deps, creditsService: undefined } as unknown as McpDeps;
+    const s = new McpServer({ name: "test", version: "0.0.1" }, { capabilities: { tools: {} } });
+    registerBountyTools(s, noCreditsDeps);
+
+    const result = await callTool(s, "grove_bounty_settle", {
+      bountyId: created.bountyId,
+      contributionCid: contribution.cid,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("creditsService is not available");
   });
 });

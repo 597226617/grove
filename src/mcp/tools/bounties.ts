@@ -298,10 +298,20 @@ export function registerBountyTools(server: McpServer, deps: McpDeps): void {
           );
         }
 
+        // If the bounty has a reservationId, credits MUST be captured before
+        // settling. Refusing to settle without creditsService prevents the
+        // state claiming "settled / paidTo: worker" when no debit or payout
+        // actually occurred.
+        if (bounty.reservationId && !creditsService) {
+          return errorResult(
+            "Cannot settle bounty with escrowed credits: creditsService is not available. " +
+              "Configure a persistent CreditsService to capture the reservation.",
+          );
+        }
+
         // Settle payment BEFORE state transition: capture the reservation
         // and atomically credit the fulfiller. If capture fails, the bounty
         // stays in its current state with the escrow intact.
-        // When no creditsService is available, credit enforcement is skipped.
         if (creditsService && bounty.reservationId && bounty.claimedBy) {
           await creditsService.capture(bounty.reservationId, {
             toAgentId: bounty.claimedBy.agentId,
