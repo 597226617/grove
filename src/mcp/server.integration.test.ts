@@ -53,11 +53,15 @@ describe("MCP server integration", () => {
     await testDeps.cleanup();
   });
 
-  test("lists all 14 tools", async () => {
+  test("lists all 18 tools", async () => {
     const tools = await client.listTools();
     const toolNames = tools.tools.map((t) => t.name).sort();
     expect(toolNames).toEqual([
       "ask_user",
+      "grove_bounty_claim",
+      "grove_bounty_create",
+      "grove_bounty_list",
+      "grove_bounty_settle",
       "grove_check_stop",
       "grove_checkout",
       "grove_claim",

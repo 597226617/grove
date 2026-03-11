@@ -31,6 +31,7 @@ import { parseGroveContract } from "../core/contract.js";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
 import { CachedFrontierCalculator } from "../gossip/cached-frontier.js";
 import { FsCas } from "../local/fs-cas.js";
+import { SqliteBountyStore } from "../local/sqlite-bounty-store.js";
 import { initSqliteDb, SqliteClaimStore, SqliteContributionStore } from "../local/sqlite-store.js";
 import { LocalWorkspaceManager } from "../local/workspace.js";
 import type { McpDeps } from "./deps.js";
@@ -57,6 +58,7 @@ try {
   const db = initSqliteDb(dbPath);
   const contributionStore = new SqliteContributionStore(db);
   const claimStore = new SqliteClaimStore(db);
+  const bountyStore = new SqliteBountyStore(db);
   const cas = new FsCas(casPath);
   const baseFrontier = new DefaultFrontierCalculator(contributionStore);
   const frontier = new CachedFrontierCalculator(baseFrontier, 5_000);
@@ -73,9 +75,11 @@ try {
     ? parseGroveContract(readFileSync(groveContractPath, "utf-8"))
     : undefined;
 
+  // Note: creditsService is intentionally omitted — see serve.ts for rationale.
   deps = {
     contributionStore,
     claimStore,
+    bountyStore,
     cas,
     frontier,
     workspace,
