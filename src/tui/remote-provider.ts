@@ -11,6 +11,7 @@ import type { OutcomeRecord, OutcomeStatus } from "../core/outcome.js";
 import type { ContributionQuery, ThreadNode, ThreadSummary } from "../core/store.js";
 import type {
   ActivityQuery,
+  ArtifactMeta,
   ClaimsQuery,
   ContributionDetail,
   DagData,
@@ -19,13 +20,16 @@ import type {
   OperatorStats,
   PaginatedQuery,
   ProviderCapabilities,
+  TuiArtifactProvider,
   TuiDataProvider,
   TuiOutcomeProvider,
 } from "./provider.js";
 import { buildFrontierSummary } from "./provider-utils.js";
 
 /** TUI data provider backed by a remote grove-server HTTP API. */
-export class RemoteDataProvider implements TuiDataProvider, TuiOutcomeProvider {
+export class RemoteDataProvider
+  implements TuiDataProvider, TuiOutcomeProvider, TuiArtifactProvider
+{
   readonly capabilities: ProviderCapabilities = {
     outcomes: true,
     artifacts: true,
@@ -253,6 +257,49 @@ export class RemoteDataProvider implements TuiDataProvider, TuiOutcomeProvider {
     }
     return [];
   }
+
+  // ---------------------------------------------------------------------------
+  // TuiArtifactProvider
+  // ---------------------------------------------------------------------------
+
+  async getArtifact(cid: string, name: string): Promise<Buffer> {
+    const resp = await fetch(
+      `${this.baseUrl}/api/contributions/${encodeURIComponent(cid)}/artifacts/${encodeURIComponent(name)}`,
+    );
+    if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}: ${resp.statusText}`);
+    const arrayBuffer = await resp.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  async getArtifactMeta(cid: string, name: string): Promise<ArtifactMeta> {
+    const resp = await fetch(
+      `${this.baseUrl}/api/contributions/${encodeURIComponent(cid)}/artifacts/${encodeURIComponent(name)}/meta`,
+    );
+    if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}: ${resp.statusText}`);
+    return (await resp.json()) as ArtifactMeta;
+  }
+
+  async diffArtifacts(
+    parentCid: string,
+    childCid: string,
+    name: string,
+  ): Promise<{ readonly parent: string; readonly child: string }> {
+    const [parentBuf, childBuf] = await Promise.all([
+      this.getArtifact(parentCid, name),
+      this.getArtifact(childCid, name),
+    ]);
+    return { parent: parentBuf.toString("utf-8"), child: childBuf.toString("utf-8") };
+  }
+
+  async search(query: string): Promise<readonly Contribution[]> {
+    const resp = await fetch(`${this.baseUrl}/api/search?query=${encodeURIComponent(query)}`);
+    if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}: ${resp.statusText}`);
+    return (await resp.json()) as Contribution[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
 
   private async fetchGroveMetadata(): Promise<GroveMetadata> {
     try {

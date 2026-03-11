@@ -28,6 +28,7 @@ export interface AgentGraphProps {
   readonly active: boolean;
   readonly cursor: number;
   readonly topology: AgentTopology;
+  readonly onSelectSession?: ((sessionName: string | undefined) => void) | undefined;
 }
 
 /** Build live agent status map from claims and tmux sessions. */
@@ -74,6 +75,7 @@ export const AgentGraphView: React.NamedExoticComponent<AgentGraphProps> = React
     active,
     cursor,
     topology,
+    onSelectSession: _onSelectSession,
   }: AgentGraphProps): React.ReactNode {
     const claimFetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
     const tmuxFetcher = useCallback(async () => {

@@ -26,7 +26,6 @@ import type { PanelFocusState } from "../hooks/use-panel-focus.js";
 import { isPanelVisible, PANEL_LABELS, Panel } from "../hooks/use-panel-focus.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { ContributionDetail, TuiDataProvider } from "../provider.js";
-import { ActivityView } from "../views/activity.js";
 import { AgentGraphView } from "../views/agent-graph.js";
 import { AgentListView } from "../views/agent-list.js";
 import { ArtifactPreviewView } from "../views/artifact-preview.js";
@@ -34,6 +33,7 @@ import { ClaimsView } from "../views/claims.js";
 import { DagView } from "../views/dag.js";
 import { DashboardView } from "../views/dashboard.js";
 import { DetailView } from "../views/detail.js";
+import { FrontierView } from "../views/frontier-view.js";
 import { TerminalView } from "../views/terminal.js";
 import { VfsBrowserView } from "../views/vfs-browser.js";
 
@@ -49,6 +49,13 @@ export interface PanelManagerProps {
   readonly tmux?: TmuxManager | undefined;
   readonly selectedSession?: string | undefined;
   readonly topology?: AgentTopology | undefined;
+  readonly onSelectSession?: ((sessionName: string | undefined) => void) | undefined;
+  /** Incremented when Enter pressed in VFS panel; triggers directory navigation. */
+  readonly vfsNavigateTrigger?: number | undefined;
+  /** Index into the artifact names list for the Artifact panel. */
+  readonly artifactIndex?: number | undefined;
+  /** Whether to show diff view in the Artifact panel. */
+  readonly showArtifactDiff?: boolean | undefined;
 }
 
 /** Wraps a panel view with a titled border. */
@@ -86,8 +93,15 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
     tmux,
     selectedSession,
     topology,
+    onSelectSession,
+    vfsNavigateTrigger,
+    artifactIndex,
+    showArtifactDiff,
   }: PanelManagerProps): React.ReactNode {
     const isFocused = (p: Panel) => panelState.focused === p;
+
+    // Suppress unused variable warnings for props used by other panel configurations
+    void pageSize;
 
     // If detail view is active, show it in the Detail panel
     const showDetail = nav.isDetailView && nav.detailCid;
@@ -104,9 +118,19 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
       isPanelVisible(panelState, Panel.Artifact) && detailCid !== undefined,
     );
 
-    const firstArtifactName = detailData?.contribution.artifacts
-      ? Object.keys(detailData.contribution.artifacts)[0]
-      : undefined;
+    // Compute artifact names list and select by index
+    const artifactNames = detailData?.contribution.artifacts
+      ? Object.keys(detailData.contribution.artifacts)
+      : [];
+    const selectedArtifactName =
+      artifactNames.length > 0
+        ? artifactNames[(artifactIndex ?? 0) % artifactNames.length]
+        : undefined;
+
+    // Resolve parent CID from derives_from relation for diff support
+    const parentCid = detailData?.contribution.relations.find(
+      (r) => r.relationType === "derives_from",
+    )?.targetCid;
 
     return (
       <box flexDirection="column" flexGrow={1}>
@@ -140,14 +164,12 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
         {/* Middle row: Frontier */}
         <box flexDirection="row" flexGrow={1}>
           <PanelChrome panel={Panel.Frontier} focused={isFocused(Panel.Frontier)}>
-            <ActivityView
+            <FrontierView
               provider={provider}
               intervalMs={intervalMs}
               active
               cursor={isFocused(Panel.Frontier) ? nav.state.cursor : -1}
-              pageOffset={nav.state.pageOffset}
-              pageSize={pageSize}
-              onContributionsLoaded={onContributionsLoaded}
+              onRowCountChanged={onRowCountChanged}
             />
           </PanelChrome>
         </box>
@@ -179,6 +201,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                     active
                     cursor={isFocused(Panel.AgentList) ? nav.state.cursor : -1}
                     topology={topology}
+                    onSelectSession={onSelectSession}
                   />
                 ) : (
                   <AgentListView
@@ -187,6 +210,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                     intervalMs={intervalMs}
                     active
                     cursor={isFocused(Panel.AgentList) ? nav.state.cursor : -1}
+                    onSelectSession={onSelectSession}
                   />
                 )}
               </PanelChrome>
@@ -213,7 +237,13 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                 <ArtifactPreviewView
                   provider={provider}
                   cid={detailCid}
-                  artifactName={firstArtifactName}
+                  artifactName={selectedArtifactName}
+                  allArtifactNames={artifactNames}
+                  artifactIndex={
+                    artifactNames.length > 0 ? (artifactIndex ?? 0) % artifactNames.length : 0
+                  }
+                  parentCid={parentCid}
+                  showDiff={showArtifactDiff}
                   intervalMs={intervalMs}
                   active={isPanelVisible(panelState, Panel.Artifact)}
                 />
@@ -226,6 +256,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                   intervalMs={intervalMs}
                   active={isPanelVisible(panelState, Panel.Vfs)}
                   cursor={isFocused(Panel.Vfs) ? nav.state.cursor : -1}
+                  navigateTrigger={vfsNavigateTrigger}
                 />
               </PanelChrome>
             )}

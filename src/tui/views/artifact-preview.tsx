@@ -105,6 +105,63 @@ function formatHexDump(buf: Buffer): string {
   return lines.join("\n");
 }
 
+/**
+ * Compute a simple unified diff between two text strings.
+ *
+ * Uses a basic line-by-line longest common subsequence (LCS) approach.
+ * Suitable for small artifacts displayed in the TUI.
+ */
+function computeUnifiedDiff(
+  parentText: string,
+  childText: string,
+  parentLabel: string,
+  childLabel: string,
+): string {
+  const parentLines = parentText.split("\n");
+  const childLines = childText.split("\n");
+
+  // Build LCS table
+  const m = parentLines.length;
+  const n = childLines.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
+
+  for (let i = 1; i <= m; i++) {
+    const row = dp[i];
+    const prevRow = dp[i - 1];
+    if (!row || !prevRow) continue;
+    for (let j = 1; j <= n; j++) {
+      row[j] =
+        parentLines[i - 1] === childLines[j - 1]
+          ? (prevRow[j - 1] ?? 0) + 1
+          : Math.max(prevRow[j] ?? 0, row[j - 1] ?? 0);
+    }
+  }
+
+  // Backtrack to produce diff lines
+  const result: string[] = [`--- ${parentLabel}`, `+++ ${childLabel}`];
+  const diffLines: string[] = [];
+  let i = m;
+  let j = n;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && parentLines[i - 1] === childLines[j - 1]) {
+      diffLines.push(` ${parentLines[i - 1] ?? ""}`);
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || (dp[i]?.[j - 1] ?? 0) >= (dp[i - 1]?.[j] ?? 0))) {
+      diffLines.push(`+${childLines[j - 1] ?? ""}`);
+      j--;
+    } else {
+      diffLines.push(`-${parentLines[i - 1] ?? ""}`);
+      i--;
+    }
+  }
+
+  diffLines.reverse();
+  result.push(...diffLines);
+  return result.join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Fetched artifact data (combined meta + content)
 // ---------------------------------------------------------------------------
@@ -113,6 +170,12 @@ function formatHexDump(buf: Buffer): string {
 interface ArtifactData {
   readonly meta: ArtifactMeta;
   readonly content: Buffer;
+}
+
+/** Diff data between parent and child artifacts. */
+interface DiffData {
+  readonly parentText: string;
+  readonly childText: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +187,14 @@ export interface ArtifactPreviewProps {
   readonly provider: TuiDataProvider;
   readonly cid?: string | undefined;
   readonly artifactName?: string | undefined;
+  /** All artifact names for cycling display. */
+  readonly allArtifactNames?: readonly string[] | undefined;
+  /** Current index into allArtifactNames (for the header indicator). */
+  readonly artifactIndex?: number | undefined;
+  /** Parent CID (from derives_from relation) for diff support. */
+  readonly parentCid?: string | undefined;
+  /** Whether to show diff view instead of content view. */
+  readonly showDiff?: boolean | undefined;
   readonly intervalMs: number;
   readonly active: boolean;
 }
@@ -138,6 +209,10 @@ export const ArtifactPreviewView: React.NamedExoticComponent<ArtifactPreviewProp
     provider,
     cid,
     artifactName,
+    allArtifactNames,
+    artifactIndex,
+    parentCid,
+    showDiff,
     intervalMs,
     active,
   }: ArtifactPreviewProps): React.ReactNode {
@@ -145,6 +220,7 @@ export const ArtifactPreviewView: React.NamedExoticComponent<ArtifactPreviewProp
       ? (provider as unknown as TuiArtifactProvider)
       : undefined;
 
+    // Fetch artifact content
     const fetcher = useCallback(async (): Promise<ArtifactData | undefined> => {
       if (!artifactProvider || !cid || !artifactName) return undefined;
 
@@ -161,6 +237,33 @@ export const ArtifactPreviewView: React.NamedExoticComponent<ArtifactPreviewProp
       intervalMs,
       active,
     );
+
+    // Fetch diff data when parentCid is available and diff mode is on
+    const diffFetcher = useCallback(async (): Promise<DiffData | undefined> => {
+      if (!artifactProvider || !parentCid || !cid || !artifactName) return undefined;
+      const result = await artifactProvider.diffArtifacts(parentCid, cid, artifactName);
+      return { parentText: result.parent, childText: result.child };
+    }, [artifactProvider, parentCid, cid, artifactName]);
+
+    const {
+      data: diffData,
+      loading: diffLoading,
+      error: diffError,
+    } = usePolledData<DiffData | undefined>(
+      diffFetcher,
+      intervalMs,
+      active && showDiff && parentCid !== undefined,
+    );
+
+    // Build artifact selector header
+    const selectorHeader = useMemo((): string => {
+      const names = allArtifactNames ?? [];
+      if (names.length === 0) return "";
+      const idx = artifactIndex ?? 0;
+      const name: string = names[idx] ?? names[0] ?? "";
+      if (names.length === 1) return name;
+      return `< ${name} > (${idx + 1}/${names.length})`;
+    }, [allArtifactNames, artifactIndex]);
 
     // Compute preview content from fetched data
     const preview = useMemo((): { readonly header: string; readonly body: string } => {
@@ -223,6 +326,20 @@ export const ArtifactPreviewView: React.NamedExoticComponent<ArtifactPreviewProp
       return { header, body: hexBody + suffix };
     }, [cid, artifactName, artifactProvider, data, loading, error]);
 
+    // Compute diff body
+    const diffBody = useMemo((): string | undefined => {
+      if (!showDiff || !parentCid) return undefined;
+      if (diffLoading && !diffData) return "Loading diff...";
+      if (diffError && !diffData) return `Diff error: ${diffError.message}`;
+      if (!diffData) return "(no diff data)";
+      return computeUnifiedDiff(
+        diffData.parentText,
+        diffData.childText,
+        `parent (${parentCid.slice(0, 8)})`,
+        `child (${(cid ?? "").slice(0, 8)})`,
+      );
+    }, [showDiff, parentCid, cid, diffData, diffLoading, diffError]);
+
     if (!cid || !artifactName) {
       return (
         <box>
@@ -231,13 +348,26 @@ export const ArtifactPreviewView: React.NamedExoticComponent<ArtifactPreviewProp
       );
     }
 
+    const hasDiffSupport = Boolean(parentCid && artifactProvider);
+
     return (
       <box flexDirection="column">
+        {/* Artifact selector header */}
+        {selectorHeader && (
+          <box marginBottom={0}>
+            <text color="#888888">{selectorHeader}</text>
+          </box>
+        )}
         <box marginBottom={1}>
           <text color="#00cccc">{preview.header}</text>
+          {hasDiffSupport && (
+            <text color={showDiff ? "#ffcc00" : "#666666"}>
+              {showDiff ? "  [DIFF ON]" : "  [d]iff"}
+            </text>
+          )}
         </box>
         <box>
-          <text>{preview.body}</text>
+          <text>{diffBody ?? preview.body}</text>
         </box>
       </box>
     );

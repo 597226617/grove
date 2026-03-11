@@ -38,8 +38,16 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
 
   const [contributionList, setContributionList] = useState<readonly Contribution[]>([]);
   const [rowCount, setRowCount] = useState(0);
-  // TODO: Wire up agent selection from AgentList panel to select a tmux session
-  const [selectedSession, _setSelectedSession] = useState<string | undefined>();
+  const [selectedSession, setSelectedSession] = useState<string | undefined>();
+
+  // VFS navigation trigger — incremented when Enter pressed in VFS panel
+  const [vfsNavigateTrigger, setVfsNavigateTrigger] = useState(0);
+
+  // Artifact cycling state
+  const [artifactIndex, setArtifactIndex] = useState(0);
+
+  // Artifact diff toggle
+  const [showArtifactDiff, setShowArtifactDiff] = useState(false);
 
   // Poll active claims for topology-aware command palette
   const claimsFetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
@@ -101,8 +109,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In terminal input mode, don't handle other keys
+    // In terminal input mode, forward keystrokes to the selected tmux session
     if (panels.state.mode === InputMode.TerminalInput) {
+      if (tmux && selectedSession && input) {
+        tmux.sendKeys(selectedSession, input).catch(() => {});
+      }
       return;
     }
 
@@ -180,6 +191,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     }
 
     if (input === "return") {
+      if (panels.state.focused === Panel.Vfs) {
+        setVfsNavigateTrigger((n) => n + 1);
+        return;
+      }
       const isClaimsPanel = panels.state.focused === Panel.Claims;
       if (!nav.isDetailView && !isClaimsPanel && rowCount > 0) {
         handleSelect(nav.state.cursor);
@@ -198,6 +213,22 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     if (input === "p") {
       nav.prevPage(PAGE_SIZE);
       return;
+    }
+
+    // Artifact panel: cycling (h/l, left/right) and diff toggle (d)
+    if (panels.state.focused === Panel.Artifact) {
+      if (input === "h" || input === "left") {
+        setArtifactIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (input === "l" || input === "right") {
+        setArtifactIndex((i) => i + 1);
+        return;
+      }
+      if (input === "d") {
+        setShowArtifactDiff((v) => !v);
+        return;
+      }
     }
 
     if (input === "r") {
@@ -235,6 +266,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         tmux={tmux}
         selectedSession={selectedSession}
         topology={topology}
+        onSelectSession={setSelectedSession}
+        vfsNavigateTrigger={vfsNavigateTrigger}
+        artifactIndex={artifactIndex}
+        showArtifactDiff={showArtifactDiff}
       />
       <StatusBar mode={panels.state.mode} isDetailView={nav.isDetailView} />
     </box>

@@ -5,7 +5,7 @@
  * In local mode, shows session status and allows spawn/kill via command palette.
  */
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import type { Claim } from "../../core/models.js";
 import { formatDuration } from "../../shared/duration.js";
 import type { TmuxManager } from "../agents/tmux-manager.js";
@@ -21,6 +21,7 @@ export interface AgentListProps {
   readonly intervalMs: number;
   readonly active: boolean;
   readonly cursor: number;
+  readonly onSelectSession?: ((sessionName: string | undefined) => void) | undefined;
 }
 
 const COLUMNS = [
@@ -68,6 +69,7 @@ export const AgentListView: React.NamedExoticComponent<AgentListProps> = React.m
     intervalMs,
     active,
     cursor,
+    onSelectSession,
   }: AgentListProps): React.ReactNode {
     const claimFetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
     const tmuxFetcher = useCallback(async () => {
@@ -88,6 +90,19 @@ export const AgentListView: React.NamedExoticComponent<AgentListProps> = React.m
       active && !!tmux,
     );
 
+    const agentRows = buildAgentRows(claims ?? [], sessions ?? []);
+
+    // Track rows for session selection and notify parent when cursor moves
+    const rowsRef = useRef(agentRows);
+    rowsRef.current = agentRows;
+
+    useEffect(() => {
+      if (!onSelectSession || cursor < 0) return;
+      const row = rowsRef.current[cursor];
+      const session = row?.session;
+      onSelectSession(session && session !== "-" ? session : undefined);
+    }, [cursor, onSelectSession]);
+
     if (claimsLoading && !claims) {
       return (
         <box>
@@ -95,8 +110,6 @@ export const AgentListView: React.NamedExoticComponent<AgentListProps> = React.m
         </box>
       );
     }
-
-    const agentRows = buildAgentRows(claims ?? [], sessions ?? []);
 
     if (agentRows.length === 0) {
       return (

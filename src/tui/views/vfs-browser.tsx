@@ -5,7 +5,7 @@
  * Shows a directory listing with navigation.
  */
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { FsEntry, TuiDataProvider, TuiVfsProvider } from "../provider.js";
@@ -16,6 +16,8 @@ export interface VfsBrowserProps {
   readonly intervalMs: number;
   readonly active: boolean;
   readonly cursor: number;
+  /** Incremented by parent when Enter is pressed; triggers navigation into directories. */
+  readonly navigateTrigger?: number | undefined;
 }
 
 const COLUMNS = [
@@ -44,8 +46,10 @@ export const VfsBrowserView: React.NamedExoticComponent<VfsBrowserProps> = React
     intervalMs,
     active,
     cursor,
+    navigateTrigger,
   }: VfsBrowserProps): React.ReactNode {
-    const [currentPath, _setCurrentPath] = useState("/");
+    const [currentPath, setCurrentPath] = useState("/");
+    const prevTriggerRef = useRef(navigateTrigger ?? 0);
 
     const fetcher = useCallback(async () => {
       if (!isVfsProvider(provider)) return [] as readonly FsEntry[];
@@ -57,6 +61,31 @@ export const VfsBrowserView: React.NamedExoticComponent<VfsBrowserProps> = React
       intervalMs,
       active && isVfsProvider(provider),
     );
+
+    // Build display rows: prepend ".." when not at root
+    const isRoot = currentPath === "/";
+    const allEntries: readonly FsEntry[] = isRoot
+      ? (entries ?? [])
+      : [{ name: "..", type: "directory" as const }, ...(entries ?? [])];
+
+    // Navigate when parent increments navigateTrigger
+    useEffect(() => {
+      const trigger = navigateTrigger ?? 0;
+      if (trigger === prevTriggerRef.current) return;
+      prevTriggerRef.current = trigger;
+
+      const entry = allEntries[cursor];
+      if (!entry || entry.type !== "directory") return;
+
+      if (entry.name === "..") {
+        // Go up: remove trailing slash, then last segment
+        const trimmed = currentPath.replace(/\/$/, "");
+        const parentPath = trimmed.substring(0, trimmed.lastIndexOf("/") + 1) || "/";
+        setCurrentPath(parentPath);
+      } else {
+        setCurrentPath(`${currentPath}${entry.name}/`);
+      }
+    }, [navigateTrigger, cursor, allEntries, currentPath]);
 
     if (!isVfsProvider(provider)) {
       return (
@@ -74,7 +103,7 @@ export const VfsBrowserView: React.NamedExoticComponent<VfsBrowserProps> = React
       );
     }
 
-    const rows = (entries ?? []).map((entry) => ({
+    const rows = allEntries.map((entry) => ({
       name: entry.type === "directory" ? `${entry.name}/` : entry.name,
       type: entry.type,
       size: formatSize(entry.sizeBytes),

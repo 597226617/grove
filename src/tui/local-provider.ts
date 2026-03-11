@@ -6,6 +6,7 @@
  * running `grove tui` against a local .grove directory.
  */
 
+import type { ContentStore } from "../core/cas.js";
 import type { Frontier, FrontierCalculator, FrontierQuery } from "../core/frontier.js";
 import type { Contribution } from "../core/models.js";
 import type { OutcomeRecord, OutcomeStatus, OutcomeStore } from "../core/outcome.js";
@@ -17,6 +18,7 @@ import type {
 } from "../core/store.js";
 import type {
   ActivityQuery,
+  ArtifactMeta,
   ClaimsQuery,
   ContributionDetail,
   DagData,
@@ -25,6 +27,7 @@ import type {
   OperatorStats,
   PaginatedQuery,
   ProviderCapabilities,
+  TuiArtifactProvider,
   TuiDataProvider,
   TuiOutcomeProvider,
 } from "./provider.js";
@@ -37,16 +40,18 @@ export interface LocalProviderDeps {
   readonly frontier: FrontierCalculator;
   readonly groveName: string;
   readonly outcomeStore?: OutcomeStore | undefined;
+  readonly cas?: ContentStore | undefined;
 }
 
 /** TUI data provider backed by local SQLite stores. */
-export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
+export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, TuiArtifactProvider {
   readonly capabilities: ProviderCapabilities;
   private readonly store: ContributionStore;
   private readonly claims: ClaimStore;
   private readonly calc: FrontierCalculator;
   private readonly name: string;
   private readonly outcomes: OutcomeStore | undefined;
+  private readonly cas: ContentStore | undefined;
 
   constructor(deps: LocalProviderDeps) {
     this.store = deps.contributionStore;
@@ -54,9 +59,10 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
     this.calc = deps.frontier;
     this.name = deps.groveName;
     this.outcomes = deps.outcomeStore;
+    this.cas = deps.cas;
     this.capabilities = {
       outcomes: deps.outcomeStore !== undefined,
-      artifacts: false,
+      artifacts: deps.cas !== undefined,
       vfs: false,
     };
   }
@@ -207,9 +213,71 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
     return this.outcomes.list(query);
   }
 
+  // ---------------------------------------------------------------------------
+  // TuiArtifactProvider
+  // ---------------------------------------------------------------------------
+
+  async getArtifact(cid: string, name: string): Promise<Buffer> {
+    const contribution = await this.store.get(cid);
+    if (!contribution) throw new Error(`Contribution not found: ${cid}`);
+
+    const contentHash = contribution.artifacts[name];
+    if (contentHash === undefined) {
+      throw new Error(`Artifact '${name}' not found on contribution ${cid}`);
+    }
+
+    if (this.cas) {
+      const data = await this.cas.get(contentHash);
+      if (data) return Buffer.from(data);
+    }
+
+    // Fallback: return the content hash as a buffer
+    return Buffer.from(contentHash, "utf-8");
+  }
+
+  async getArtifactMeta(cid: string, name: string): Promise<ArtifactMeta> {
+    const contribution = await this.store.get(cid);
+    if (!contribution) throw new Error(`Contribution not found: ${cid}`);
+
+    const contentHash = contribution.artifacts[name];
+    if (contentHash === undefined) {
+      throw new Error(`Artifact '${name}' not found on contribution ${cid}`);
+    }
+
+    if (this.cas) {
+      const stat = await this.cas.stat(contentHash);
+      if (stat) {
+        return { sizeBytes: stat.sizeBytes, mediaType: stat.mediaType };
+      }
+    }
+
+    return { sizeBytes: 0 };
+  }
+
+  async diffArtifacts(
+    parentCid: string,
+    childCid: string,
+    name: string,
+  ): Promise<{ readonly parent: string; readonly child: string }> {
+    const [parentBuf, childBuf] = await Promise.all([
+      this.getArtifact(parentCid, name),
+      this.getArtifact(childCid, name),
+    ]);
+    return { parent: parentBuf.toString("utf-8"), child: childBuf.toString("utf-8") };
+  }
+
+  async search(query: string): Promise<readonly Contribution[]> {
+    return this.store.search(query);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
   close(): void {
     this.store.close();
     this.claims.close();
     this.outcomes?.close();
+    this.cas?.close();
   }
 }

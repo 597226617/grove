@@ -123,6 +123,7 @@ async function createProvider(
     frontier: deps.frontier,
     groveName,
     outcomeStore: stores.outcomeStore,
+    cas: deps.cas,
   });
 }
 
