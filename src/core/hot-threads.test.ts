@@ -335,7 +335,7 @@ function hotThreadsTests(createBackend: () => TestBackend): void {
       expect(results).toHaveLength(1);
       // lastReplyAt should reflect the truly latest reply (Reply B at 06:00Z),
       // not Reply A which only looks later as a raw string (10:00:00+05:00)
-      const lastReplyUtc = new Date(results[0]?.lastReplyAt).getTime();
+      const lastReplyUtc = new Date(results[0]?.lastReplyAt ?? "").getTime();
       const replyBUtc = new Date("2026-01-01T06:00:00Z").getTime();
       expect(lastReplyUtc).toBe(replyBUtc);
     } finally {
