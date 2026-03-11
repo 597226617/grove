@@ -11,12 +11,16 @@
  *   GROVE_DIR=/path grove-mcp    # explicit grove directory
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { findGroveDir } from "../cli/context.js";
+import type { GroveContract } from "../core/contract.js";
+import { parseGroveContract } from "../core/contract.js";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
+import { CachedFrontierCalculator } from "../gossip/cached-frontier.js";
 import { FsCas } from "../local/fs-cas.js";
 import { initSqliteDb, SqliteClaimStore, SqliteContributionStore } from "../local/sqlite-store.js";
 import { LocalWorkspaceManager } from "../local/workspace.js";
@@ -44,7 +48,8 @@ try {
   const contributionStore = new SqliteContributionStore(db);
   const claimStore = new SqliteClaimStore(db);
   const cas = new FsCas(casPath);
-  const frontier = new DefaultFrontierCalculator(contributionStore);
+  const baseFrontier = new DefaultFrontierCalculator(contributionStore);
+  const frontier = new CachedFrontierCalculator(baseFrontier, 5_000);
   const workspace = new LocalWorkspaceManager({
     groveRoot: groveDir,
     db,
@@ -52,7 +57,20 @@ try {
     cas,
   });
 
-  deps = { contributionStore, claimStore, cas, frontier, workspace };
+  // Parse GROVE.md contract if it exists
+  let contract: GroveContract | undefined;
+  const groveContractPath = join(groveDir, "..", "GROVE.md");
+  if (existsSync(groveContractPath)) {
+    try {
+      const content = readFileSync(groveContractPath, "utf-8");
+      contract = parseGroveContract(content);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`grove-mcp: warning: failed to parse GROVE.md: ${msg}\n`);
+    }
+  }
+
+  deps = { contributionStore, claimStore, cas, frontier, workspace, contract };
   close = () => {
     workspace.close();
     db.close();
