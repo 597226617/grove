@@ -6,7 +6,7 @@
  */
 
 import { Box, useApp } from "ink";
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback } from "react";
 import type { Contribution } from "../core/models.js";
 import { StatusBar } from "./components/status-bar.js";
 import { TabBar } from "./components/tab-bar.js";
@@ -38,19 +38,27 @@ export function App({ provider, intervalMs }: AppProps): React.ReactElement {
   // Track contributions for drill-down (resolve cursor → CID)
   const [contributionList, setContributionList] = React.useState<readonly Contribution[]>([]);
 
-  // Clear stale contribution list when switching to Claims (no drill-down there)
-  const prevTabRef = useRef(nav.state.activeTab);
-  useEffect(() => {
-    if (nav.state.activeTab !== prevTabRef.current) {
-      prevTabRef.current = nav.state.activeTab;
-      if (nav.state.activeTab === Tab.Claims) {
-        setContributionList([]);
-      }
-    }
-  }, [nav.state.activeTab]);
+  // Track row count separately — views that don't support drill-down (Claims)
+  // still report their row count so j/k cursor navigation works.
+  const [rowCount, setRowCount] = React.useState(0);
+
+  // Refresh counter — incrementing forces a remount of ActiveView
+  const [refreshKey, setRefreshKey] = React.useState(0);
 
   // Claims tab has no contribution drill-down
   const isClaimsTab = nav.state.activeTab === Tab.Claims;
+
+  const handleContributionsLoaded = useCallback(
+    (contributions: readonly Contribution[]) => {
+      setContributionList(contributions);
+      setRowCount(contributions.length);
+    },
+    [],
+  );
+
+  const handleRowCountChanged = useCallback((count: number) => {
+    setRowCount(count);
+  }, []);
 
   const handleSelect = useCallback(
     (index: number) => {
@@ -67,20 +75,23 @@ export function App({ provider, intervalMs }: AppProps): React.ReactElement {
     exit();
   }, [provider, exit]);
 
-  // Estimate list length for keybinding bounds
-  const listLength = contributionList.length;
+  const handleRefresh = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
 
-  // For pagination: if the current page is full, assume more items exist.
-  // This avoids needing a count() API — nextPage will simply fetch an empty page
-  // if there are no more results, which is a graceful no-op.
-  const hasFullPage = listLength >= PAGE_SIZE;
-  const totalItems = hasFullPage ? nav.state.pageOffset + listLength + 1 : nav.state.pageOffset + listLength;
+  // For pagination: always allow advancing if the current page is full.
+  // An empty next page is handled gracefully by ActivityView.
+  const hasFullPage = rowCount >= PAGE_SIZE;
+  const totalItems = hasFullPage
+    ? nav.state.pageOffset + rowCount + 1
+    : nav.state.pageOffset + rowCount;
 
   useKeybindings({
     nav,
-    listLength,
+    listLength: rowCount,
     onSelect: nav.isDetailView || isClaimsTab ? undefined : handleSelect,
     onQuit: handleQuit,
+    onRefresh: handleRefresh,
     pageSize: PAGE_SIZE,
     totalItems,
   });
@@ -103,13 +114,15 @@ export function App({ provider, intervalMs }: AppProps): React.ReactElement {
       <TabBar activeTab={nav.state.activeTab} />
       <Box flexDirection="column" flexGrow={1} marginTop={1}>
         <ActiveView
+          key={refreshKey}
           tab={nav.state.activeTab}
           provider={provider}
           intervalMs={intervalMs}
           cursor={nav.state.cursor}
           pageOffset={nav.state.pageOffset}
           pageSize={PAGE_SIZE}
-          onContributionsLoaded={setContributionList}
+          onContributionsLoaded={handleContributionsLoaded}
+          onRowCountChanged={handleRowCountChanged}
         />
       </Box>
       <StatusBar isDetailView={false} />
@@ -126,6 +139,7 @@ interface ActiveViewProps {
   readonly pageOffset: number;
   readonly pageSize: number;
   readonly onContributionsLoaded: ContributionsCallback;
+  readonly onRowCountChanged: (count: number) => void;
 }
 
 /**
@@ -140,6 +154,7 @@ const ActiveView = React.memo(function ActiveView({
   pageOffset,
   pageSize,
   onContributionsLoaded,
+  onRowCountChanged,
 }: ActiveViewProps): React.ReactElement {
   switch (tab) {
     case Tab.Dashboard:
@@ -163,7 +178,15 @@ const ActiveView = React.memo(function ActiveView({
         />
       );
     case Tab.Claims:
-      return <ClaimsView provider={provider} intervalMs={intervalMs} active cursor={cursor} />;
+      return (
+        <ClaimsView
+          provider={provider}
+          intervalMs={intervalMs}
+          active
+          cursor={cursor}
+          onRowCountChanged={onRowCountChanged}
+        />
+      );
     case Tab.Activity:
       return (
         <ActivityView

@@ -84,9 +84,13 @@ export const ActivityView: React.NamedExoticComponent<ActivityProps> = React.mem
         <Text bold underline>
           Activity Stream
         </Text>
-        <Text dimColor>
-          {"  "}showing {pageOffset + 1}-{pageOffset + contributions.length}
-        </Text>
+        {contributions.length > 0 ? (
+          <Text dimColor>
+            {"  "}showing {pageOffset + 1}-{pageOffset + contributions.length}
+          </Text>
+        ) : pageOffset > 0 ? (
+          <Text dimColor>{"  "}(no more results — press p to go back)</Text>
+        ) : null}
       </Box>
       <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
     </Box>

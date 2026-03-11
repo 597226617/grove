@@ -6,7 +6,7 @@
  */
 
 import { Box, Text } from "ink";
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import type { Claim } from "../../core/models.js";
 import { formatDuration } from "../../shared/duration.js";
 import { formatTimestamp } from "../../shared/format.js";
@@ -20,6 +20,8 @@ export interface ClaimsProps {
   readonly intervalMs: number;
   readonly active: boolean;
   readonly cursor: number;
+  /** Called when claims are loaded, so App can track row count for j/k bounds. */
+  readonly onRowCountChanged?: (count: number) => void;
 }
 
 const COLUMNS = [
@@ -38,9 +40,17 @@ export const ClaimsView: React.NamedExoticComponent<ClaimsProps> = React.memo(fu
   intervalMs,
   active,
   cursor,
+  onRowCountChanged,
 }: ClaimsProps): React.ReactElement {
   const fetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
   const { data, loading } = usePolledData<readonly Claim[]>(fetcher, intervalMs, active);
+
+  // Report row count for cursor bounds
+  useEffect(() => {
+    if (data && onRowCountChanged) {
+      onRowCountChanged(data.length);
+    }
+  }, [data, onRowCountChanged]);
 
   if (loading && !data) {
     return (
