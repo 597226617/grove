@@ -37,7 +37,10 @@ const criteriaSchema = z.object({
   description: z.string().describe("What the contribution must achieve"),
   metricName: z.string().optional().describe("Metric name to evaluate (e.g., 'val_bpb')"),
   metricThreshold: z.number().optional().describe("Threshold value the metric must reach"),
-  metricDirection: z.enum(["minimize", "maximize"]).optional().describe("Whether lower or higher is better"),
+  metricDirection: z
+    .enum(["minimize", "maximize"])
+    .optional()
+    .describe("Whether lower or higher is better"),
   requiredTags: z.array(z.string()).optional().describe("Tags the contribution must include"),
 });
 
@@ -241,7 +244,9 @@ export function registerBountyTools(server: McpServer, deps: McpDeps): void {
           intentSummary: `Claiming bounty: ${bounty.title}`,
           createdAt: now.toISOString(),
           heartbeatAt: now.toISOString(),
-          leaseExpiresAt: new Date(now.getTime() + (args.leaseDurationMs ?? 1_800_000)).toISOString(),
+          leaseExpiresAt: new Date(
+            now.getTime() + (args.leaseDurationMs ?? 1_800_000),
+          ).toISOString(),
         });
 
         const claimed = await bountyStore.claimBounty(args.bountyId, agent, claim.claimId);

@@ -13,6 +13,7 @@ import { BountyStateError } from "../core/bounty-errors.js";
 import { validateBountyTransition } from "../core/bounty-logic.js";
 import type { BountyQuery, BountyStore, RewardQuery } from "../core/bounty-store.js";
 import type { AgentIdentity, JsonValue } from "../core/models.js";
+
 /** UTC ISO 8601 timestamp for "now". */
 function nowUtcIso(): string {
   return new Date().toISOString();
@@ -109,12 +110,12 @@ interface RewardRow {
 function rowToBounty(row: BountyRow): Bounty {
   const creator = JSON.parse(row.creator_json) as AgentIdentity;
   const criteria = JSON.parse(row.criteria_json) as Bounty["criteria"];
-  const claimedBy = row.claimed_by_json !== null
-    ? (JSON.parse(row.claimed_by_json) as AgentIdentity)
-    : undefined;
-  const context = row.context_json !== null
-    ? (JSON.parse(row.context_json) as Record<string, JsonValue>)
-    : undefined;
+  const claimedBy =
+    row.claimed_by_json !== null ? (JSON.parse(row.claimed_by_json) as AgentIdentity) : undefined;
+  const context =
+    row.context_json !== null
+      ? (JSON.parse(row.context_json) as Record<string, JsonValue>)
+      : undefined;
 
   return {
     bountyId: row.bounty_id,
@@ -174,16 +175,16 @@ export class SqliteBountyStore implements BountyStore {
   // -----------------------------------------------------------------------
 
   createBounty = async (bounty: Bounty): Promise<Bounty> => {
-    const stmt = (this.stmtInsertBounty ??= this.db.prepare(`
+    this.stmtInsertBounty ??= this.db.prepare(`
       INSERT INTO bounties (
         bounty_id, title, description, status, creator_agent_id, creator_json,
         amount, criteria_json, zone_id, deadline, claimed_by_json, claim_id,
         fulfilled_by_cid, reservation_id, context_json, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `));
+    `);
 
     try {
-      stmt.run(
+      this.stmtInsertBounty.run(
         bounty.bountyId,
         bounty.title,
         bounty.description,
@@ -213,10 +214,8 @@ export class SqliteBountyStore implements BountyStore {
   };
 
   getBounty = async (bountyId: string): Promise<Bounty | undefined> => {
-    const stmt = (this.stmtGetBounty ??= this.db.prepare(
-      "SELECT * FROM bounties WHERE bounty_id = ?",
-    ));
-    const row = stmt.get(bountyId) as BountyRow | null;
+    this.stmtGetBounty ??= this.db.prepare("SELECT * FROM bounties WHERE bounty_id = ?");
+    const row = this.stmtGetBounty.get(bountyId) as BountyRow | null;
     return row !== null ? rowToBounty(row) : undefined;
   };
 
@@ -245,7 +244,11 @@ export class SqliteBountyStore implements BountyStore {
     }));
   };
 
-  claimBounty = async (bountyId: string, claimedBy: AgentIdentity, claimId: string): Promise<Bounty> => {
+  claimBounty = async (
+    bountyId: string,
+    claimedBy: AgentIdentity,
+    claimId: string,
+  ): Promise<Bounty> => {
     return this.transitionBounty(bountyId, BountyStatus.Claimed, "claim", (bounty) => ({
       ...bounty,
       status: BountyStatus.Claimed,
@@ -310,13 +313,13 @@ export class SqliteBountyStore implements BountyStore {
   // -----------------------------------------------------------------------
 
   recordReward = async (reward: RewardRecord): Promise<void> => {
-    const stmt = (this.stmtInsertReward ??= this.db.prepare(`
+    this.stmtInsertReward ??= this.db.prepare(`
       INSERT OR IGNORE INTO rewards (
         reward_id, reward_type, recipient_agent_id, recipient_json,
         amount, contribution_cid, bounty_id, transfer_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `));
-    stmt.run(
+    `);
+    this.stmtInsertReward.run(
       reward.rewardId,
       reward.rewardType,
       reward.recipient.agentId,
@@ -330,10 +333,8 @@ export class SqliteBountyStore implements BountyStore {
   };
 
   hasReward = async (rewardId: string): Promise<boolean> => {
-    const stmt = (this.stmtGetReward ??= this.db.prepare(
-      "SELECT 1 FROM rewards WHERE reward_id = ?",
-    ));
-    return stmt.get(rewardId) !== null;
+    this.stmtGetReward ??= this.db.prepare("SELECT 1 FROM rewards WHERE reward_id = ?");
+    return this.stmtGetReward.get(rewardId) !== null;
   };
 
   listRewards = async (query?: RewardQuery): Promise<readonly RewardRecord[]> => {
@@ -404,7 +405,8 @@ export class SqliteBountyStore implements BountyStore {
 
     // CAS: include WHERE status = ? to prevent concurrent transitions.
     // If another writer already changed the status, changes === 0.
-    const result = this.db.prepare(`
+    const result = this.db
+      .prepare(`
       UPDATE bounties SET
         status = ?,
         claimed_by_json = ?,
@@ -413,16 +415,17 @@ export class SqliteBountyStore implements BountyStore {
         reservation_id = ?,
         updated_at = ?
       WHERE bounty_id = ? AND status = ?
-    `).run(
-      updated.status,
-      updated.claimedBy !== undefined ? JSON.stringify(updated.claimedBy) : null,
-      updated.claimId ?? null,
-      updated.fulfilledByCid ?? null,
-      updated.reservationId ?? null,
-      updated.updatedAt,
-      bountyId,
-      existing.status,
-    );
+    `)
+      .run(
+        updated.status,
+        updated.claimedBy !== undefined ? JSON.stringify(updated.claimedBy) : null,
+        updated.claimId ?? null,
+        updated.fulfilledByCid ?? null,
+        updated.reservationId ?? null,
+        updated.updatedAt,
+        bountyId,
+        existing.status,
+      );
 
     if (result.changes === 0) {
       throw new BountyStateError({
@@ -458,7 +461,9 @@ export class SqliteBountyStore implements BountyStore {
       params.push(query.creatorAgentId);
     }
     if (query?.claimedByAgentId !== undefined) {
-      conditions.push("claimed_by_json IS NOT NULL AND json_extract(claimed_by_json, '$.agentId') = ?");
+      conditions.push(
+        "claimed_by_json IS NOT NULL AND json_extract(claimed_by_json, '$.agentId') = ?",
+      );
       params.push(query.claimedByAgentId);
     }
     if (query?.zoneId !== undefined) {

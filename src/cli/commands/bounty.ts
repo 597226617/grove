@@ -9,10 +9,9 @@
 
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
-
-import type { BountyStore } from "../../core/bounty-store.js";
 import type { Bounty } from "../../core/bounty.js";
 import { BountyStatus } from "../../core/bounty.js";
+import type { BountyStore } from "../../core/bounty-store.js";
 import type { CreditsService } from "../../core/credits.js";
 import type { ClaimStore } from "../../core/store.js";
 import { parseDuration } from "../utils/duration.js";
@@ -83,7 +82,9 @@ async function runBountyCreate(args: readonly string[], deps: BountyDeps): Promi
 
   const title = positionals.join(" ");
   if (!title) {
-    deps.stderr("Error: title is required.\n\nUsage: grove bounty create <title> --amount <credits> --deadline <duration>");
+    deps.stderr(
+      "Error: title is required.\n\nUsage: grove bounty create <title> --amount <credits> --deadline <duration>",
+    );
     process.exitCode = 2;
     return;
   }
@@ -114,9 +115,8 @@ async function runBountyCreate(args: readonly string[], deps: BountyDeps): Promi
   const criteria = {
     description: values.criteria ?? title,
     metricName: values["metric-name"],
-    metricThreshold: values["metric-threshold"] !== undefined
-      ? parseFloat(values["metric-threshold"])
-      : undefined,
+    metricThreshold:
+      values["metric-threshold"] !== undefined ? parseFloat(values["metric-threshold"]) : undefined,
     metricDirection: values["metric-direction"] as "minimize" | "maximize" | undefined,
     requiredTags: values.tags?.split(",").map((t) => t.trim()),
   };
@@ -268,9 +268,8 @@ function formatBountySummary(bounty: Bounty, action: string): string {
 function formatBountyLine(bounty: Bounty): string {
   const deadline = new Date(bounty.deadline);
   const remaining = deadline.getTime() - Date.now();
-  const remainingStr = remaining > 0
-    ? `${Math.ceil(remaining / (1000 * 60 * 60))}h remaining`
-    : "expired";
+  const remainingStr =
+    remaining > 0 ? `${Math.ceil(remaining / (1000 * 60 * 60))}h remaining` : "expired";
 
   return `[${bounty.status.padEnd(9)}] ${bounty.bountyId.slice(0, 8)}… ${bounty.amount} credits — ${bounty.title} (${remainingStr})`;
 }

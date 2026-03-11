@@ -112,7 +112,10 @@ export interface Bounty {
 }
 
 /** Input for creating a bounty (everything except computed fields). */
-export type BountyInput = Omit<Bounty, "status" | "updatedAt" | "claimedBy" | "claimId" | "fulfilledByCid" | "reservationId">;
+export type BountyInput = Omit<
+  Bounty,
+  "status" | "updatedAt" | "claimedBy" | "claimId" | "fulfilledByCid" | "reservationId"
+>;
 
 /**
  * A recorded reward distribution.

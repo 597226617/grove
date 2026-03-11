@@ -5,11 +5,10 @@
  * Shared across local and Nexus implementations.
  */
 
-import type { Bounty, BountyCriteria, BountyStatus } from "./bounty.js";
+import type { Bounty, BountyCriteria, BountyStatus, RewardType } from "./bounty.js";
 import { TERMINAL_BOUNTY_STATUSES } from "./bounty.js";
 import { BountyStateError } from "./bounty-errors.js";
 import type { Contribution, Score } from "./models.js";
-import type { RewardType } from "./bounty.js";
 
 // ---------------------------------------------------------------------------
 // State transition validation

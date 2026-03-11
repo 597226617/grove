@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CreditsService } from "../../core/credits.js";
 import type { InMemoryCreditsService } from "../../core/in-memory-credits.js";
 import { makeContribution } from "../../core/test-helpers.js";
 import type { McpDeps } from "../deps.js";
@@ -308,7 +309,7 @@ describe("grove_bounty_settle", () => {
     expect(data.paidTo).toBe("worker");
 
     // Verify credit balances: creator debited, worker credited
-    const credits = deps.creditsService!;
+    const credits = deps.creditsService as CreditsService;
     const creatorBal = await credits.balance("creator");
     expect(creatorBal.total).toBe(4500); // 5000 - 500
     const workerBal = await credits.balance("worker");

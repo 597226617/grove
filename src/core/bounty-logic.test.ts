@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { BountyStatus, RewardType } from "./bounty.js";
+import { BountyStateError } from "./bounty-errors.js";
 import {
   computeRewardId,
   evaluateBountyCriteria,
@@ -13,9 +14,8 @@ import {
   validateBountyInput,
   validateBountyTransition,
 } from "./bounty-logic.js";
-import { BountyStateError } from "./bounty-errors.js";
-import { makeBounty, makeContribution, makeScore } from "./test-helpers.js";
 import { ScoreDirection } from "./models.js";
+import { makeBounty, makeContribution, makeScore } from "./test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // validateBountyTransition
@@ -157,9 +157,7 @@ describe("validateBountyInput", () => {
   });
 
   test("rejects missing creator agentId", () => {
-    expect(() =>
-      validateBountyInput(makeBounty({ creator: { agentId: "" } })),
-    ).toThrow(/agent/i);
+    expect(() => validateBountyInput(makeBounty({ creator: { agentId: "" } }))).toThrow(/agent/i);
   });
 });
 
@@ -169,10 +167,7 @@ describe("validateBountyInput", () => {
 
 describe("evaluateBountyCriteria", () => {
   test("empty criteria matches any contribution", () => {
-    const result = evaluateBountyCriteria(
-      { description: "Any work" },
-      makeContribution(),
-    );
+    const result = evaluateBountyCriteria({ description: "Any work" }, makeContribution());
     expect(result).toBe(true);
   });
 

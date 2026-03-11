@@ -5,12 +5,12 @@
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { runBountyStoreTests } from "../core/bounty-store.conformance.js";
-import { initSqliteDb } from "./sqlite-store.js";
 import { SqliteBountyStore } from "./sqlite-bounty-store.js";
+import { initSqliteDb } from "./sqlite-store.js";
 
 // ---------------------------------------------------------------------------
 // Conformance suite

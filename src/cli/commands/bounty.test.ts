@@ -6,9 +6,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import type { BountyStore } from "../../core/bounty-store.js";
 import { BountyStatus } from "../../core/bounty.js";
+import type { BountyStore } from "../../core/bounty-store.js";
 import { InMemoryCreditsService } from "../../core/in-memory-credits.js";
 import type { ClaimStore } from "../../core/store.js";
 import { createSqliteStores } from "../../local/sqlite-store.js";
@@ -78,7 +77,16 @@ describe("grove bounty", () => {
   describe("create", () => {
     test("creates a bounty with required args", async () => {
       await runBounty(
-        ["create", "Optimize parser", "--amount", "100", "--deadline", "7d", "--agent-id", "test-agent"],
+        [
+          "create",
+          "Optimize parser",
+          "--amount",
+          "100",
+          "--deadline",
+          "7d",
+          "--agent-id",
+          "test-agent",
+        ],
         deps,
       );
 
@@ -151,15 +159,24 @@ describe("grove bounty", () => {
     test("creates bounty with criteria options", async () => {
       await runBounty(
         [
-          "create", "ML bounty",
-          "--amount", "300",
-          "--deadline", "3d",
-          "--criteria", "Reduce val_bpb below 1.5",
-          "--metric-name", "val_bpb",
-          "--metric-threshold", "1.5",
-          "--metric-direction", "minimize",
-          "--tags", "ml,optimization",
-          "--agent-id", "test-agent",
+          "create",
+          "ML bounty",
+          "--amount",
+          "300",
+          "--deadline",
+          "3d",
+          "--criteria",
+          "Reduce val_bpb below 1.5",
+          "--metric-name",
+          "val_bpb",
+          "--metric-threshold",
+          "1.5",
+          "--metric-direction",
+          "minimize",
+          "--tags",
+          "ml,optimization",
+          "--agent-id",
+          "test-agent",
         ],
         deps,
       );
@@ -202,7 +219,16 @@ describe("grove bounty", () => {
 
     test("filters by status", async () => {
       await runBounty(
-        ["create", "Open bounty", "--amount", "100", "--deadline", "7d", "--agent-id", "test-agent"],
+        [
+          "create",
+          "Open bounty",
+          "--amount",
+          "100",
+          "--deadline",
+          "7d",
+          "--agent-id",
+          "test-agent",
+        ],
         deps,
       );
       stdout = [];
@@ -262,7 +288,16 @@ describe("grove bounty", () => {
 
     test("errors when bounty is not open", async () => {
       await runBounty(
-        ["create", "Claimed bounty", "--amount", "100", "--deadline", "7d", "--agent-id", "test-agent"],
+        [
+          "create",
+          "Claimed bounty",
+          "--amount",
+          "100",
+          "--deadline",
+          "7d",
+          "--agent-id",
+          "test-agent",
+        ],
         deps,
       );
 

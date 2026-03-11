@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { BountyStatus } from "./bounty.js";
 import type { BountyStore } from "./bounty-store.js";
-import { makeBounty, makeAgent, makeReward } from "./test-helpers.js";
+import { makeAgent, makeBounty, makeReward } from "./test-helpers.js";
 
 /** Factory that creates a fresh BountyStore and returns a cleanup function. */
 export type BountyStoreFactory = () => Promise<{
@@ -119,28 +119,36 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
     });
 
     test("listBounties filters by creatorAgentId", async () => {
-      await store.createBounty(makeBounty({
-        bountyId: "b-a",
-        creator: makeAgent({ agentId: "agent-a" }),
-      }));
-      await store.createBounty(makeBounty({
-        bountyId: "b-b",
-        creator: makeAgent({ agentId: "agent-b" }),
-      }));
+      await store.createBounty(
+        makeBounty({
+          bountyId: "b-a",
+          creator: makeAgent({ agentId: "agent-a" }),
+        }),
+      );
+      await store.createBounty(
+        makeBounty({
+          bountyId: "b-b",
+          creator: makeAgent({ agentId: "agent-b" }),
+        }),
+      );
       const results = await store.listBounties({ creatorAgentId: "agent-a" });
       expect(results.length).toBe(1);
       expect(results[0]?.bountyId).toBe("b-a");
     });
 
     test("listBounties orders by created_at descending", async () => {
-      await store.createBounty(makeBounty({
-        bountyId: "b-old",
-        createdAt: "2026-01-01T00:00:00Z",
-      }));
-      await store.createBounty(makeBounty({
-        bountyId: "b-new",
-        createdAt: "2026-01-02T00:00:00Z",
-      }));
+      await store.createBounty(
+        makeBounty({
+          bountyId: "b-old",
+          createdAt: "2026-01-01T00:00:00Z",
+        }),
+      );
+      await store.createBounty(
+        makeBounty({
+          bountyId: "b-new",
+          createdAt: "2026-01-02T00:00:00Z",
+        }),
+      );
       const result = await store.listBounties();
       expect(result[0]?.bountyId).toBe("b-new");
       expect(result[1]?.bountyId).toBe("b-old");
@@ -148,10 +156,12 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
 
     test("listBounties respects limit and offset", async () => {
       for (let i = 0; i < 5; i++) {
-        await store.createBounty(makeBounty({
-          bountyId: `b-${i}`,
-          createdAt: new Date(Date.now() + i * 1000).toISOString(),
-        }));
+        await store.createBounty(
+          makeBounty({
+            bountyId: `b-${i}`,
+            createdAt: new Date(Date.now() + i * 1000).toISOString(),
+          }),
+        );
       }
       const page = await store.listBounties({ limit: 2, offset: 1 });
       expect(page.length).toBe(2);
@@ -204,9 +214,7 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
     test("claimBounty throws for non-open bounty", async () => {
       const bounty = makeBounty({ bountyId: "claim-2", status: BountyStatus.Draft });
       await store.createBounty(bounty);
-      await expect(
-        store.claimBounty("claim-2", makeAgent(), "claim-id-2"),
-      ).rejects.toThrow();
+      await expect(store.claimBounty("claim-2", makeAgent(), "claim-id-2")).rejects.toThrow();
     });
 
     test("completeBounty transitions claimed to completed", async () => {
@@ -273,7 +281,11 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
       const funded = await store.fundBounty("lifecycle-1", "res-lc");
       expect(funded.status).toBe(BountyStatus.Open);
 
-      const claimed = await store.claimBounty("lifecycle-1", makeAgent({ agentId: "worker" }), "claim-lc");
+      const claimed = await store.claimBounty(
+        "lifecycle-1",
+        makeAgent({ agentId: "worker" }),
+        "claim-lc",
+      );
       expect(claimed.status).toBe(BountyStatus.Claimed);
 
       const completed = await store.completeBounty("lifecycle-1", "cid-result");
@@ -289,16 +301,20 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
 
     test("findExpiredBounties returns bounties past deadline", async () => {
       const pastDeadline = new Date(Date.now() - 10_000).toISOString();
-      await store.createBounty(makeBounty({
-        bountyId: "expired-1",
-        status: BountyStatus.Open,
-        deadline: pastDeadline,
-      }));
-      await store.createBounty(makeBounty({
-        bountyId: "fresh-1",
-        status: BountyStatus.Open,
-        deadline: new Date(Date.now() + 60_000).toISOString(),
-      }));
+      await store.createBounty(
+        makeBounty({
+          bountyId: "expired-1",
+          status: BountyStatus.Open,
+          deadline: pastDeadline,
+        }),
+      );
+      await store.createBounty(
+        makeBounty({
+          bountyId: "fresh-1",
+          status: BountyStatus.Open,
+          deadline: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      );
 
       const expired = await store.findExpiredBounties();
       expect(expired.length).toBe(1);
@@ -307,11 +323,13 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
 
     test("findExpiredBounties excludes terminal bounties", async () => {
       const pastDeadline = new Date(Date.now() - 10_000).toISOString();
-      await store.createBounty(makeBounty({
-        bountyId: "already-settled",
-        status: BountyStatus.Settled,
-        deadline: pastDeadline,
-      }));
+      await store.createBounty(
+        makeBounty({
+          bountyId: "already-settled",
+          status: BountyStatus.Settled,
+          deadline: pastDeadline,
+        }),
+      );
       const expired = await store.findExpiredBounties();
       expect(expired.length).toBe(0);
     });
@@ -350,14 +368,18 @@ export function runBountyStoreTests(factory: BountyStoreFactory): void {
     });
 
     test("listRewards filters by recipientAgentId", async () => {
-      await store.recordReward(makeReward({
-        rewardId: "r-agent-a",
-        recipient: makeAgent({ agentId: "agent-a" }),
-      }));
-      await store.recordReward(makeReward({
-        rewardId: "r-agent-b",
-        recipient: makeAgent({ agentId: "agent-b" }),
-      }));
+      await store.recordReward(
+        makeReward({
+          rewardId: "r-agent-a",
+          recipient: makeAgent({ agentId: "agent-a" }),
+        }),
+      );
+      await store.recordReward(
+        makeReward({
+          rewardId: "r-agent-b",
+          recipient: makeAgent({ agentId: "agent-b" }),
+        }),
+      );
       const results = await store.listRewards({ recipientAgentId: "agent-a" });
       expect(results.length).toBe(1);
       expect(results[0]?.rewardId).toBe("r-agent-a");

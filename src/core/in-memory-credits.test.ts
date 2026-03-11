@@ -430,9 +430,9 @@ describe("InMemoryCreditsService edge cases", () => {
     await service.capture("r-idem-cap", { toAgentId: "worker-a" });
 
     // Second capture with different toAgentId should fail
-    await expect(
-      service.capture("r-idem-cap", { toAgentId: "worker-b" }),
-    ).rejects.toThrow(PaymentError);
+    await expect(service.capture("r-idem-cap", { toAgentId: "worker-b" })).rejects.toThrow(
+      PaymentError,
+    );
 
     // Original capture should remain — worker-a gets the funds
     const workerA = await service.balance("worker-a");
@@ -476,8 +476,8 @@ describe("InMemoryCreditsService edge cases", () => {
     await service.capture("r-no-dest");
 
     // Retry with toAgentId — should fail
-    await expect(
-      service.capture("r-no-dest", { toAgentId: "worker" }),
-    ).rejects.toThrow(PaymentError);
+    await expect(service.capture("r-no-dest", { toAgentId: "worker" })).rejects.toThrow(
+      PaymentError,
+    );
   });
 });

@@ -94,7 +94,11 @@ export interface BountyStore {
    * @returns The updated bounty snapshot.
    * @throws BountyStateError if bounty is not in 'open' status.
    */
-  claimBounty(bountyId: string, claimedBy: import("./models.js").AgentIdentity, claimId: string): Promise<Bounty>;
+  claimBounty(
+    bountyId: string,
+    claimedBy: import("./models.js").AgentIdentity,
+    claimId: string,
+  ): Promise<Bounty>;
 
   /**
    * Mark a bounty as completed (work done, pending settlement).

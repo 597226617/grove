@@ -34,14 +34,6 @@ export type {
   BountyStore,
   RewardQuery,
 } from "./bounty-store.js";
-export type {
-  CreditBalance,
-  CreditsService,
-  Reservation,
-  TransferResult,
-} from "./credits.js";
-export { InMemoryCreditsService } from "./in-memory-credits.js";
-export type { FailureConfig } from "./in-memory-credits.js";
 export type { ContentStore, PutOptions } from "./cas.js";
 export { validateMediaType } from "./cas.js";
 export {
@@ -86,6 +78,12 @@ export type {
   TargetMetric,
 } from "./contract.js";
 export { parseGroveContract, parseGroveContractObject } from "./contract.js";
+export type {
+  CreditBalance,
+  CreditsService,
+  Reservation,
+  TransferResult,
+} from "./credits.js";
 export { EnforcingClaimStore, EnforcingContributionStore } from "./enforcing-store.js";
 export {
   ArtifactLimitError,
@@ -112,6 +110,8 @@ export {
   hookCommand,
   hookTimeout,
 } from "./hooks.js";
+export type { FailureConfig } from "./in-memory-credits.js";
+export { InMemoryCreditsService } from "./in-memory-credits.js";
 export type { StopConditionResult, StopEvaluationResult } from "./lifecycle.js";
 export {
   deriveLifecycleState,

@@ -132,7 +132,10 @@ export class InMemoryCreditsService implements CreditsService {
 
     const reservation = this.reservations.get(reservationId);
     if (reservation === undefined) {
-      throw new PaymentError({ operation: "capture", message: `Reservation '${reservationId}' not found` });
+      throw new PaymentError({
+        operation: "capture",
+        message: `Reservation '${reservationId}' not found`,
+      });
     }
 
     // Idempotent: already captured — verify toAgentId matches

@@ -12,8 +12,6 @@
 
 import type { SQLQueryBindings, Statement } from "bun:sqlite";
 import { Database } from "bun:sqlite";
-
-import { BOUNTY_DDL, SqliteBountyStore } from "./sqlite-bounty-store.js";
 import { ContextSchema, fromManifest, toManifest, verifyCid } from "../core/manifest.js";
 import type {
   AgentIdentity,
@@ -38,6 +36,7 @@ import type {
   ThreadSummary,
 } from "../core/store.js";
 import { ExpiryReason } from "../core/store.js";
+import { BOUNTY_DDL, SqliteBountyStore } from "./sqlite-bounty-store.js";
 
 // ---------------------------------------------------------------------------
 // Constants
