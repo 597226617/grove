@@ -10,6 +10,7 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 import type { Claim, Contribution } from "../core/models.js";
+import { checkSpawn, checkSpawnDepth } from "./agents/spawn-validator.js";
 import type { SpawnOptions } from "./agents/tmux-manager.js";
 import { buildPaletteItems, CommandPalette } from "./components/command-palette.js";
 import { InputBar } from "./components/input-bar.js";
@@ -300,38 +301,54 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
    * Spawn a new agent session, creating a claim to bind it to the
    * Grove coordination model.
    *
-   * Lifecycle: claim -> workspace -> tmux session.
+   * Lifecycle: claim -> workspace checkout -> tmux session.
    *
    * 1. Creates a claim (via provider.createClaim) binding the agent to the
-   *    target. If the provider doesn't support createClaim, falls back to
-   *    reading an existing claim for workspace context.
-   * 2. Resolves the workspace path from the claim's context (workspacePath
-   *    key) or falls back to process.cwd().
-   * 3. Spawns the tmux session.
+   *    target.
+   * 2. Checks out a workspace (via provider.checkoutWorkspace) to get an
+   *    isolated directory for the agent. Falls back to claim context or
+   *    process.cwd() if workspace checkout is unavailable.
+   * 3. Spawns the tmux session in the workspace directory.
    */
   const handleSpawn = useCallback(
     (agentId: string, command: string, target: string) => {
+      // Enforce topology spawn constraints before creating claim or session
+      const spawnCheck = checkSpawn(topology, agentId, activeClaims ?? []);
+      if (!spawnCheck.allowed) {
+        return;
+      }
+
+      // Check spawn depth (use 0 for TUI-spawned agents since nesting depth is not tracked)
+      const depthCheck = checkSpawnDepth(topology, 0);
+      if (!depthCheck.allowed) {
+        return;
+      }
+
       const resolveClaimAndWorkspace = async (): Promise<string> => {
         // Derive the role from topology if available
         const role = topology?.roles.find((r) => r.name === agentId)?.name;
+        const agent = { agentId, ...(role !== undefined ? { role } : {}) };
 
         // Create a claim to bind this spawn to the coordination model
         if (provider.createClaim) {
           try {
-            const claim = await provider.createClaim({
+            await provider.createClaim({
               targetRef: target,
-              agent: { agentId, ...(role !== undefined ? { role } : {}) },
+              agent,
               intentSummary: `TUI-spawned: ${command}`,
               leaseDurationMs: 300_000,
             });
-            if (claim.context) {
-              const ctxPath = claim.context.workspacePath;
-              if (typeof ctxPath === "string" && ctxPath.length > 0) {
-                return ctxPath;
-              }
-            }
           } catch {
-            // Claim creation failed — fall through to existing-claim lookup
+            // Claim creation failed — continue to workspace checkout
+          }
+        }
+
+        // Check out a proper workspace for this agent
+        if (provider.checkoutWorkspace) {
+          try {
+            return await provider.checkoutWorkspace(target, agent);
+          } catch {
+            // Workspace checkout failed — fall through to fallback
           }
         }
 
@@ -364,7 +381,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         })
         .catch(() => {});
     },
-    [tmux, provider, topology],
+    [tmux, provider, topology, activeClaims],
   );
 
   const handleKill = useCallback(

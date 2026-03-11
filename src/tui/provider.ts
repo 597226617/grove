@@ -179,6 +179,9 @@ export interface TuiDataProvider {
   /** Create a claim for an agent (optional — available in local/remote modes). */
   createClaim?(input: ClaimInput): Promise<Claim>;
 
+  /** Check out a workspace for an agent (optional). Returns the workspace path. */
+  checkoutWorkspace?(targetRef: string, agent: AgentIdentity): Promise<string>;
+
   /** Release resources. */
   close(): void;
 }

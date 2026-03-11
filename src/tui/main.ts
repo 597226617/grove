@@ -124,6 +124,7 @@ async function createProvider(
     groveName,
     outcomeStore: stores.outcomeStore,
     cas: deps.cas,
+    workspace: deps.workspace,
   });
 }
 

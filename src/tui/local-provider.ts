@@ -8,7 +8,7 @@
 
 import type { ContentStore } from "../core/cas.js";
 import type { Frontier, FrontierCalculator, FrontierQuery } from "../core/frontier.js";
-import type { Claim, Contribution } from "../core/models.js";
+import type { AgentIdentity, Claim, Contribution } from "../core/models.js";
 import type { OutcomeRecord, OutcomeStatus, OutcomeStore } from "../core/outcome.js";
 import type {
   ClaimStore,
@@ -16,6 +16,7 @@ import type {
   ContributionStore,
   ThreadSummary,
 } from "../core/store.js";
+import type { WorkspaceManager } from "../core/workspace.js";
 import type {
   ActivityQuery,
   ArtifactMeta,
@@ -42,6 +43,7 @@ export interface LocalProviderDeps {
   readonly groveName: string;
   readonly outcomeStore?: OutcomeStore | undefined;
   readonly cas?: ContentStore | undefined;
+  readonly workspace?: WorkspaceManager | undefined;
 }
 
 /** TUI data provider backed by local SQLite stores. */
@@ -53,6 +55,7 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
   private readonly name: string;
   private readonly outcomes: OutcomeStore | undefined;
   private readonly cas: ContentStore | undefined;
+  private readonly workspace: WorkspaceManager | undefined;
 
   constructor(deps: LocalProviderDeps) {
     this.store = deps.contributionStore;
@@ -61,6 +64,7 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
     this.name = deps.groveName;
     this.outcomes = deps.outcomeStore;
     this.cas = deps.cas;
+    this.workspace = deps.workspace;
     this.capabilities = {
       outcomes: deps.outcomeStore !== undefined,
       artifacts: deps.cas !== undefined,
@@ -138,6 +142,14 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
       ...(input.context !== undefined ? { context: input.context } : {}),
     };
     return this.claims.claimOrRenew(claim);
+  }
+
+  async checkoutWorkspace(targetRef: string, agent: AgentIdentity): Promise<string> {
+    if (!this.workspace) {
+      throw new Error("Workspace manager not available");
+    }
+    const info = await this.workspace.checkout(targetRef, { agent });
+    return info.workspacePath;
   }
 
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {
@@ -296,5 +308,6 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
     this.claims.close();
     this.outcomes?.close();
     this.cas?.close();
+    this.workspace?.close();
   }
 }
