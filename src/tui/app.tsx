@@ -166,7 +166,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         const item = paletteItems[paletteIndex];
         if (item?.enabled) {
           if (item.kind === "spawn") {
-            handleSpawn(item.id, `grove agent --role ${item.id}`, "HEAD");
+            // Use $SHELL (or fallback to bash) as the tmux command.
+            // "grove agent" doesn't exist; we spawn a shell in the workspace.
+            const shell = process.env.SHELL ?? "bash";
+            handleSpawn(item.id, shell, "HEAD");
           } else if (item.kind === "kill") {
             handleKill(item.id);
           }
@@ -301,18 +304,17 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
    * Spawn a new agent session, creating a claim to bind it to the
    * Grove coordination model.
    *
-   * Lifecycle: claim -> workspace checkout -> tmux session.
+   * Lifecycle: workspace checkout -> claim (with workspacePath) -> tmux session.
    *
-   * 1. Creates a claim (via provider.createClaim) binding the agent to the
-   *    target.
-   * 2. Checks out a workspace (via provider.checkoutWorkspace) to get an
-   *    isolated directory for the agent. Falls back to claim context or
-   *    process.cwd() if workspace checkout is unavailable.
+   * 1. Checks out a workspace (via provider.checkoutWorkspace) to get an
+   *    isolated directory for the agent. Falls back to process.cwd().
+   * 2. Creates a claim (via provider.createClaim) binding the agent to the
+   *    target, including the resolved workspacePath in the claim context.
    * 3. Spawns the tmux session in the workspace directory.
    */
   const handleSpawn = useCallback(
     (agentId: string, command: string, target: string) => {
-      // Enforce topology spawn constraints before creating claim or session
+      // Enforce topology spawn constraints using the role name (agentId)
       const spawnCheck = checkSpawn(topology, agentId, activeClaims ?? []);
       if (!spawnCheck.allowed) {
         return;
@@ -324,12 +326,26 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         return;
       }
 
-      const resolveClaimAndWorkspace = async (): Promise<string> => {
+      // Generate a unique spawn ID so multiple instances of the same role
+      // don't collide on the same tmux session name (grove-{spawnId}).
+      const spawnId = `${agentId}-${Date.now().toString(36)}`;
+
+      const resolveWorkspaceAndClaim = async (): Promise<string> => {
         // Derive the role from topology if available
         const role = topology?.roles.find((r) => r.name === agentId)?.name;
-        const agent = { agentId, ...(role !== undefined ? { role } : {}) };
+        const agent = { agentId: spawnId, ...(role !== undefined ? { role } : {}) };
 
-        // Create a claim to bind this spawn to the coordination model
+        // Step 1: Check out a workspace first (to get the path for the claim)
+        let workspacePath = process.cwd();
+        if (provider.checkoutWorkspace) {
+          try {
+            workspacePath = await provider.checkoutWorkspace(target, agent);
+          } catch {
+            // Workspace checkout failed — use fallback
+          }
+        }
+
+        // Step 2: Create a claim WITH workspacePath in context
         if (provider.createClaim) {
           try {
             await provider.createClaim({
@@ -337,42 +353,20 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
               agent,
               intentSummary: `TUI-spawned: ${command}`,
               leaseDurationMs: 300_000,
+              context: { workspacePath },
             });
           } catch {
-            // Claim creation failed — continue to workspace checkout
+            // Claim creation failed — continue to spawn
           }
         }
 
-        // Check out a proper workspace for this agent
-        if (provider.checkoutWorkspace) {
-          try {
-            return await provider.checkoutWorkspace(target, agent);
-          } catch {
-            // Workspace checkout failed — fall through to fallback
-          }
-        }
-
-        // Fallback: look up an existing claim for workspace context
-        try {
-          const claims = await provider.getClaims({ status: "active", agentId });
-          const matchingClaim = claims.find((c) => c.targetRef === target) ?? claims[0];
-          if (matchingClaim?.context) {
-            const ctxPath = matchingClaim.context.workspacePath;
-            if (typeof ctxPath === "string" && ctxPath.length > 0) {
-              return ctxPath;
-            }
-          }
-        } catch {
-          // Claim lookup failed — fall through to default
-        }
-
-        return process.cwd();
+        return workspacePath;
       };
 
-      resolveClaimAndWorkspace()
+      resolveWorkspaceAndClaim()
         .then((workspacePath) => {
           const options: SpawnOptions = {
-            agentId,
+            agentId: spawnId,
             command,
             targetRef: target,
             workspacePath,
