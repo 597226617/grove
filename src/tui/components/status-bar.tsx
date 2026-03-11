@@ -18,7 +18,7 @@ export interface StatusBarProps {
 }
 
 /** Bottom status bar with keybinding hints. */
-export const StatusBar = React.memo(function StatusBar({
+export const StatusBar: React.NamedExoticComponent<StatusBarProps> = React.memo(function StatusBar({
   isDetailView,
   error,
   lastRefresh,

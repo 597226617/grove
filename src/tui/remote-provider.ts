@@ -183,13 +183,15 @@ export class RemoteDataProvider implements TuiDataProvider {
       if (resp.ok) {
         const data = (await resp.json()) as {
           name?: string;
-          contributionCount?: number;
-          activeClaimCount?: number;
+          stats?: {
+            contributions?: number;
+            activeClaims?: number;
+          };
         };
         return {
           name: data.name ?? "remote",
-          contributionCount: data.contributionCount ?? 0,
-          activeClaimCount: data.activeClaimCount ?? 0,
+          contributionCount: data.stats?.contributions ?? 0,
+          activeClaimCount: data.stats?.activeClaims ?? 0,
           mode: "remote",
         };
       }

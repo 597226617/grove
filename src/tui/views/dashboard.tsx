@@ -9,7 +9,8 @@
  */
 
 import { Box, Text } from "ink";
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
+import type { Contribution } from "../../core/models.js";
 import { formatDuration } from "../../shared/duration.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
 import { Table } from "../components/table.js";
@@ -22,6 +23,8 @@ export interface DashboardProps {
   readonly intervalMs: number;
   readonly active: boolean;
   readonly cursor: number;
+  /** Called when contributions are loaded, for cursor-based drill-down. */
+  readonly onContributionsLoaded?: (contributions: readonly Contribution[]) => void;
 }
 
 const CLAIM_COLUMNS = [
@@ -40,14 +43,22 @@ const CONTRIBUTION_COLUMNS = [
 ] as const;
 
 /** Dashboard view component. */
-export const DashboardView = React.memo(function DashboardView({
+export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.memo(function DashboardView({
   provider,
   intervalMs,
   active,
   cursor,
+  onContributionsLoaded,
 }: DashboardProps): React.ReactElement {
   const fetcher = useCallback(() => provider.getDashboard(), [provider]);
   const { data, loading, error } = usePolledData<DashboardData>(fetcher, intervalMs, active);
+
+  // Report loaded contributions for cursor-based drill-down
+  useEffect(() => {
+    if (data && onContributionsLoaded) {
+      onContributionsLoaded(data.recentContributions);
+    }
+  }, [data, onContributionsLoaded]);
 
   if (loading && !data) {
     return (

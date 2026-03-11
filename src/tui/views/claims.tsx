@@ -33,7 +33,7 @@ const COLUMNS = [
 ] as const;
 
 /** Claims view component. */
-export const ClaimsView = React.memo(function ClaimsView({
+export const ClaimsView: React.NamedExoticComponent<ClaimsProps> = React.memo(function ClaimsView({
   provider,
   intervalMs,
   active,

@@ -6,7 +6,7 @@
  */
 
 import { Box, Text } from "ink";
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import type { Contribution } from "../../core/models.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
 import { Table } from "../components/table.js";
@@ -21,6 +21,8 @@ export interface ActivityProps {
   readonly cursor: number;
   readonly pageOffset: number;
   readonly pageSize: number;
+  /** Called when contributions are loaded, for cursor-based drill-down. */
+  readonly onContributionsLoaded?: (contributions: readonly Contribution[]) => void;
 }
 
 const COLUMNS = [
@@ -34,19 +36,27 @@ const COLUMNS = [
 ] as const;
 
 /** Activity stream view component. */
-export const ActivityView = React.memo(function ActivityView({
+export const ActivityView: React.NamedExoticComponent<ActivityProps> = React.memo(function ActivityView({
   provider,
   intervalMs,
   active,
   cursor,
   pageOffset,
   pageSize,
+  onContributionsLoaded,
 }: ActivityProps): React.ReactElement {
   const fetcher = useCallback(
     () => provider.getActivity({ limit: pageSize, offset: pageOffset }),
     [provider, pageSize, pageOffset],
   );
   const { data, loading } = usePolledData<readonly Contribution[]>(fetcher, intervalMs, active);
+
+  // Report loaded contributions for cursor-based drill-down
+  useEffect(() => {
+    if (data && onContributionsLoaded) {
+      onContributionsLoaded(data);
+    }
+  }, [data, onContributionsLoaded]);
 
   if (loading && !data) {
     return (

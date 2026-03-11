@@ -19,6 +19,8 @@ import { DagView } from "./views/dag.js";
 import { DashboardView } from "./views/dashboard.js";
 import { DetailView } from "./views/detail.js";
 
+type ContributionsCallback = (contributions: readonly Contribution[]) => void;
+
 /** Props for the root App component. */
 export interface AppProps {
   readonly provider: TuiDataProvider;
@@ -103,7 +105,7 @@ interface ActiveViewProps {
   readonly cursor: number;
   readonly pageOffset: number;
   readonly pageSize: number;
-  readonly onContributionsLoaded: (contributions: readonly Contribution[]) => void;
+  readonly onContributionsLoaded: ContributionsCallback;
 }
 
 /**
@@ -122,15 +124,24 @@ const ActiveView = React.memo(function ActiveView({
   switch (tab) {
     case Tab.Dashboard:
       return (
-        <DashboardViewWrapper
+        <DashboardView
           provider={provider}
           intervalMs={intervalMs}
+          active
           cursor={cursor}
           onContributionsLoaded={onContributionsLoaded}
         />
       );
     case Tab.Dag:
-      return <DagView provider={provider} intervalMs={intervalMs} active cursor={cursor} />;
+      return (
+        <DagView
+          provider={provider}
+          intervalMs={intervalMs}
+          active
+          cursor={cursor}
+          onContributionsLoaded={onContributionsLoaded}
+        />
+      );
     case Tab.Claims:
       return <ClaimsView provider={provider} intervalMs={intervalMs} active cursor={cursor} />;
     case Tab.Activity:
@@ -142,34 +153,8 @@ const ActiveView = React.memo(function ActiveView({
           cursor={cursor}
           pageOffset={pageOffset}
           pageSize={pageSize}
+          onContributionsLoaded={onContributionsLoaded}
         />
       );
   }
 });
-
-/**
- * Wrapper for DashboardView that reports loaded contributions
- * for cursor-based drill-down.
- */
-function DashboardViewWrapper({
-  provider,
-  intervalMs,
-  cursor,
-  onContributionsLoaded,
-}: {
-  readonly provider: TuiDataProvider;
-  readonly intervalMs: number;
-  readonly cursor: number;
-  readonly onContributionsLoaded: (contributions: readonly Contribution[]) => void;
-}): React.ReactElement {
-  // The dashboard view shows recent contributions; we need their CIDs for drill-down.
-  // We fetch them here to track for the parent nav.
-  const _fetcher = useCallback(async () => {
-    const dashboard = await provider.getDashboard();
-    onContributionsLoaded(dashboard.recentContributions);
-    return dashboard;
-  }, [provider, onContributionsLoaded]);
-
-  // Use the dashboard view directly — it handles its own polling
-  return <DashboardView provider={provider} intervalMs={intervalMs} active cursor={cursor} />;
-}

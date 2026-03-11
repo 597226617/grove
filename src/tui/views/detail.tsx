@@ -18,7 +18,7 @@ export interface DetailProps {
 }
 
 /** Contribution detail view component. */
-export const DetailView = React.memo(function DetailView({
+export const DetailView: React.NamedExoticComponent<DetailProps> = React.memo(function DetailView({
   provider,
   cid,
   intervalMs,

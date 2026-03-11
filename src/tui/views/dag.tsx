@@ -6,7 +6,8 @@
  */
 
 import { Box, Text } from "ink";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
+import type { Contribution } from "../../core/models.js";
 import { contributionsToDagNodes, renderDag } from "../../cli/format-dag.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { DagData, TuiDataProvider } from "../provider.js";
@@ -17,6 +18,8 @@ export interface DagProps {
   readonly intervalMs: number;
   readonly active: boolean;
   readonly cursor: number;
+  /** Called when contributions are loaded, for cursor-based drill-down. */
+  readonly onContributionsLoaded?: (contributions: readonly Contribution[]) => void;
 }
 
 /** Color map for contribution kinds. */
@@ -29,14 +32,22 @@ const KIND_COLORS: Record<string, string> = {
 };
 
 /** DAG view component. */
-export const DagView = React.memo(function DagView({
+export const DagView: React.NamedExoticComponent<DagProps> = React.memo(function DagView({
   provider,
   intervalMs,
   active,
   cursor,
+  onContributionsLoaded,
 }: DagProps): React.ReactElement {
   const fetcher = useCallback(() => provider.getDag(), [provider]);
   const { data, loading } = usePolledData<DagData>(fetcher, intervalMs, active);
+
+  // Report loaded contributions for cursor-based drill-down
+  useEffect(() => {
+    if (data && onContributionsLoaded) {
+      onContributionsLoaded(data.contributions);
+    }
+  }, [data, onContributionsLoaded]);
 
   const contributions = data?.contributions ?? [];
 

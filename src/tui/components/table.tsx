@@ -27,7 +27,7 @@ export interface TableProps {
 }
 
 /** A simple table with optional row highlighting. */
-export const Table = React.memo(function Table({
+export const Table: React.NamedExoticComponent<TableProps> = React.memo(function Table({
   columns,
   rows,
   cursor,

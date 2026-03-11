@@ -77,7 +77,6 @@ export function usePolledData<T>(
     mountedRef.current = true;
 
     if (active) {
-      setLoading((prev) => (data === null ? true : prev));
       void doFetch();
       startPolling();
     }
@@ -89,7 +88,7 @@ export function usePolledData<T>(
         intervalRef.current = null;
       }
     };
-  }, [active, doFetch, startPolling, data]);
+  }, [active, doFetch, startPolling]);
 
   const refresh = useCallback(() => {
     void doFetch();
