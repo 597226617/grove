@@ -63,6 +63,16 @@ describe("checkSpawn", () => {
     expect(result.warning).toBe("Role 'coder' at capacity (3/3)");
   });
 
+  test("counts unique agents, not total claims — allowed when same agent holds multiple claims", () => {
+    // Agent "a1" holds two claims on different targets but is still one instance
+    const claims = [makeClaim("coder", "a1"), makeClaim("coder", "a1"), makeClaim("coder", "a2")];
+    const result = checkSpawn(topology, "coder", claims);
+    expect(result.allowed).toBe(true);
+    expect(result.currentInstances).toBe(2); // 2 unique agents, not 3 claims
+    expect(result.maxInstances).toBe(3);
+    expect(result.warning).toBeUndefined();
+  });
+
   test("unknown role — not allowed with warning", () => {
     const result = checkSpawn(topology, "nonexistent", []);
     expect(result.allowed).toBe(false);

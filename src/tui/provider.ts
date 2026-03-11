@@ -11,7 +11,13 @@
  */
 
 import type { Frontier, FrontierQuery } from "../core/frontier.js";
-import type { Claim, Contribution, ContributionKind } from "../core/models.js";
+import type {
+  AgentIdentity,
+  Claim,
+  Contribution,
+  ContributionKind,
+  JsonValue,
+} from "../core/models.js";
 import type { OutcomeRecord, OutcomeStatus } from "../core/outcome.js";
 import type { ContributionQuery, ThreadNode, ThreadSummary } from "../core/store.js";
 
@@ -59,6 +65,15 @@ export interface FrontierSummary {
     readonly summary: string;
     readonly count: number;
   }[];
+}
+
+/** Input for creating a claim via the TUI provider. */
+export interface ClaimInput {
+  readonly targetRef: string;
+  readonly agent: AgentIdentity;
+  readonly intentSummary: string;
+  readonly leaseDurationMs: number;
+  readonly context?: Readonly<Record<string, JsonValue>> | undefined;
 }
 
 /** Options for paginated list queries. */
@@ -160,6 +175,9 @@ export interface TuiDataProvider {
 
   /** Hot discussion threads. */
   getHotThreads(limit?: number): Promise<readonly ThreadSummary[]>;
+
+  /** Create a claim for an agent (optional — available in local/remote modes). */
+  createClaim?(input: ClaimInput): Promise<Claim>;
 
   /** Release resources. */
   close(): void;

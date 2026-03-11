@@ -44,7 +44,10 @@ export function checkSpawn(
     };
   }
 
-  const currentInstances = activeClaims.filter((c) => c.agent.role === roleName).length;
+  const uniqueAgents = new Set(
+    activeClaims.filter((c) => c.agent.role === roleName).map((c) => c.agent.agentId),
+  );
+  const currentInstances = uniqueAgents.size;
 
   if (role.maxInstances !== undefined && currentInstances >= role.maxInstances) {
     return {

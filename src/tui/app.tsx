@@ -8,10 +8,10 @@
 
 import { useKeyboard, useRenderer } from "@opentui/react";
 import type React from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Claim, Contribution } from "../core/models.js";
 import type { SpawnOptions } from "./agents/tmux-manager.js";
-import { CommandPalette } from "./components/command-palette.js";
+import { buildPaletteItems, CommandPalette } from "./components/command-palette.js";
 import { InputBar } from "./components/input-bar.js";
 import { StatusBar } from "./components/status-bar.js";
 import { PanelBar } from "./components/tab-bar.js";
@@ -50,12 +50,43 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   // Artifact diff toggle
   const [showArtifactDiff, setShowArtifactDiff] = useState(false);
 
+  // Command palette selection cursor
+  const [paletteIndex, setPaletteIndex] = useState(0);
+
   // Poll active claims for topology-aware command palette
   const claimsFetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
   const { data: activeClaims } = usePolledData<readonly Claim[]>(
     claimsFetcher,
     intervalMs,
     topology !== undefined,
+  );
+
+  // Poll tmux sessions for the command palette kill list
+  const paletteVisible = panels.state.mode === InputMode.CommandPalette;
+  const sessionsFetcher = useCallback(async () => {
+    if (!tmux) return [] as readonly string[];
+    const available = await tmux.isAvailable();
+    if (!available) return [] as readonly string[];
+    return tmux.listSessions();
+  }, [tmux]);
+  const { data: paletteSessions } = usePolledData<readonly string[]>(
+    sessionsFetcher,
+    intervalMs * 2,
+    paletteVisible && tmux !== undefined,
+  );
+
+  // Derive the palette items so the keyboard handler can look up the selected action
+  const paletteItems = useMemo(
+    () =>
+      buildPaletteItems(
+        topology,
+        activeClaims ?? [],
+        paletteSessions ?? [],
+        tmux !== undefined,
+        true,
+        true,
+      ),
+    [topology, activeClaims, paletteSessions, tmux],
   );
 
   const handleContributionsLoaded = useCallback((contributions: readonly Contribution[]) => {
@@ -92,6 +123,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       if (panels.state.mode === InputMode.CommandPalette) {
         panels.setMode(InputMode.Normal);
       } else {
+        setPaletteIndex(0);
         panels.setMode(InputMode.CommandPalette);
       }
       return;
@@ -118,20 +150,28 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In command palette mode, handle spawn/kill shortcuts
+    // In command palette mode, handle navigation and execution
     if (panels.state.mode === InputMode.CommandPalette) {
-      if (input === "s" && tmux && topology) {
-        const firstRole = topology.roles[0];
-        if (firstRole) {
-          handleSpawn(firstRole.name, `grove agent --role ${firstRole.name}`, "HEAD");
-          panels.setMode(InputMode.Normal);
-        }
+      const itemCount = paletteItems.length;
+      if ((input === "j" || input === "down") && itemCount > 0) {
+        setPaletteIndex((i) => Math.min(i + 1, itemCount - 1));
         return;
       }
-      if (input === "k" && selectedSession && tmux) {
-        tmux.kill(selectedSession).catch(() => {});
-        setSelectedSession(undefined);
-        panels.setMode(InputMode.Normal);
+      if ((input === "k" || input === "up") && itemCount > 0) {
+        setPaletteIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (input === "return" && itemCount > 0) {
+        const item = paletteItems[paletteIndex];
+        if (item?.enabled) {
+          if (item.kind === "spawn") {
+            handleSpawn(item.id, `grove agent --role ${item.id}`, "HEAD");
+          } else if (item.kind === "kill") {
+            handleKill(item.id);
+          }
+          panels.setMode(InputMode.Normal);
+          setPaletteIndex(0);
+        }
         return;
       }
       return;
@@ -257,23 +297,47 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   }, [panels]);
 
   /**
-   * Spawn a new agent session, binding it to a claim when one exists.
+   * Spawn a new agent session, creating a claim to bind it to the
+   * Grove coordination model.
    *
-   * Checks the provider for an active claim matching the agentId. If found,
-   * the claim's context is used for workspace resolution (a claim may carry
-   * a "workspacePath" key in its context map). Falls back to process.cwd()
-   * when no claim exists or no workspace context is present.
+   * Lifecycle: claim -> workspace -> tmux session.
    *
-   * NOTE: Full claim *creation* at spawn time is a CLI concern (not TUI).
-   * This path only reads existing claims for workspace binding. Enhancing
-   * this to create claims on spawn is tracked as a follow-up to #65.
+   * 1. Creates a claim (via provider.createClaim) binding the agent to the
+   *    target. If the provider doesn't support createClaim, falls back to
+   *    reading an existing claim for workspace context.
+   * 2. Resolves the workspace path from the claim's context (workspacePath
+   *    key) or falls back to process.cwd().
+   * 3. Spawns the tmux session.
    */
   const handleSpawn = useCallback(
     (agentId: string, command: string, target: string) => {
-      const resolveWorkspace = async (): Promise<string> => {
+      const resolveClaimAndWorkspace = async (): Promise<string> => {
+        // Derive the role from topology if available
+        const role = topology?.roles.find((r) => r.name === agentId)?.name;
+
+        // Create a claim to bind this spawn to the coordination model
+        if (provider.createClaim) {
+          try {
+            const claim = await provider.createClaim({
+              targetRef: target,
+              agent: { agentId, ...(role !== undefined ? { role } : {}) },
+              intentSummary: `TUI-spawned: ${command}`,
+              leaseDurationMs: 300_000,
+            });
+            if (claim.context) {
+              const ctxPath = claim.context.workspacePath;
+              if (typeof ctxPath === "string" && ctxPath.length > 0) {
+                return ctxPath;
+              }
+            }
+          } catch {
+            // Claim creation failed — fall through to existing-claim lookup
+          }
+        }
+
+        // Fallback: look up an existing claim for workspace context
         try {
           const claims = await provider.getClaims({ status: "active", agentId });
-          // Prefer a claim whose targetRef matches the spawn target for tighter binding
           const matchingClaim = claims.find((c) => c.targetRef === target) ?? claims[0];
           if (matchingClaim?.context) {
             const ctxPath = matchingClaim.context.workspacePath;
@@ -284,12 +348,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         } catch {
           // Claim lookup failed — fall through to default
         }
-        // Default: process.cwd(). Claim-based workspace creation should be
-        // handled by the CLI layer before the TUI spawn path is reached.
+
         return process.cwd();
       };
 
-      resolveWorkspace()
+      resolveClaimAndWorkspace()
         .then((workspacePath) => {
           const options: SpawnOptions = {
             agentId,
@@ -301,7 +364,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         })
         .catch(() => {});
     },
-    [tmux, provider],
+    [tmux, provider, topology],
   );
 
   const handleKill = useCallback(
@@ -315,13 +378,15 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     <box flexDirection="column" width="100%" height="100%">
       <PanelBar panelState={panels.state} />
       <CommandPalette
-        visible={panels.state.mode === InputMode.CommandPalette}
+        visible={paletteVisible}
         tmux={tmux}
         onClose={handleCommandPaletteClose}
         onSpawn={handleSpawn}
         onKill={handleKill}
         topology={topology}
         activeClaims={activeClaims ?? undefined}
+        selectedIndex={paletteIndex}
+        sessions={paletteSessions ?? undefined}
       />
       <InputBar
         visible={panels.state.mode === InputMode.TerminalInput}

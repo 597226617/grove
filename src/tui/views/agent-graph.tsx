@@ -8,12 +8,12 @@
  * Falls back to the flat AgentListView when no topology is configured.
  */
 
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Claim } from "../../core/models.js";
 import type { AgentTopology } from "../../core/topology.js";
 import { checkSpawn } from "../agents/spawn-validator.js";
 import type { TmuxManager } from "../agents/tmux-manager.js";
-import { agentIdFromSession } from "../agents/tmux-manager.js";
+import { agentIdFromSession, tmuxSessionName } from "../agents/tmux-manager.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import { renderGraph } from "../layout/edge-render.js";
 import type { LiveAgentStatus } from "../layout/graph-layout.js";
@@ -75,7 +75,7 @@ export const AgentGraphView: React.NamedExoticComponent<AgentGraphProps> = React
     active,
     cursor,
     topology,
-    onSelectSession: _onSelectSession,
+    onSelectSession,
   }: AgentGraphProps): React.ReactNode {
     const claimFetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
     const tmuxFetcher = useCallback(async () => {
@@ -96,6 +96,45 @@ export const AgentGraphView: React.NamedExoticComponent<AgentGraphProps> = React
       () => buildLiveAgents(claims ?? [], sessions ?? []),
       [claims, sessions],
     );
+
+    // Build flat list of selectable tmux session names from running agents
+    const selectableSessions = useMemo(() => {
+      const sessionSet = new Set<string>();
+      for (const name of sessions ?? []) {
+        const id = agentIdFromSession(name);
+        if (id) sessionSet.add(id);
+      }
+
+      const result: string[] = [];
+      for (const [, agents] of liveAgents) {
+        for (const agent of agents) {
+          if (agent.status === "running") {
+            // agent.agentId here is the display name (agentName ?? agentId).
+            // We need the real agentId to form the tmux session name.
+            // Look it up from claims by matching the display name.
+            const claim = (claims ?? []).find(
+              (c) =>
+                (c.agent.agentName ?? c.agent.agentId) === agent.agentId &&
+                sessionSet.has(c.agent.agentId),
+            );
+            if (claim) {
+              result.push(tmuxSessionName(claim.agent.agentId));
+            }
+          }
+        }
+      }
+      return result;
+    }, [liveAgents, claims, sessions]);
+
+    // Notify parent when cursor moves to select the corresponding session
+    const selectableRef = useRef(selectableSessions);
+    selectableRef.current = selectableSessions;
+
+    useEffect(() => {
+      if (!onSelectSession || cursor < 0) return;
+      const session = selectableRef.current[cursor];
+      onSelectSession(session ?? undefined);
+    }, [cursor, onSelectSession]);
 
     const rendered = useMemo(() => {
       const layout = layoutGraph(topology.roles, topology.structure, liveAgents);

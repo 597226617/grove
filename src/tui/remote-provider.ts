@@ -12,6 +12,7 @@ import type { ContributionQuery, ThreadNode, ThreadSummary } from "../core/store
 import type {
   ActivityQuery,
   ArtifactMeta,
+  ClaimInput,
   ClaimsQuery,
   ContributionDetail,
   DagData,
@@ -117,6 +118,16 @@ export class RemoteDataProvider
     const resp = await fetch(`${this.baseUrl}/api/claims${qs ? `?${qs}` : ""}`);
     if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}: ${resp.statusText}`);
     return (await resp.json()) as Claim[];
+  }
+
+  async createClaim(input: ClaimInput): Promise<Claim> {
+    const resp = await fetch(`${this.baseUrl}/api/claims`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}: ${resp.statusText}`);
+    return (await resp.json()) as Claim;
   }
 
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {

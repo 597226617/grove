@@ -8,7 +8,7 @@
 
 import type { ContentStore } from "../core/cas.js";
 import type { Frontier, FrontierCalculator, FrontierQuery } from "../core/frontier.js";
-import type { Contribution } from "../core/models.js";
+import type { Claim, Contribution } from "../core/models.js";
 import type { OutcomeRecord, OutcomeStatus, OutcomeStore } from "../core/outcome.js";
 import type {
   ClaimStore,
@@ -19,6 +19,7 @@ import type {
 import type {
   ActivityQuery,
   ArtifactMeta,
+  ClaimInput,
   ClaimsQuery,
   ContributionDetail,
   DagData,
@@ -121,6 +122,22 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
     return this.claims.listClaims({
       agentId: query.agentId,
     });
+  }
+
+  async createClaim(input: ClaimInput): Promise<Claim> {
+    const now = new Date();
+    const claim: Claim = {
+      claimId: crypto.randomUUID(),
+      targetRef: input.targetRef,
+      agent: input.agent,
+      status: "active",
+      intentSummary: input.intentSummary,
+      createdAt: now.toISOString(),
+      heartbeatAt: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + input.leaseDurationMs).toISOString(),
+      ...(input.context !== undefined ? { context: input.context } : {}),
+    };
+    return this.claims.claimOrRenew(claim);
   }
 
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {
