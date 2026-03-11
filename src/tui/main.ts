@@ -145,7 +145,28 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
 
   // Read agent topology from GROVE.md contract (if available)
   let topology: import("../core/topology.js").AgentTopology | undefined;
-  if (!opts.url && !opts.nexus) {
+  if (opts.url) {
+    // Remote mode: fetch topology from the grove-server API
+    try {
+      const resp = await fetch(`${opts.url}/api/grove/topology`);
+      if (resp.ok) {
+        topology = (await resp.json()) as import("../core/topology.js").AgentTopology;
+      }
+    } catch {
+      // Topology not available on remote
+    }
+  } else if (opts.nexus) {
+    // Nexus mode: try to fetch topology from the Nexus topology endpoint
+    try {
+      const resp = await fetch(`${opts.nexus}/api/grove/topology`);
+      if (resp.ok) {
+        topology = (await resp.json()) as import("../core/topology.js").AgentTopology;
+      }
+    } catch {
+      // Topology not available on Nexus
+    }
+  } else {
+    // Local mode: read from GROVE.md contract
     try {
       const { existsSync: fsExists } = await import("node:fs");
       const { join: pathJoin } = await import("node:path");

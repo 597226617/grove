@@ -22,6 +22,7 @@ export function checkSpawn(
   topology: AgentTopology | undefined,
   roleName: string,
   activeClaims: readonly Claim[],
+  parentAgentId?: string | undefined,
 ): SpawnCheck {
   if (topology === undefined) {
     return {
@@ -53,6 +54,20 @@ export function checkSpawn(
       maxInstances: role.maxInstances,
       warning: `Role '${roleName}' at capacity (${currentInstances}/${role.maxInstances})`,
     };
+  }
+
+  // Check max_children_per_agent if parent agent ID is known
+  if (parentAgentId !== undefined) {
+    const childrenCheck = checkSpawnChildren(topology, parentAgentId, activeClaims);
+    if (!childrenCheck.allowed) {
+      return {
+        allowed: false,
+        role,
+        currentInstances,
+        maxInstances: role.maxInstances,
+        warning: childrenCheck.warning,
+      };
+    }
   }
 
   return {
@@ -93,4 +108,44 @@ export function checkSpawnDepth(
   }
 
   return { allowed: true, maxDepth };
+}
+
+/** Result of checking max_children_per_agent constraint. */
+export interface SpawnChildrenCheck {
+  readonly allowed: boolean;
+  readonly currentChildren: number;
+  readonly maxChildrenPerAgent: number | undefined;
+  readonly warning?: string | undefined;
+}
+
+/** Check if a parent agent has reached the max_children_per_agent limit. */
+export function checkSpawnChildren(
+  topology: AgentTopology | undefined,
+  parentAgentId: string,
+  activeClaims: readonly Claim[],
+): SpawnChildrenCheck {
+  if (topology === undefined) {
+    return { allowed: true, currentChildren: 0, maxChildrenPerAgent: undefined };
+  }
+
+  const maxChildren = topology.spawning?.maxChildrenPerAgent;
+  if (maxChildren === undefined) {
+    return { allowed: true, currentChildren: 0, maxChildrenPerAgent: undefined };
+  }
+
+  // Count active claims whose agent references the parent agent
+  const currentChildren = activeClaims.filter(
+    (c) => c.context?.parentAgentId === parentAgentId,
+  ).length;
+
+  if (currentChildren >= maxChildren) {
+    return {
+      allowed: false,
+      currentChildren,
+      maxChildrenPerAgent: maxChildren,
+      warning: `Parent agent '${parentAgentId}' at child capacity (${currentChildren}/${maxChildren})`,
+    };
+  }
+
+  return { allowed: true, currentChildren, maxChildrenPerAgent: maxChildren };
 }

@@ -118,8 +118,22 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In command palette mode, don't handle normal keys
+    // In command palette mode, handle spawn/kill shortcuts
     if (panels.state.mode === InputMode.CommandPalette) {
+      if (input === "s" && tmux && topology) {
+        const firstRole = topology.roles[0];
+        if (firstRole) {
+          handleSpawn(firstRole.name, `grove agent --role ${firstRole.name}`, "HEAD");
+          panels.setMode(InputMode.Normal);
+        }
+        return;
+      }
+      if (input === "k" && selectedSession && tmux) {
+        tmux.kill(selectedSession).catch(() => {});
+        setSelectedSession(undefined);
+        panels.setMode(InputMode.Normal);
+        return;
+      }
       return;
     }
 
@@ -242,17 +256,52 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     panels.setMode(InputMode.Normal);
   }, [panels]);
 
+  /**
+   * Spawn a new agent session, binding it to a claim when one exists.
+   *
+   * Checks the provider for an active claim matching the agentId. If found,
+   * the claim's context is used for workspace resolution (a claim may carry
+   * a "workspacePath" key in its context map). Falls back to process.cwd()
+   * when no claim exists or no workspace context is present.
+   *
+   * NOTE: Full claim *creation* at spawn time is a CLI concern (not TUI).
+   * This path only reads existing claims for workspace binding. Enhancing
+   * this to create claims on spawn is tracked as a follow-up to #65.
+   */
   const handleSpawn = useCallback(
     (agentId: string, command: string, target: string) => {
-      const options: SpawnOptions = {
-        agentId,
-        command,
-        targetRef: target,
-        workspacePath: process.cwd(),
+      const resolveWorkspace = async (): Promise<string> => {
+        try {
+          const claims = await provider.getClaims({ status: "active", agentId });
+          // Prefer a claim whose targetRef matches the spawn target for tighter binding
+          const matchingClaim = claims.find((c) => c.targetRef === target) ?? claims[0];
+          if (matchingClaim?.context) {
+            const ctxPath = matchingClaim.context.workspacePath;
+            if (typeof ctxPath === "string" && ctxPath.length > 0) {
+              return ctxPath;
+            }
+          }
+        } catch {
+          // Claim lookup failed — fall through to default
+        }
+        // Default: process.cwd(). Claim-based workspace creation should be
+        // handled by the CLI layer before the TUI spawn path is reached.
+        return process.cwd();
       };
-      tmux?.spawn(options).catch(() => {});
+
+      resolveWorkspace()
+        .then((workspacePath) => {
+          const options: SpawnOptions = {
+            agentId,
+            command,
+            targetRef: target,
+            workspacePath,
+          };
+          return tmux?.spawn(options);
+        })
+        .catch(() => {});
     },
-    [tmux],
+    [tmux, provider],
   );
 
   const handleKill = useCallback(

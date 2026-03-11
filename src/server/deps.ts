@@ -10,6 +10,7 @@ import type { FrontierCalculator } from "../core/frontier.js";
 import type { GossipService } from "../core/gossip/types.js";
 import type { OutcomeStore } from "../core/outcome.js";
 import type { ClaimStore, ContributionStore } from "../core/store.js";
+import type { AgentTopology } from "../core/topology.js";
 
 /** Dependencies injected into the Hono application. */
 export interface ServerDeps {
@@ -21,6 +22,8 @@ export interface ServerDeps {
   readonly gossip?: GossipService | undefined;
   /** Optional outcome store. Routes return 501 when not configured. */
   readonly outcomeStore?: OutcomeStore | undefined;
+  /** Optional agent topology. Routes return 404 when not configured. */
+  readonly topology?: AgentTopology | undefined;
 }
 
 /** Hono environment type carrying injected dependencies. */

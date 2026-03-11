@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Claim } from "../../core/models.js";
 import type { AgentTopology } from "../../core/topology.js";
-import { checkSpawn, checkSpawnDepth } from "./spawn-validator.js";
+import { checkSpawn, checkSpawnChildren, checkSpawnDepth } from "./spawn-validator.js";
 
 /** Helper to create a minimal active claim with a role. */
 function makeClaim(role: string, agentId = "agent-1"): Claim {
@@ -119,5 +119,118 @@ describe("checkSpawnDepth", () => {
     expect(result.allowed).toBe(true);
     expect(result.maxDepth).toBeUndefined();
     expect(result.warning).toBeUndefined();
+  });
+});
+
+/** Helper to create a claim with a parentAgentId in context. */
+function makeChildClaim(role: string, parentAgentId: string, agentId = "child-1"): Claim {
+  const now = new Date().toISOString();
+  const future = new Date(Date.now() + 60_000).toISOString();
+  return {
+    claimId: `claim-${agentId}`,
+    targetRef: `src/${role}`,
+    agent: { agentId, role },
+    status: "active",
+    intentSummary: "working",
+    createdAt: now,
+    heartbeatAt: now,
+    leaseExpiresAt: future,
+    context: { parentAgentId },
+  };
+}
+
+describe("checkSpawnChildren", () => {
+  const topologyWithChildren: AgentTopology = {
+    structure: "graph",
+    roles: [coderRole],
+    spawning: { dynamic: true, maxChildrenPerAgent: 2 },
+  };
+
+  test("no topology — always allowed", () => {
+    const result = checkSpawnChildren(undefined, "parent-1", []);
+    expect(result.allowed).toBe(true);
+    expect(result.currentChildren).toBe(0);
+    expect(result.maxChildrenPerAgent).toBeUndefined();
+  });
+
+  test("no spawning config — always allowed", () => {
+    const result = checkSpawnChildren(topology, "parent-1", []);
+    expect(result.allowed).toBe(true);
+    expect(result.currentChildren).toBe(0);
+    expect(result.maxChildrenPerAgent).toBeUndefined();
+  });
+
+  test("no maxChildrenPerAgent — always allowed", () => {
+    const topoNoMax: AgentTopology = {
+      structure: "graph",
+      roles: [coderRole],
+      spawning: { dynamic: true },
+    };
+    const result = checkSpawnChildren(topoNoMax, "parent-1", []);
+    expect(result.allowed).toBe(true);
+    expect(result.maxChildrenPerAgent).toBeUndefined();
+  });
+
+  test("under child limit — allowed", () => {
+    const claims = [makeChildClaim("coder", "parent-1", "child-1")];
+    const result = checkSpawnChildren(topologyWithChildren, "parent-1", claims);
+    expect(result.allowed).toBe(true);
+    expect(result.currentChildren).toBe(1);
+    expect(result.maxChildrenPerAgent).toBe(2);
+  });
+
+  test("at child limit — not allowed with warning", () => {
+    const claims = [
+      makeChildClaim("coder", "parent-1", "child-1"),
+      makeChildClaim("coder", "parent-1", "child-2"),
+    ];
+    const result = checkSpawnChildren(topologyWithChildren, "parent-1", claims);
+    expect(result.allowed).toBe(false);
+    expect(result.currentChildren).toBe(2);
+    expect(result.maxChildrenPerAgent).toBe(2);
+    expect(result.warning).toBe("Parent agent 'parent-1' at child capacity (2/2)");
+  });
+
+  test("counts only children of the specified parent", () => {
+    const claims = [
+      makeChildClaim("coder", "parent-1", "child-1"),
+      makeChildClaim("coder", "parent-2", "child-2"),
+    ];
+    const result = checkSpawnChildren(topologyWithChildren, "parent-1", claims);
+    expect(result.allowed).toBe(true);
+    expect(result.currentChildren).toBe(1);
+  });
+});
+
+describe("checkSpawn with parentAgentId", () => {
+  const topologyWithChildren: AgentTopology = {
+    structure: "graph",
+    roles: [coderRole, reviewerRole, leadRole],
+    spawning: { dynamic: true, maxChildrenPerAgent: 2 },
+  };
+
+  test("allowed when parent has room for children", () => {
+    const claims = [makeChildClaim("coder", "parent-1", "child-1")];
+    const result = checkSpawn(topologyWithChildren, "coder", claims, "parent-1");
+    expect(result.allowed).toBe(true);
+  });
+
+  test("not allowed when parent at child capacity", () => {
+    const claims = [
+      makeChildClaim("coder", "parent-1", "child-1"),
+      makeChildClaim("coder", "parent-1", "child-2"),
+    ];
+    const result = checkSpawn(topologyWithChildren, "coder", claims, "parent-1");
+    expect(result.allowed).toBe(false);
+    expect(result.warning).toBe("Parent agent 'parent-1' at child capacity (2/2)");
+  });
+
+  test("no parentAgentId — children check is skipped", () => {
+    const claims = [
+      makeChildClaim("coder", "parent-1", "child-1"),
+      makeChildClaim("coder", "parent-1", "child-2"),
+    ];
+    const result = checkSpawn(topologyWithChildren, "coder", claims);
+    expect(result.allowed).toBe(true);
   });
 });

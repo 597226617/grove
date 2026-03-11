@@ -93,3 +93,7 @@ declare module "ghostty-opentui/terminal-buffer" {
     destroy(): void;
   }
 }
+
+declare module "ghostty-opentui/opentui" {
+  export { GhosttyTerminalRenderable } from "ghostty-opentui/terminal-buffer";
+}

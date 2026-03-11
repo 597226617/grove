@@ -414,9 +414,9 @@ retry:
     expect(contract.retry).toBeUndefined();
   });
 
-  test("rejects unsupported contract_version", () => {
+  test("rejects unsupported contract_version with supported list", () => {
     expect(() => parseGroveContractObject({ contract_version: 99, name: "bad" })).toThrow(
-      "Unsupported contract_version",
+      "supported: 1, 2, 3",
     );
   });
 
@@ -1020,5 +1020,124 @@ topology:
         },
       }),
     ).toThrow("single parent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V3 contract parsing (agent_topology)
+// ---------------------------------------------------------------------------
+
+describe("V3 contracts", () => {
+  test("parses V3 contract with agent_topology", () => {
+    const content = `---
+contract_version: 3
+name: v3-grove
+agent_topology:
+  structure: graph
+  roles:
+    - name: orchestrator
+      max_instances: 1
+      edges:
+        - target: worker
+          edge_type: delegates
+    - name: worker
+      max_instances: 5
+  spawning:
+    dynamic: true
+    max_depth: 3
+---
+`;
+    const contract = parseGroveContract(content);
+    expect(contract.contractVersion).toBe(3);
+    expect(contract.name).toBe("v3-grove");
+
+    const topo = contract.topology as AgentTopology;
+    expect(topo).toBeDefined();
+    expect(topo.structure).toBe("graph");
+    expect(topo.roles).toHaveLength(2);
+    expect(topo.roles[0]?.name).toBe("orchestrator");
+    expect(topo.roles[1]?.name).toBe("worker");
+    expect(topo.spawning?.dynamic).toBe(true);
+    expect(topo.spawning?.maxDepth).toBe(3);
+  });
+
+  test("parses minimal V3 contract", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 3,
+      name: "minimal-v3",
+    });
+    expect(contract.contractVersion).toBe(3);
+    expect(contract.topology).toBeUndefined();
+    expect(contract.concurrency).toBeUndefined();
+  });
+
+  test("V3 maps agent_topology to topology field in GroveContract", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 3,
+      name: "v3-mapping",
+      agent_topology: {
+        structure: "flat",
+        roles: [{ name: "agent" }],
+      },
+    });
+    expect(contract.topology).toBeDefined();
+    expect(contract.topology?.structure).toBe("flat");
+    expect(contract.topology?.roles[0]?.name).toBe("agent");
+  });
+
+  test("V3 supports concurrency, execution, rate_limits, retry, gossip, outcome_policy", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 3,
+      name: "v3-full",
+      concurrency: { max_active_claims: 10 },
+      execution: { default_lease_seconds: 300 },
+      rate_limits: { max_contributions_per_agent_per_hour: 50 },
+      retry: { max_attempts: 3 },
+      gossip: { interval_seconds: 30 },
+      outcome_policy: { require_manual_review: true },
+    });
+    expect(contract.concurrency?.maxActiveClaims).toBe(10);
+    expect(contract.execution?.defaultLeaseSeconds).toBe(300);
+    expect(contract.rateLimits?.maxContributionsPerAgentPerHour).toBe(50);
+    expect(contract.retry?.maxAttempts).toBe(3);
+    expect(contract.gossip?.intervalSeconds).toBe(30);
+    expect(contract.outcomePolicy?.requireManualReview).toBe(true);
+  });
+
+  test("V3 rejects old 'topology' field (strict mode)", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 3,
+        name: "v3-old-topology",
+        topology: {
+          structure: "flat",
+          roles: [{ name: "agent" }],
+        },
+      }),
+    ).toThrow("Invalid GROVE.md contract (v3)");
+  });
+
+  test("V3 validates metric cross-references", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 3,
+        name: "v3-bad-metric",
+        metrics: { accuracy: { direction: "maximize" } },
+        gates: [{ type: "metric_improves", metric: "nonexistent" }],
+      }),
+    ).toThrow("undefined metric 'nonexistent'");
+  });
+
+  test("V3 validates execution constraints", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 3,
+        name: "v3-bad-exec",
+        execution: {
+          default_lease_seconds: 7200,
+          max_lease_seconds: 3600,
+        },
+      }),
+    ).toThrow("default_lease_seconds");
   });
 });

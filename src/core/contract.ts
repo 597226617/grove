@@ -1,9 +1,11 @@
 /**
  * GROVE.md contract types, Zod schemas, and parser.
  *
- * Supports contract_version 1 (legacy claim_policy) and contract_version 2
- * (concurrency, execution, rate_limits, retry sections). V1 contracts are
- * auto-migrated to V2 types at parse time.
+ * Supports contract_version 1 (legacy claim_policy), contract_version 2
+ * (concurrency, execution, rate_limits, retry sections), and contract_version 3
+ * (renames topology → agent_topology). V1 contracts are auto-migrated to V2
+ * types at parse time. V3 maps agent_topology to the same topology field in
+ * GroveContract.
  *
  * Mirrors spec/schemas/grove-contract.json — keep in sync.
  * See spec/GROVE-CONTRACT.md for the full specification.
@@ -289,6 +291,31 @@ const GroveContractV2Schema = z
   .strict();
 
 // ---------------------------------------------------------------------------
+// V3 Schema (renames topology → agent_topology)
+// ---------------------------------------------------------------------------
+
+const GroveContractV3Schema = z
+  .object({
+    contract_version: z.literal(3),
+    name: z.string().min(1).max(128),
+    description: z.string().max(1024).optional(),
+    mode: z.enum(["evaluation", "exploration"]).optional(),
+    seed: z.string().min(1).max(256).optional(),
+    metrics: MetricsSchema.optional(),
+    gates: z.array(GateSchema).max(20).optional(),
+    stop_conditions: StopConditionsSchema.optional(),
+    agent_constraints: AgentConstraintsSchema.optional(),
+    concurrency: ConcurrencySchema.optional(),
+    execution: ExecutionSchema.optional(),
+    rate_limits: RateLimitsSchema.optional(),
+    retry: RetrySchema.optional(),
+    gossip: GossipSchema.optional(),
+    outcome_policy: OutcomePolicySchema.optional(),
+    agent_topology: AgentTopologySchema.optional(),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
 // TypeScript Types (camelCase)
 // ---------------------------------------------------------------------------
 
@@ -524,9 +551,42 @@ function wireV2ToContract(wire: z.infer<typeof GroveContractV2Schema>): GroveCon
   };
 }
 
-/** Shared base fields for V1 and V2. */
+/** Convert a validated V3 snake_case wire object to a camelCase GroveContract. */
+function wireV3ToContract(wire: z.infer<typeof GroveContractV3Schema>): GroveContract {
+  const base = wireToContractBase(wire);
+
+  return {
+    ...base,
+    ...(wire.concurrency !== undefined && {
+      concurrency: wireToConcurrency(wire.concurrency),
+    }),
+    ...(wire.execution !== undefined && {
+      execution: wireToExecution(wire.execution),
+    }),
+    ...(wire.rate_limits !== undefined && {
+      rateLimits: wireToRateLimits(wire.rate_limits),
+    }),
+    ...(wire.retry !== undefined && {
+      retry: wireToRetry(wire.retry),
+    }),
+    ...(wire.gossip !== undefined && {
+      gossip: wireToGossip(wire.gossip),
+    }),
+    ...(wire.outcome_policy !== undefined && {
+      outcomePolicy: wireToOutcomePolicy(wire.outcome_policy),
+    }),
+    ...(wire.agent_topology !== undefined && {
+      topology: wireToTopology(wire.agent_topology),
+    }),
+  };
+}
+
+/** Shared base fields for V1, V2, and V3. */
 function wireToContractBase(
-  wire: z.infer<typeof GroveContractV1Schema> | z.infer<typeof GroveContractV2Schema>,
+  wire:
+    | z.infer<typeof GroveContractV1Schema>
+    | z.infer<typeof GroveContractV2Schema>
+    | z.infer<typeof GroveContractV3Schema>,
 ): GroveContract {
   return {
     contractVersion: wire.contract_version,
@@ -917,11 +977,25 @@ function parseRawObject(raw: unknown): GroveContract {
     return contract;
   }
 
+  if (version === 3) {
+    const result = GroveContractV3Schema.safeParse(raw);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`Invalid GROVE.md contract (v3): ${issues}`);
+    }
+    const contract = wireV3ToContract(result.data);
+    validateMetricReferences(contract);
+    validateExecutionConstraints(contract);
+    validateRateLimitConstraints(contract);
+    validateGossipConstraints(contract);
+    return contract;
+  }
+
   if (version === undefined) {
     throw new Error("GROVE.md contract missing required field 'contract_version'");
   }
 
-  throw new Error(`Unsupported contract_version: ${String(version)} (supported: 1, 2)`);
+  throw new Error(`Unsupported contract_version: ${String(version)} (supported: 1, 2, 3)`);
 }
 
 /**

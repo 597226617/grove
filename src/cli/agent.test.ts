@@ -140,15 +140,51 @@ describe("resolveAgentRole", () => {
     expect(result).toBeUndefined();
   });
 
-  test("returns undefined when agent has no role", () => {
+  test("returns undefined when agent has no role and no fallback matches", () => {
     const agent: AgentIdentity = { agentId: "a1" };
     const result = resolveAgentRole(topology, agent);
     expect(result).toBeUndefined();
   });
 
-  test("returns undefined when role name doesn't match any topology role", () => {
+  test("returns undefined when role name doesn't match and no fallback matches", () => {
     const agent: AgentIdentity = { agentId: "a1", role: "nonexistent" };
     const result = resolveAgentRole(topology, agent);
     expect(result).toBeUndefined();
+  });
+
+  test("falls back to agentName when role is undefined", () => {
+    const agent: AgentIdentity = { agentId: "a1", agentName: "coder" };
+    const result = resolveAgentRole(topology, agent);
+    expect(result).toEqual(coderRole);
+  });
+
+  test("agentName fallback is case-insensitive", () => {
+    const agent: AgentIdentity = { agentId: "a1", agentName: "Coder" };
+    const result = resolveAgentRole(topology, agent);
+    expect(result).toEqual(coderRole);
+  });
+
+  test("falls back to agentId containing role name", () => {
+    const agent: AgentIdentity = { agentId: "instance-reviewer-01" };
+    const result = resolveAgentRole(topology, agent);
+    expect(result).toEqual(reviewerRole);
+  });
+
+  test("agentId fallback is case-insensitive", () => {
+    const agent: AgentIdentity = { agentId: "CODER-agent-1" };
+    const result = resolveAgentRole(topology, agent);
+    expect(result).toEqual(coderRole);
+  });
+
+  test("explicit role takes priority over agentName fallback", () => {
+    const agent: AgentIdentity = { agentId: "a1", role: "reviewer", agentName: "coder" };
+    const result = resolveAgentRole(topology, agent);
+    expect(result).toEqual(reviewerRole);
+  });
+
+  test("agentName fallback takes priority over agentId fallback", () => {
+    const agent: AgentIdentity = { agentId: "reviewer-bot", agentName: "coder" };
+    const result = resolveAgentRole(topology, agent);
+    expect(result).toEqual(coderRole);
   });
 });
