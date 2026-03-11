@@ -5,6 +5,7 @@
  * GET  /api/contributions — List contributions
  * GET  /api/contributions/:cid — Get contribution manifest
  * GET  /api/contributions/:cid/artifacts/:name — Download artifact blob
+ * GET  /api/contributions/:cid/artifacts/:name/meta — Artifact metadata
  */
 
 import { zValidator } from "@hono/zod-validator";
@@ -20,6 +21,7 @@ import type {
   Relation,
   Score,
 } from "../../core/models.js";
+import type { OutcomeStatus } from "../../core/outcome.js";
 import type { ContributionQuery } from "../../core/store.js";
 import type { ServerEnv } from "../deps.js";
 import { CID_REGEX, MAX_REQUEST_SIZE } from "../schemas.js";
@@ -36,6 +38,7 @@ const listQuerySchema = z.object({
   tags: z.string().optional(),
   agentId: z.string().optional(),
   agentName: z.string().optional(),
+  outcome: z.enum(["accepted", "rejected", "crashed", "invalidated"]).optional(),
 });
 
 const cidParamSchema = z.object({
@@ -252,11 +255,29 @@ contributions.post("/", async (c) => {
 
 /** GET /api/contributions — List contributions with filters. */
 contributions.get("/", zValidator("query", listQuerySchema), async (c) => {
-  const { contributionStore } = c.get("deps");
+  const { contributionStore, outcomeStore } = c.get("deps");
   const raw = c.req.valid("query");
   const query = toContributionQuery(raw);
 
-  const results = await contributionStore.list(query);
+  let results = await contributionStore.list(query);
+
+  // Post-filter by outcome status if requested
+  if (raw.outcome !== undefined) {
+    if (outcomeStore === undefined) {
+      return c.json(
+        { error: { code: "NOT_CONFIGURED", message: "Outcome store is not configured" } },
+        501,
+      );
+    }
+    const cids = results.map((r) => r.cid);
+    const outcomes = await outcomeStore.getBatch(cids);
+    const targetStatus = raw.outcome as OutcomeStatus;
+    results = results.filter((r) => {
+      const record = outcomes.get(r.cid);
+      return record !== undefined && record.status === targetStatus;
+    });
+  }
+
   const total = await contributionStore.count({
     kind: query.kind,
     mode: query.mode,
@@ -321,6 +342,44 @@ contributions.get("/:cid/artifacts/:name", async (c) => {
       "Content-Type": meta?.mediaType ?? "application/octet-stream",
       "Content-Length": String(data.byteLength),
     },
+  });
+});
+
+/** GET /api/contributions/:cid/artifacts/:name/meta — Artifact metadata (size + mediaType). */
+contributions.get("/:cid/artifacts/:name/meta", async (c) => {
+  const { contributionStore, cas } = c.get("deps");
+  const cid = c.req.param("cid");
+  const name = c.req.param("name");
+
+  const contribution = await contributionStore.get(cid);
+  if (!contribution) {
+    return c.json({ error: { code: "NOT_FOUND", message: `Contribution ${cid} not found` } }, 404);
+  }
+
+  const contentHash = contribution.artifacts[name];
+  if (!contentHash) {
+    return c.json(
+      { error: { code: "NOT_FOUND", message: `Artifact '${name}' not found in ${cid}` } },
+      404,
+    );
+  }
+
+  const meta = await cas.stat(contentHash);
+  if (!meta) {
+    return c.json(
+      {
+        error: {
+          code: "NOT_FOUND",
+          message: `Artifact blob not found for hash ${contentHash}`,
+        },
+      },
+      404,
+    );
+  }
+
+  return c.json({
+    sizeBytes: meta.sizeBytes,
+    ...(meta.mediaType !== undefined ? { mediaType: meta.mediaType } : {}),
   });
 });
 

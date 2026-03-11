@@ -658,3 +658,112 @@ describe("gossip contract config", () => {
     expect(contract.gossip?.partialViewSize).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Outcome policy
+// ---------------------------------------------------------------------------
+
+describe("outcome_policy contract config", () => {
+  test("parses V2 contract with full outcome_policy", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 2,
+      name: "outcome-grove",
+      outcome_policy: {
+        auto_accept: {
+          metric_improves: "val_bpb",
+          all_gates_pass: true,
+        },
+        auto_reject: {
+          metric_regresses: "val_bpb",
+          missing_required_artifacts: true,
+        },
+        require_manual_review: false,
+      },
+    });
+
+    expect(contract.outcomePolicy).toBeDefined();
+    expect(contract.outcomePolicy?.autoAccept?.metricImproves).toBe("val_bpb");
+    expect(contract.outcomePolicy?.autoAccept?.allGatesPass).toBe(true);
+    expect(contract.outcomePolicy?.autoReject?.metricRegresses).toBe("val_bpb");
+    expect(contract.outcomePolicy?.autoReject?.missingRequiredArtifacts).toBe(true);
+    expect(contract.outcomePolicy?.requireManualReview).toBe(false);
+  });
+
+  test("outcome_policy is optional", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 2,
+      name: "no-outcome",
+    });
+
+    expect(contract.outcomePolicy).toBeUndefined();
+  });
+
+  test("parses partial outcome_policy with only auto_accept", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 2,
+      name: "partial-outcome",
+      outcome_policy: {
+        auto_accept: {
+          all_gates_pass: true,
+        },
+      },
+    });
+
+    expect(contract.outcomePolicy?.autoAccept?.allGatesPass).toBe(true);
+    expect(contract.outcomePolicy?.autoAccept?.metricImproves).toBeUndefined();
+    expect(contract.outcomePolicy?.autoReject).toBeUndefined();
+    expect(contract.outcomePolicy?.requireManualReview).toBeUndefined();
+  });
+
+  test("parses outcome_policy with only require_manual_review", () => {
+    const contract = parseGroveContractObject({
+      contract_version: 2,
+      name: "manual-review",
+      outcome_policy: {
+        require_manual_review: true,
+      },
+    });
+
+    expect(contract.outcomePolicy?.requireManualReview).toBe(true);
+    expect(contract.outcomePolicy?.autoAccept).toBeUndefined();
+    expect(contract.outcomePolicy?.autoReject).toBeUndefined();
+  });
+
+  test("rejects unknown fields in outcome_policy", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 2,
+        name: "bad-outcome",
+        outcome_policy: {
+          unknown_field: true,
+        },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects unknown fields in auto_accept", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 2,
+        name: "bad-outcome",
+        outcome_policy: {
+          auto_accept: {
+            bad_field: "oops",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test("outcome_policy not available in V1 contracts", () => {
+    expect(() =>
+      parseGroveContractObject({
+        contract_version: 1,
+        name: "v1-outcome",
+        outcome_policy: {
+          require_manual_review: true,
+        },
+      }),
+    ).toThrow();
+  });
+});

@@ -244,6 +244,26 @@ const GossipSchema = z
   })
   .strict();
 
+const OutcomePolicySchema = z
+  .object({
+    auto_accept: z
+      .object({
+        metric_improves: z.string().optional(),
+        all_gates_pass: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    auto_reject: z
+      .object({
+        metric_regresses: z.string().optional(),
+        missing_required_artifacts: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    require_manual_review: z.boolean().optional(),
+  })
+  .strict();
+
 const GroveContractV2Schema = z
   .object({
     contract_version: z.literal(2),
@@ -260,6 +280,7 @@ const GroveContractV2Schema = z
     rate_limits: RateLimitsSchema.optional(),
     retry: RetrySchema.optional(),
     gossip: GossipSchema.optional(),
+    outcome_policy: OutcomePolicySchema.optional(),
   })
   .strict();
 
@@ -377,6 +398,25 @@ export interface RetryConfig {
   readonly maxAttempts?: number | undefined;
 }
 
+/** Auto-accept policy configuration. */
+export interface OutcomePolicyAutoAccept {
+  readonly metricImproves?: string | undefined;
+  readonly allGatesPass?: boolean | undefined;
+}
+
+/** Auto-reject policy configuration. */
+export interface OutcomePolicyAutoReject {
+  readonly metricRegresses?: string | undefined;
+  readonly missingRequiredArtifacts?: boolean | undefined;
+}
+
+/** Outcome policy from the GROVE.md contract. */
+export interface OutcomePolicy {
+  readonly autoAccept?: OutcomePolicyAutoAccept | undefined;
+  readonly autoReject?: OutcomePolicyAutoReject | undefined;
+  readonly requireManualReview?: boolean | undefined;
+}
+
 /** Gossip protocol configuration from GROVE.md contract. */
 export interface GossipContractConfig {
   readonly intervalSeconds?: number | undefined;
@@ -406,6 +446,7 @@ export interface GroveContract {
   readonly rateLimits?: RateLimitsConfig | undefined;
   readonly retry?: RetryConfig | undefined;
   readonly gossip?: GossipContractConfig | undefined;
+  readonly outcomePolicy?: OutcomePolicy | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +509,9 @@ function wireV2ToContract(wire: z.infer<typeof GroveContractV2Schema>): GroveCon
     }),
     ...(wire.gossip !== undefined && {
       gossip: wireToGossip(wire.gossip),
+    }),
+    ...(wire.outcome_policy !== undefined && {
+      outcomePolicy: wireToOutcomePolicy(wire.outcome_policy),
     }),
   };
 }
@@ -654,6 +698,36 @@ function wireToGossip(
       failureTimeoutSeconds: wire.failure_timeout_seconds,
     }),
     ...(wire.digest_limit !== undefined && { digestLimit: wire.digest_limit }),
+  };
+}
+
+function wireToOutcomePolicy(
+  wire: NonNullable<z.infer<typeof GroveContractV2Schema>["outcome_policy"]>,
+): OutcomePolicy {
+  return {
+    ...(wire.auto_accept !== undefined && {
+      autoAccept: {
+        ...(wire.auto_accept.metric_improves !== undefined && {
+          metricImproves: wire.auto_accept.metric_improves,
+        }),
+        ...(wire.auto_accept.all_gates_pass !== undefined && {
+          allGatesPass: wire.auto_accept.all_gates_pass,
+        }),
+      },
+    }),
+    ...(wire.auto_reject !== undefined && {
+      autoReject: {
+        ...(wire.auto_reject.metric_regresses !== undefined && {
+          metricRegresses: wire.auto_reject.metric_regresses,
+        }),
+        ...(wire.auto_reject.missing_required_artifacts !== undefined && {
+          missingRequiredArtifacts: wire.auto_reject.missing_required_artifacts,
+        }),
+      },
+    }),
+    ...(wire.require_manual_review !== undefined && {
+      requireManualReview: wire.require_manual_review,
+    }),
   };
 }
 

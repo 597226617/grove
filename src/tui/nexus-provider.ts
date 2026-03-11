@@ -1,88 +1,97 @@
 /**
- * Local data provider for the TUI.
+ * Nexus data provider for the TUI.
  *
- * Wraps the local SQLite stores and frontier calculator to implement
- * the TuiDataProvider + TuiOutcomeProvider interfaces. Used when
- * running `grove tui` against a local .grove directory.
+ * Wraps NexusContributionStore, NexusClaimStore, NexusOutcomeStore,
+ * and NexusCas to implement TuiDataProvider + TuiOutcomeProvider +
+ * TuiVfsProvider. Used when running `grove tui --nexus <url>`.
  */
 
-import type { Frontier, FrontierCalculator, FrontierQuery } from "../core/frontier.js";
+import type { Frontier, FrontierQuery } from "../core/frontier.js";
+import { DefaultFrontierCalculator } from "../core/frontier.js";
 import type { Contribution } from "../core/models.js";
-import type { OutcomeRecord, OutcomeStatus, OutcomeStore } from "../core/outcome.js";
-import type {
-  ClaimStore,
-  ContributionQuery,
-  ContributionStore,
-  ThreadSummary,
-} from "../core/store.js";
+import type { OutcomeRecord, OutcomeStatus } from "../core/outcome.js";
+import type { ContributionQuery, ThreadSummary } from "../core/store.js";
+import type { NexusClient } from "../nexus/client.js";
+import type { NexusConfig } from "../nexus/config.js";
+import { resolveConfig } from "../nexus/config.js";
+import { NexusClaimStore } from "../nexus/nexus-claim-store.js";
+import { NexusContributionStore } from "../nexus/nexus-contribution-store.js";
+import { NexusOutcomeStore } from "../nexus/nexus-outcome-store.js";
 import type {
   ActivityQuery,
   ClaimsQuery,
   ContributionDetail,
   DagData,
   DashboardData,
+  FsEntry,
   GroveMetadata,
   OperatorStats,
   PaginatedQuery,
   ProviderCapabilities,
   TuiDataProvider,
   TuiOutcomeProvider,
+  TuiVfsProvider,
 } from "./provider.js";
 import { buildFrontierSummary } from "./provider-utils.js";
 
-/** Configuration for the local provider. */
-export interface LocalProviderDeps {
-  readonly contributionStore: ContributionStore;
-  readonly claimStore: ClaimStore;
-  readonly frontier: FrontierCalculator;
-  readonly groveName: string;
-  readonly outcomeStore?: OutcomeStore | undefined;
+/** Configuration for the Nexus provider. */
+export interface NexusProviderConfig {
+  readonly nexusConfig: NexusConfig;
+  readonly groveName?: string | undefined;
 }
 
-/** TUI data provider backed by local SQLite stores. */
-export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
-  readonly capabilities: ProviderCapabilities;
-  private readonly store: ContributionStore;
-  private readonly claims: ClaimStore;
-  private readonly calc: FrontierCalculator;
-  private readonly name: string;
-  private readonly outcomes: OutcomeStore | undefined;
+/** TUI data provider backed by Nexus VFS. */
+export class NexusDataProvider implements TuiDataProvider, TuiOutcomeProvider, TuiVfsProvider {
+  readonly capabilities: ProviderCapabilities = {
+    outcomes: true,
+    artifacts: true,
+    vfs: true,
+  };
 
-  constructor(deps: LocalProviderDeps) {
-    this.store = deps.contributionStore;
-    this.claims = deps.claimStore;
-    this.calc = deps.frontier;
-    this.name = deps.groveName;
-    this.outcomes = deps.outcomeStore;
-    this.capabilities = {
-      outcomes: deps.outcomeStore !== undefined,
-      artifacts: false,
-      vfs: false,
-    };
+  private readonly store: NexusContributionStore;
+  private readonly claims: NexusClaimStore;
+  private readonly outcomes: NexusOutcomeStore;
+  private readonly frontier: DefaultFrontierCalculator;
+  private readonly client: NexusClient;
+  private readonly zoneId: string;
+  private readonly name: string;
+
+  constructor(config: NexusProviderConfig) {
+    this.store = new NexusContributionStore(config.nexusConfig);
+    this.claims = new NexusClaimStore(config.nexusConfig);
+    this.outcomes = new NexusOutcomeStore(config.nexusConfig);
+    this.frontier = new DefaultFrontierCalculator(this.store);
+    this.name = config.groveName ?? "nexus";
+
+    const resolved = resolveConfig(config.nexusConfig);
+    this.client = resolved.client;
+    this.zoneId = resolved.zoneId;
   }
+
+  // ---------------------------------------------------------------------------
+  // TuiDataProvider
+  // ---------------------------------------------------------------------------
 
   async getDashboard(): Promise<DashboardData> {
     const [contributionCount, activeClaims, recentContributions, frontier] = await Promise.all([
       this.store.count(),
       this.claims.activeClaims(),
       this.store.list({ limit: 10 }),
-      this.calc.compute({ limit: 3 }),
+      this.frontier.compute({ limit: 3 }),
     ]);
 
     const metadata: GroveMetadata = {
       name: this.name,
       contributionCount,
       activeClaimCount: activeClaims.length,
-      mode: "local",
+      mode: "nexus",
     };
-
-    const frontierSummary = buildFrontierSummary(frontier);
 
     return {
       metadata,
       activeClaims,
       recentContributions,
-      frontierSummary,
+      frontierSummary: buildFrontierSummary(frontier),
     };
   }
 
@@ -112,13 +121,11 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
       }
       return this.claims.activeClaims();
     }
-    return this.claims.listClaims({
-      agentId: query.agentId,
-    });
+    return this.claims.listClaims({ agentId: query.agentId });
   }
 
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {
-    return this.calc.compute(query);
+    return this.frontier.compute(query);
   }
 
   async getActivity(query?: ActivityQuery): Promise<readonly Contribution[]> {
@@ -171,23 +178,14 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
   // ---------------------------------------------------------------------------
 
   async getOutcome(cid: string): Promise<OutcomeRecord | undefined> {
-    return this.outcomes?.get(cid);
+    return this.outcomes.get(cid);
   }
 
   async getOutcomes(cids: readonly string[]): Promise<ReadonlyMap<string, OutcomeRecord>> {
-    if (!this.outcomes) return new Map();
     return this.outcomes.getBatch(cids);
   }
 
   async getOutcomeStats(): Promise<OperatorStats> {
-    if (!this.outcomes) {
-      return {
-        totalContributions: 0,
-        outcomeBreakdown: { accepted: 0, rejected: 0, crashed: 0, invalidated: 0 },
-        acceptanceRate: 0,
-        byAgent: [],
-      };
-    }
     const stats = await this.outcomes.getStats();
     return {
       totalContributions: stats.total,
@@ -203,13 +201,27 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider {
   }
 
   async listOutcomes(query?: { status?: OutcomeStatus }): Promise<readonly OutcomeRecord[]> {
-    if (!this.outcomes) return [];
     return this.outcomes.list(query);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TuiVfsProvider
+  // ---------------------------------------------------------------------------
+
+  async listPath(path: string): Promise<readonly FsEntry[]> {
+    const vfsPath = `/zones/${this.zoneId}${path.startsWith("/") ? path : `/${path}`}`;
+    const result = await this.client.list(vfsPath, { details: true });
+
+    return result.files.map((entry) => ({
+      name: entry.name,
+      type: entry.isDirectory ? ("directory" as const) : ("file" as const),
+      sizeBytes: entry.size,
+    }));
   }
 
   close(): void {
     this.store.close();
     this.claims.close();
-    this.outcomes?.close();
+    this.outcomes.close();
   }
 }
