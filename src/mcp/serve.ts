@@ -11,12 +11,16 @@
  *   GROVE_DIR=/path grove-mcp    # explicit grove directory
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { findGroveDir } from "../cli/context.js";
+import type { GroveContract } from "../core/contract.js";
+import { parseGroveContract } from "../core/contract.js";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
+import { CachedFrontierCalculator } from "../gossip/cached-frontier.js";
 import { FsCas } from "../local/fs-cas.js";
 import { SqliteBountyStore } from "../local/sqlite-bounty-store.js";
 import { initSqliteDb, SqliteClaimStore, SqliteContributionStore } from "../local/sqlite-store.js";
@@ -46,7 +50,8 @@ try {
   const claimStore = new SqliteClaimStore(db);
   const bountyStore = new SqliteBountyStore(db);
   const cas = new FsCas(casPath);
-  const frontier = new DefaultFrontierCalculator(contributionStore);
+  const baseFrontier = new DefaultFrontierCalculator(contributionStore);
+  const frontier = new CachedFrontierCalculator(baseFrontier, 5_000);
   const workspace = new LocalWorkspaceManager({
     groveRoot: groveDir,
     db,
@@ -54,11 +59,28 @@ try {
     cas,
   });
 
+  // Parse GROVE.md contract if it exists.
+  // Parse errors propagate and fail startup — silently ignoring a malformed
+  // contract would bypass enforcement (matching CLI contribute.ts behavior).
+  const groveContractPath = join(groveDir, "..", "GROVE.md");
+  const contract: GroveContract | undefined = existsSync(groveContractPath)
+    ? parseGroveContract(readFileSync(groveContractPath, "utf-8"))
+    : undefined;
+
   // Note: creditsService is intentionally omitted. InMemoryCreditsService is
   // not durable — balances and reservations are lost on restart. Bounties still
   // work (persisted in SQLite) but credit enforcement is skipped until a
   // persistent CreditsService (e.g., NexusPay) is configured.
-  deps = { contributionStore, claimStore, bountyStore, cas, frontier, workspace };
+  deps = {
+    contributionStore,
+    claimStore,
+    bountyStore,
+    cas,
+    frontier,
+    workspace,
+    contract,
+    onContributionWrite: () => frontier.invalidate(),
+  };
   close = () => {
     workspace.close();
     db.close();

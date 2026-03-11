@@ -15,11 +15,14 @@ interface ErrorMapping {
 }
 
 const ERROR_MAP = new Map<string, ErrorMapping>([
+  ["ClaimConflictError", { status: 409, code: "CLAIM_CONFLICT" }],
   ["ConcurrencyLimitError", { status: 409, code: "CONCURRENCY_LIMIT" }],
   ["RateLimitError", { status: 429, code: "RATE_LIMIT" }],
   ["LeaseViolationError", { status: 422, code: "LEASE_VIOLATION" }],
   ["ArtifactLimitError", { status: 422, code: "ARTIFACT_LIMIT" }],
   ["RetryExhaustedError", { status: 503, code: "RETRY_EXHAUSTED" }],
+  ["PeerUnreachableError", { status: 502, code: "PEER_UNREACHABLE" }],
+  ["GossipTimeoutError", { status: 504, code: "GOSSIP_TIMEOUT" }],
 ]);
 
 /** Format error response body. */
