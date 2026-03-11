@@ -56,6 +56,8 @@ export interface PanelManagerProps {
   readonly artifactIndex?: number | undefined;
   /** Whether to show diff view in the Artifact panel. */
   readonly showArtifactDiff?: boolean | undefined;
+  /** Pre-fetched active claims from the parent poller (avoids double polling). */
+  readonly activeClaims?: readonly import("../../core/models.js").Claim[] | undefined;
 }
 
 /** Wraps a panel view with a titled border. */
@@ -97,6 +99,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
     vfsNavigateTrigger,
     artifactIndex,
     showArtifactDiff,
+    activeClaims,
   }: PanelManagerProps): React.ReactNode {
     const isFocused = (p: Panel) => panelState.focused === p;
 
@@ -183,6 +186,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
               active
               cursor={isFocused(Panel.Claims) ? nav.state.cursor : -1}
               onRowCountChanged={onRowCountChanged}
+              activeClaims={activeClaims}
             />
           </PanelChrome>
         </box>

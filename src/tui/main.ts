@@ -85,9 +85,59 @@ async function createProvider(
   if (nexus) {
     const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
     const { NexusDataProvider } = await import("./nexus-provider.js");
+    const { LocalWorkspaceManager } = await import("../local/workspace.js");
+    const { join } = await import("node:path");
+    const { mkdirSync } = await import("node:fs");
+    const { initSqliteDb } = await import("../local/sqlite-store.js");
+    const { FsCas } = await import("../local/fs-cas.js");
+
     const client = new NexusHttpClient({ url: nexus });
+
+    // Create workspace root for Nexus-spawned agents.
+    // groveRoot is the parent — LocalWorkspaceManager appends "workspaces".
+    const homeDir = process.env.HOME ?? "/tmp";
+    const groveRoot = join(homeDir, ".grove", "nexus-workspaces");
+    mkdirSync(groveRoot, { recursive: true });
+
+    // SQLite DB for workspace tracking (claims live in Nexus, not local SQLite)
+    const dbPath = join(groveRoot, "nexus.db");
+    const db = initSqliteDb(dbPath);
+
+    // Stub contribution store — bare workspace creation doesn't fetch artifacts
+    const stubContributionStore = {
+      get: async () => undefined,
+      put: async () => {},
+      putMany: async () => {},
+      list: async () => [],
+      ancestors: async () => [],
+      children: async () => [],
+      count: async () => 0,
+      thread: async () => [],
+      hotThreads: async () => [],
+      search: async () => [],
+      relationsOf: async () => [],
+      relatedTo: async () => [],
+      findExisting: async () => undefined,
+      replyCounts: async () => new Map(),
+      close: () => {},
+      storeIdentity: "nexus-workspace-stub",
+    } as unknown as import("../core/store.js").ContributionStore;
+
+    // Stub CAS — bare workspaces don't materialize artifacts
+    const casRoot = join(groveRoot, "cas");
+    mkdirSync(casRoot, { recursive: true });
+    const cas = new FsCas(casRoot);
+
+    const workspaceManager = new LocalWorkspaceManager({
+      groveRoot,
+      db,
+      contributionStore: stubContributionStore,
+      cas,
+    });
+
     return new NexusDataProvider({
       nexusConfig: { client, zoneId: "default" },
+      workspaceManager,
     });
   }
 
@@ -144,7 +194,7 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
     tmux = available ? mgr : undefined;
   }
 
-  // Read agent topology from GROVE.md contract (if available)
+  // Read agent topology
   let topology: import("../core/topology.js").AgentTopology | undefined;
   if (opts.url) {
     // Remote mode: fetch topology from the grove-server API
@@ -157,14 +207,33 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
       // Topology not available on remote
     }
   } else if (opts.nexus) {
-    // Nexus mode: try to fetch topology from the Nexus topology endpoint
+    // Nexus mode: read topology from Nexus VFS stored file
     try {
-      const resp = await fetch(`${opts.nexus}/api/grove/topology`);
-      if (resp.ok) {
-        topology = (await resp.json()) as import("../core/topology.js").AgentTopology;
+      const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
+      const client = new NexusHttpClient({ url: opts.nexus });
+      const zoneId = "default";
+      const data = await client.read(`/zones/${zoneId}/grove/topology.json`);
+      if (data !== undefined) {
+        topology = JSON.parse(
+          new TextDecoder().decode(data),
+        ) as import("../core/topology.js").AgentTopology;
       }
     } catch {
-      // Topology not available on Nexus
+      // Topology not available in Nexus VFS — try GROVE.md fallback
+      try {
+        const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
+        const client = new NexusHttpClient({ url: opts.nexus });
+        const zoneId = "default";
+        const data = await client.read(`/zones/${zoneId}/GROVE.md`);
+        if (data !== undefined) {
+          const { parseGroveContract } = await import("../core/contract.js");
+          const raw = new TextDecoder().decode(data);
+          const contract = parseGroveContract(raw);
+          topology = contract.topology;
+        }
+      } catch {
+        // Topology not available on Nexus
+      }
     }
   } else {
     // Local mode: read from GROVE.md contract

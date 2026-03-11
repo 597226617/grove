@@ -17,6 +17,8 @@ export interface ClaimsProps {
   readonly active: boolean;
   readonly cursor: number;
   readonly onRowCountChanged?: (count: number) => void;
+  /** Pre-fetched active claims from parent poller (avoids double polling). */
+  readonly activeClaims?: readonly Claim[] | undefined;
 }
 
 const COLUMNS = [
@@ -36,9 +38,16 @@ export const ClaimsView: React.NamedExoticComponent<ClaimsProps> = React.memo(fu
   active,
   cursor,
   onRowCountChanged,
+  activeClaims: propClaims,
 }: ClaimsProps): React.ReactNode {
+  // Use parent-provided claims if available, otherwise poll independently
   const fetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
-  const { data, loading } = usePolledData<readonly Claim[]>(fetcher, intervalMs, active);
+  const { data: polledData, loading } = usePolledData<readonly Claim[]>(
+    fetcher,
+    intervalMs,
+    active && propClaims === undefined,
+  );
+  const data = propClaims ?? polledData;
 
   useEffect(() => {
     if (data && onRowCountChanged) {

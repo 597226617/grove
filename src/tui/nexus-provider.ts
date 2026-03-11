@@ -8,9 +8,10 @@
 
 import type { Frontier, FrontierQuery } from "../core/frontier.js";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
-import type { Contribution } from "../core/models.js";
+import type { AgentIdentity, Claim, Contribution } from "../core/models.js";
 import type { OutcomeRecord, OutcomeStatus } from "../core/outcome.js";
 import type { ContributionQuery, ThreadSummary } from "../core/store.js";
+import type { WorkspaceManager } from "../core/workspace.js";
 import type { NexusClient } from "../nexus/client.js";
 import type { NexusConfig } from "../nexus/config.js";
 import { resolveConfig } from "../nexus/config.js";
@@ -21,12 +22,12 @@ import { casMetaPath, casPath } from "../nexus/vfs-paths.js";
 import type {
   ActivityQuery,
   ArtifactMeta,
+  ClaimInput,
   ClaimsQuery,
   ContributionDetail,
   DagData,
   DashboardData,
   FsEntry,
-  GroveMetadata,
   OperatorStats,
   PaginatedQuery,
   ProviderCapabilities,
@@ -35,12 +36,22 @@ import type {
   TuiOutcomeProvider,
   TuiVfsProvider,
 } from "./provider.js";
-import { buildFrontierSummary } from "./provider-utils.js";
+import {
+  activityFromStore,
+  claimsFromStore,
+  contributionDetailFromStore,
+  dagFromStore,
+  dashboardFromStores,
+  diffArtifactsFromBuffers,
+  outcomeStatsFromStore,
+} from "./provider-shared.js";
 
 /** Configuration for the Nexus provider. */
 export interface NexusProviderConfig {
   readonly nexusConfig: NexusConfig;
   readonly groveName?: string | undefined;
+  /** Optional workspace manager for local workspace lifecycle (hybrid mode). */
+  readonly workspaceManager?: WorkspaceManager | undefined;
 }
 
 /** TUI data provider backed by Nexus VFS. */
@@ -60,6 +71,7 @@ export class NexusDataProvider
   private readonly client: NexusClient;
   private readonly zoneId: string;
   private readonly name: string;
+  private readonly workspace: WorkspaceManager | undefined;
 
   constructor(config: NexusProviderConfig) {
     this.store = new NexusContributionStore(config.nexusConfig);
@@ -67,6 +79,7 @@ export class NexusDataProvider
     this.outcomes = new NexusOutcomeStore(config.nexusConfig);
     this.frontier = new DefaultFrontierCalculator(this.store);
     this.name = config.groveName ?? "nexus";
+    this.workspace = config.workspaceManager;
 
     const resolved = resolveConfig(config.nexusConfig);
     this.client = resolved.client;
@@ -78,26 +91,7 @@ export class NexusDataProvider
   // ---------------------------------------------------------------------------
 
   async getDashboard(): Promise<DashboardData> {
-    const [contributionCount, activeClaims, recentContributions, frontier] = await Promise.all([
-      this.store.count(),
-      this.claims.activeClaims(),
-      this.store.list({ limit: 10 }),
-      this.frontier.compute({ limit: 3 }),
-    ]);
-
-    const metadata: GroveMetadata = {
-      name: this.name,
-      contributionCount,
-      activeClaimCount: activeClaims.length,
-      mode: "nexus",
-    };
-
-    return {
-      metadata,
-      activeClaims,
-      recentContributions,
-      frontierSummary: buildFrontierSummary(frontier),
-    };
+    return dashboardFromStores(this.store, this.claims, this.frontier, this.name, "nexus");
   }
 
   async getContributions(
@@ -107,26 +101,11 @@ export class NexusDataProvider
   }
 
   async getContribution(cid: string): Promise<ContributionDetail | undefined> {
-    const contribution = await this.store.get(cid);
-    if (!contribution) return undefined;
-
-    const [ancestors, children, thread] = await Promise.all([
-      this.store.ancestors(cid),
-      this.store.children(cid),
-      this.store.thread(cid, { maxDepth: 20, limit: 50 }),
-    ]);
-
-    return { contribution, ancestors, children, thread };
+    return contributionDetailFromStore(this.store, cid);
   }
 
-  async getClaims(query?: ClaimsQuery): Promise<readonly import("../core/models.js").Claim[]> {
-    if (!query || query.status === "active") {
-      if (query?.agentId) {
-        return this.claims.listClaims({ status: "active", agentId: query.agentId });
-      }
-      return this.claims.activeClaims();
-    }
-    return this.claims.listClaims({ agentId: query.agentId });
+  async getClaims(query?: ClaimsQuery): Promise<readonly Claim[]> {
+    return claimsFromStore(this.claims, query);
   }
 
   async getFrontier(query?: FrontierQuery): Promise<Frontier> {
@@ -134,48 +113,63 @@ export class NexusDataProvider
   }
 
   async getActivity(query?: ActivityQuery): Promise<readonly Contribution[]> {
-    return this.store.list({
-      kind: query?.kind,
-      tags: query?.tags ? [...query.tags] : undefined,
-      agentId: query?.agentId,
-      limit: query?.limit ?? 100,
-      offset: query?.offset,
-    });
+    return activityFromStore(this.store, query);
   }
 
   async getDag(rootCid?: string): Promise<DagData> {
-    if (rootCid) {
-      const visited = new Set<string>();
-      const queue: string[] = [rootCid];
-      const result: Contribution[] = [];
-
-      while (queue.length > 0 && result.length < 200) {
-        const cid = queue.shift();
-        if (cid === undefined) break;
-        if (visited.has(cid)) continue;
-        visited.add(cid);
-
-        const contribution = await this.store.get(cid);
-        if (!contribution) continue;
-        result.push(contribution);
-
-        const children = await this.store.children(cid);
-        for (const child of children) {
-          if (!visited.has(child.cid)) {
-            queue.push(child.cid);
-          }
-        }
-      }
-
-      return { contributions: result };
-    }
-
-    const contributions = await this.store.list({ limit: 200 });
-    return { contributions };
+    return dagFromStore(this.store, rootCid);
   }
 
   async getHotThreads(limit = 20): Promise<readonly ThreadSummary[]> {
     return this.store.hotThreads({ limit });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle (spawn / kill)
+  // ---------------------------------------------------------------------------
+
+  async createClaim(input: ClaimInput): Promise<Claim> {
+    const now = new Date();
+    const claim: Claim = {
+      claimId: crypto.randomUUID(),
+      targetRef: input.targetRef,
+      agent: input.agent,
+      status: "active",
+      intentSummary: input.intentSummary,
+      createdAt: now.toISOString(),
+      heartbeatAt: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + input.leaseDurationMs).toISOString(),
+      ...(input.context !== undefined ? { context: input.context } : {}),
+    };
+    return this.claims.claimOrRenew(claim);
+  }
+
+  async checkoutWorkspace(targetRef: string, agent: AgentIdentity): Promise<string> {
+    if (!this.workspace) {
+      throw new Error("Workspace manager not available");
+    }
+    try {
+      const info = await this.workspace.checkout(targetRef, { agent });
+      return info.workspacePath;
+    } catch {
+      // For TUI-spawned agents, targetRef is a spawnId (not a contribution CID).
+      // Fall back to a bare workspace directory.
+      const info = await this.workspace.createBareWorkspace(targetRef, { agent });
+      return info.workspacePath;
+    }
+  }
+
+  async releaseClaim(claimId: string): Promise<void> {
+    await this.claims.release(claimId);
+  }
+
+  async cleanWorkspace(targetRef: string, agentId: string): Promise<void> {
+    if (!this.workspace) return;
+    try {
+      await this.workspace.cleanWorkspace(targetRef, agentId);
+    } catch {
+      // Workspace might already be cleaned or not exist
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -191,18 +185,7 @@ export class NexusDataProvider
   }
 
   async getOutcomeStats(): Promise<OperatorStats> {
-    const stats = await this.outcomes.getStats();
-    return {
-      totalContributions: stats.total,
-      outcomeBreakdown: {
-        accepted: stats.accepted,
-        rejected: stats.rejected,
-        crashed: stats.crashed,
-        invalidated: stats.invalidated,
-      },
-      acceptanceRate: stats.acceptanceRate,
-      byAgent: [],
-    };
+    return outcomeStatsFromStore(this.outcomes);
   }
 
   async listOutcomes(query?: { status?: OutcomeStatus }): Promise<readonly OutcomeRecord[]> {
@@ -282,7 +265,7 @@ export class NexusDataProvider
       this.getArtifact(parentCid, name),
       this.getArtifact(childCid, name),
     ]);
-    return { parent: parentBuf.toString("utf-8"), child: childBuf.toString("utf-8") };
+    return diffArtifactsFromBuffers(parentBuf, childBuf);
   }
 
   async search(query: string): Promise<readonly Contribution[]> {
@@ -308,5 +291,6 @@ export class NexusDataProvider
     this.store.close();
     this.claims.close();
     this.outcomes.close();
+    this.workspace?.close();
   }
 }

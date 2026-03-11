@@ -8,7 +8,7 @@
 
 import { useKeyboard, useRenderer } from "@opentui/react";
 import type React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Claim, Contribution } from "../core/models.js";
 import { checkSpawn, checkSpawnDepth } from "./agents/spawn-validator.js";
 import type { SpawnOptions } from "./agents/tmux-manager.js";
@@ -54,6 +54,23 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
 
   // Command palette selection cursor
   const [paletteIndex, setPaletteIndex] = useState(0);
+
+  // Last error for status bar display (auto-clears after 5s)
+  const [lastError, setLastError] = useState<string | undefined>();
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const showError = useCallback((message: string) => {
+    if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
+    setLastError(message);
+    errorTimerRef.current = setTimeout(() => setLastError(undefined), 5_000);
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
+    };
+  }, []);
 
   // Poll active claims for topology-aware command palette
   const claimsFetcher = useCallback(() => provider.getClaims({ status: "active" }), [provider]);
@@ -171,9 +188,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         const item = paletteItems[paletteIndex];
         if (item?.enabled) {
           if (item.kind === "spawn") {
-            // Use $SHELL (or fallback to bash) as the tmux command.
-            // "grove agent" doesn't exist; we spawn a shell in the workspace.
-            const shell = process.env.SHELL ?? "bash";
+            // Use role's command if defined, else $SHELL (or fallback to bash).
+            const roleCommand = topology?.roles.find((r) => r.name === item.id)?.command;
+            const shell = roleCommand ?? process.env.SHELL ?? "bash";
             handleSpawn(item.id, shell, "HEAD", paletteParentId);
           } else if (item.kind === "kill") {
             handleKill(item.id);
@@ -392,9 +409,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
           };
           return tmux?.spawn(options);
         })
-        .catch(() => {});
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : "Spawn failed";
+          showError(msg);
+        });
     },
-    [tmux, provider, topology, activeClaims],
+    [tmux, provider, topology, activeClaims, showError],
   );
 
   /** Kill tmux session → release claim → clean workspace. */
@@ -422,9 +442,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
           }
         }
       };
-      cleanup().catch(() => {});
+      cleanup().catch((err) => {
+        const msg = err instanceof Error ? err.message : "Kill failed";
+        showError(msg);
+      });
     },
-    [tmux, provider],
+    [tmux, provider, showError],
   );
 
   return (
@@ -461,8 +484,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         vfsNavigateTrigger={vfsNavigateTrigger}
         artifactIndex={artifactIndex}
         showArtifactDiff={showArtifactDiff}
+        activeClaims={activeClaims ?? undefined}
       />
-      <StatusBar mode={panels.state.mode} isDetailView={nav.isDetailView} />
+      <StatusBar mode={panels.state.mode} isDetailView={nav.isDetailView} error={lastError} />
     </box>
   );
 }

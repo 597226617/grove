@@ -41,6 +41,7 @@ const TopologyRoleWithEdgesSchema = z
     description: z.string().max(256).optional(),
     max_instances: z.number().int().min(1).max(100).optional(),
     edges: z.array(RoleEdgeSchema).max(50).optional(),
+    command: z.string().max(512).optional(),
   })
   .strict();
 
@@ -63,6 +64,7 @@ interface WireAgentTopology {
             | "escalates";
         }[]
       | undefined;
+    readonly command?: string | undefined;
   }[];
   readonly spawning?:
     | {
@@ -179,6 +181,8 @@ export interface AgentRole {
   readonly description?: string | undefined;
   readonly maxInstances?: number | undefined;
   readonly edges?: readonly RoleEdge[] | undefined;
+  /** Shell command to run when spawning this role (defaults to $SHELL). */
+  readonly command?: string | undefined;
 }
 
 /** Spawning configuration for dynamic agent creation. */
@@ -218,6 +222,7 @@ export function wireToTopology(wire: z.infer<typeof AgentTopologySchema>): Agent
             }),
           ),
         }),
+        ...(role.command !== undefined && { command: role.command }),
       }),
     ),
     ...(wire.spawning !== undefined && {

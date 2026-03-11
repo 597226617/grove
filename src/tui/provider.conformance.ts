@@ -136,3 +136,77 @@ export function runProviderConformanceTests(suiteName: string, factory: Provider
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Lifecycle conformance (optional — only for providers with lifecycle methods)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run lifecycle conformance tests against a TuiDataProvider implementation.
+ *
+ * Tests: createClaim → getClaims → releaseClaim → verify released.
+ * Only runs when the provider has lifecycle methods.
+ */
+export function runProviderLifecycleTests(suiteName: string, factory: ProviderFactory): void {
+  describe(`${suiteName} lifecycle conformance`, () => {
+    test("createClaim → getClaims → releaseClaim lifecycle", async () => {
+      const { provider, cleanup } = await factory();
+      try {
+        if (!provider.createClaim || !provider.releaseClaim) {
+          // Provider doesn't support lifecycle — skip
+          return;
+        }
+
+        const agent = { agentId: `lifecycle-test-${Date.now()}` };
+        const targetRef = `lifecycle-target-${Date.now()}`;
+
+        // Create claim
+        const claim = await provider.createClaim({
+          targetRef,
+          agent,
+          intentSummary: "conformance lifecycle test",
+          leaseDurationMs: 300_000,
+        });
+        expect(claim.status).toBe("active");
+        expect(claim.targetRef).toBe(targetRef);
+
+        // Verify claim shows in active claims
+        const activeClaims = await provider.getClaims({ status: "active" });
+        const found = activeClaims.find((c) => c.claimId === claim.claimId);
+        expect(found).toBeDefined();
+
+        // Release claim
+        await provider.releaseClaim(claim.claimId);
+
+        // Verify claim is no longer in active claims
+        const afterRelease = await provider.getClaims({ status: "active" });
+        const notFound = afterRelease.find((c) => c.claimId === claim.claimId);
+        expect(notFound).toBeUndefined();
+      } finally {
+        cleanup();
+      }
+    });
+
+    test("checkoutWorkspace returns a valid path", async () => {
+      const { provider, cleanup } = await factory();
+      try {
+        if (!provider.checkoutWorkspace) {
+          return;
+        }
+
+        const agent = { agentId: `workspace-test-${Date.now()}` };
+        const targetRef = `ws-target-${Date.now()}`;
+        const path = await provider.checkoutWorkspace(targetRef, agent);
+        expect(typeof path).toBe("string");
+        expect(path.length).toBeGreaterThan(0);
+
+        // Clean up
+        if (provider.cleanWorkspace) {
+          await provider.cleanWorkspace(targetRef, agent.agentId);
+        }
+      } finally {
+        cleanup();
+      }
+    });
+  });
+}

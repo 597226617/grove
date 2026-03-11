@@ -347,6 +347,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   async createBareWorkspace(key: string, options: CheckoutOptions): Promise<WorkspaceInfo> {
     const agentId = options.agent.agentId;
     validateWorkspaceKey(agentId);
+    validateWorkspaceKey(key);
 
     // Idempotent: return existing active workspace
     const existing = await this.getWorkspace(key, agentId);
@@ -355,8 +356,8 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     }
 
     // Create empty workspace directory
-    const keyHex = sanitizeCidForPath(key);
-    const workspacePath = join(this.workspacesRoot, `${keyHex}-${agentId}`);
+    // Key is a spawnId (not a CID), so use it directly after validation
+    const workspacePath = join(this.workspacesRoot, `${key}-${agentId}`);
     await mkdir(this.workspacesRoot, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
 
