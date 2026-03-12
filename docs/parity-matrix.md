@@ -9,7 +9,7 @@ and their classification. All `shared` capabilities use the operations layer in
 | Class | Meaning |
 |---|---|
 | **shared** | Available on all listed surfaces via the operations layer |
-| **operator-only** | Only makes sense for human operators (CLI) |
+| **operator-only** | Only makes sense for human operators (single surface) |
 | **infra-only** | Infrastructure/deployment concern (CLI, HTTP) |
 | **transport-only** | Specific to a transport's capabilities |
 | **deferred** | Planned but not yet implemented |
@@ -42,7 +42,7 @@ and their classification. All `shared` capabilities use the operations layer in
 | outcome list | Y | Y | Y | Y | shared |
 | outcome stats | Y | Y | Y | Y | shared |
 | init | Y | - | - | - | operator-only |
-| ask | Y | Y | - | - | operator-only |
+| ask (CLI) / ask_user (MCP) | Y | Y | - | - | transport-only |
 | tui | Y | - | - | - | operator-only |
 | import/export | Y | - | - | - | deferred |
 | gossip | Y | - | Y | - | infra-only |
@@ -61,6 +61,10 @@ and their classification. All `shared` capabilities use the operations layer in
 - **check stop**: Only meaningful for MCP agents that need to decide whether to continue.
 - **bounty settle**: Operator-level action, currently MCP-only.
 - **cas put / ingest**: MCP tools for agents to store content before contributing.
+- **ask / ask_user**: Same capability (interactive question-asking) with transport-specific
+  implementations. CLI uses `grove ask` (interactive TTY or rules-based), MCP uses `ask_user`
+  (delegates to the `@grove/ask-user` package). Neither goes through the operations layer;
+  each surface implements its own strategy resolution.
 - **gossip**: Peer-to-peer sync, relevant for CLI daemon and HTTP server.
 
 ## JSON Output
@@ -78,4 +82,6 @@ When adding a new capability:
 2. Add tests in `src/core/operations/<name>.test.ts`
 3. Wire it into each required surface
 4. Update this matrix
-5. The CI parity test (`parity-matrix.test.ts`) will fail if the matrix is inconsistent
+5. Update the hardcoded lists in `parity-matrix.test.ts` — the CI test verifies that
+   the operations layer exports, MCP tool registrations, and CLI command registrations
+   all match its lists. It does **not** parse this document, so both must be kept in sync manually.
