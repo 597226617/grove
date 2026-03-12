@@ -3,12 +3,15 @@
  *
  * Subcommands:
  *   grove outcome set <cid> <status>   — set the outcome for a contribution
+ *   grove outcome get <cid>            — get the outcome for a contribution
  *   grove outcome list                 — list outcomes with optional filters
  *   grove outcome stats                — show aggregated outcome statistics
  *
  * Usage:
  *   grove outcome set blake3:abc123 accepted --reason "looks good"
  *   grove outcome set blake3:abc123 rejected --baseline blake3:def456
+ *   grove outcome get blake3:abc123
+ *   grove outcome get blake3:abc123 --json
  *   grove outcome list --status accepted -n 10
  *   grove outcome list --json
  *   grove outcome stats
@@ -17,6 +20,7 @@
 import { parseArgs } from "node:util";
 import type { OperationDeps } from "../../core/operations/index.js";
 import {
+  getOutcomeOperation,
   listOutcomesOperation,
   outcomeStatsOperation,
   setOutcomeOperation,
@@ -62,6 +66,12 @@ export interface OutcomeSetArgs {
   readonly json: boolean;
 }
 
+export interface OutcomeGetArgs {
+  readonly subcommand: "get";
+  readonly cid: string;
+  readonly json: boolean;
+}
+
 export interface OutcomeListArgs {
   readonly subcommand: "list";
   readonly status?: string | undefined;
@@ -74,7 +84,7 @@ export interface OutcomeStatsArgs {
   readonly json: boolean;
 }
 
-export type OutcomeArgs = OutcomeSetArgs | OutcomeListArgs | OutcomeStatsArgs;
+export type OutcomeArgs = OutcomeSetArgs | OutcomeGetArgs | OutcomeListArgs | OutcomeStatsArgs;
 
 const DEFAULT_LIMIT = 20;
 
@@ -88,6 +98,9 @@ export function parseOutcomeArgs(argv: string[]): OutcomeArgs {
   if (subcommand === "set") {
     return parseSetArgs(argv.slice(1));
   }
+  if (subcommand === "get") {
+    return parseGetArgs(argv.slice(1));
+  }
   if (subcommand === "list") {
     return parseListArgs(argv.slice(1));
   }
@@ -95,7 +108,9 @@ export function parseOutcomeArgs(argv: string[]): OutcomeArgs {
     return parseStatsArgs(argv.slice(1));
   }
 
-  throw new Error(`Unknown subcommand: '${subcommand ?? "(none)"}'. Expected: set, list, stats`);
+  throw new Error(
+    `Unknown subcommand: '${subcommand ?? "(none)"}'. Expected: set, get, list, stats`,
+  );
 }
 
 function parseSetArgs(argv: string[]): OutcomeSetArgs {
@@ -127,6 +142,28 @@ function parseSetArgs(argv: string[]): OutcomeSetArgs {
     reason: values.reason,
     baseline: values.baseline,
     evaluator: resolveAgentId(values.evaluator),
+    json: values.json ?? false,
+  };
+}
+
+function parseGetArgs(argv: string[]): OutcomeGetArgs {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      json: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+    strict: true,
+  });
+
+  const cid = positionals[0];
+  if (!cid) {
+    throw new Error("Usage: grove outcome get <cid> [--json]");
+  }
+
+  return {
+    subcommand: "get",
+    cid,
     json: values.json ?? false,
   };
 }
@@ -223,6 +260,8 @@ export async function runOutcome(args: OutcomeArgs, deps: OutcomeDeps): Promise<
   switch (args.subcommand) {
     case "set":
       return runSet(args, deps);
+    case "get":
+      return runGet(args, deps);
     case "list":
       return runList(args, deps);
     case "stats":
@@ -267,6 +306,34 @@ async function runSet(args: OutcomeSetArgs, deps: OutcomeDeps): Promise<void> {
   const record = result.value;
   deps.stdout(
     `Outcome set: ${truncateCid(record.cid)} → ${record.status} (by ${record.evaluatedBy})`,
+  );
+}
+
+async function runGet(args: OutcomeGetArgs, deps: OutcomeDeps): Promise<void> {
+  const result = await getOutcomeOperation({ cid: args.cid }, toOpDeps(deps));
+
+  if (!result.ok) {
+    if (args.json) {
+      outputJsonError(result.error);
+    }
+    deps.stderr(`Error: ${result.error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (args.json) {
+    outputJson(result.value);
+    return;
+  }
+
+  const r = result.value;
+  deps.stdout(
+    `Outcome for ${truncateCid(r.cid)}:\n` +
+      `  Status:      ${r.status}\n` +
+      `  Evaluator:   ${r.evaluatedBy}\n` +
+      `  Evaluated:   ${r.evaluatedAt}` +
+      (r.reason ? `\n  Reason:      ${r.reason}` : "") +
+      (r.baselineCid ? `\n  Baseline:    ${truncateCid(r.baselineCid)}` : ""),
   );
 }
 

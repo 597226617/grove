@@ -9,8 +9,8 @@
  *   grove discuss "Topic" --json
  */
 
-import { access, readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import type { ContributionMode } from "../../core/models.js";
@@ -18,6 +18,7 @@ import { RelationType } from "../../core/models.js";
 import type { OperationDeps } from "../../core/operations/index.js";
 import { contributeOperation } from "../../core/operations/index.js";
 import { outputJson } from "../format.js";
+import { resolveGroveDir } from "../utils/grove-dir.js";
 
 export interface DiscussOptions {
   readonly respondsTo?: string | undefined;
@@ -26,7 +27,7 @@ export interface DiscussOptions {
   readonly mode?: "evaluation" | "exploration" | undefined;
   readonly description?: string | undefined;
   readonly json?: boolean | undefined;
-  readonly cwd: string;
+  readonly groveOverride?: string | undefined;
 }
 
 /**
@@ -86,7 +87,6 @@ export function parseDiscussArgs(args: readonly string[]): DiscussOptions {
     mode,
     description: values.description as string | undefined,
     json: values.json ?? false,
-    cwd: process.cwd(),
   };
 }
 
@@ -94,33 +94,23 @@ export function parseDiscussArgs(args: readonly string[]): DiscussOptions {
  * Execute `grove discuss` by initializing the store and calling discussOperation.
  */
 export async function executeDiscuss(options: DiscussOptions): Promise<{ cid: string }> {
-  // Find .grove/
-  const grovePath = join(options.cwd, ".grove");
-  try {
-    await access(grovePath);
-  } catch {
-    throw new Error("No grove found. Run 'grove init' first to create a grove in this directory.");
-  }
+  const { groveDir, dbPath } = resolveGroveDir(options.groveOverride);
 
   // Dynamic imports for lazy loading
-  const { SqliteContributionStore, SqliteClaimStore, initSqliteDb } = await import(
-    "../../local/sqlite-store.js"
-  );
+  const { createSqliteStores } = await import("../../local/sqlite-store.js");
   const { FsCas } = await import("../../local/fs-cas.js");
   const { DefaultFrontierCalculator } = await import("../../core/frontier.js");
   const { parseGroveContract } = await import("../../core/contract.js");
   const { EnforcingContributionStore } = await import("../../core/enforcing-store.js");
 
-  const dbPath = join(grovePath, "grove.db");
-  const casPath = join(grovePath, "cas");
-  const db = initSqliteDb(dbPath);
-  const rawStore = new SqliteContributionStore(db);
-  const claimStore = new SqliteClaimStore(db);
-  const cas = new FsCas(casPath);
-  const frontier = new DefaultFrontierCalculator(rawStore);
+  const stores = createSqliteStores(dbPath);
+  const cas = new FsCas(join(groveDir, "cas"));
+  const frontier = new DefaultFrontierCalculator(stores.contributionStore);
 
   // Load GROVE.md contract for enforcement and mode resolution
-  const grovemdPath = join(options.cwd, "GROVE.md");
+  // GROVE.md lives in the parent of .grove/
+  const groveRoot = join(groveDir, "..");
+  const grovemdPath = join(groveRoot, "GROVE.md");
   let contract: Awaited<ReturnType<typeof parseGroveContract>> | undefined;
   let grovemdContent: string | undefined;
   try {
@@ -133,12 +123,14 @@ export async function executeDiscuss(options: DiscussOptions): Promise<{ cid: st
   }
 
   // Wrap store with enforcement if contract is available
-  const store = contract ? new EnforcingContributionStore(rawStore, contract, { cas }) : rawStore;
+  const store = contract
+    ? new EnforcingContributionStore(stores.contributionStore, contract, { cas })
+    : stores.contributionStore;
 
   try {
     const opDeps: OperationDeps = {
       contributionStore: store,
-      claimStore,
+      claimStore: stores.claimStore,
       cas,
       frontier,
       ...(contract !== undefined ? { contract } : {}),
@@ -180,7 +172,7 @@ export async function executeDiscuss(options: DiscussOptions): Promise<{ cid: st
 
     return { cid: value.cid };
   } finally {
-    db.close();
+    stores.close();
   }
 }
 
@@ -190,7 +182,5 @@ export async function handleDiscuss(
   groveOverride?: string,
 ): Promise<void> {
   const options = parseDiscussArgs(args);
-  // If --grove override is provided, derive cwd from it (parent of .grove dir)
-  const cwd = groveOverride ? dirname(resolve(groveOverride)) : options.cwd;
-  await executeDiscuss({ ...options, cwd });
+  await executeDiscuss({ ...options, groveOverride });
 }

@@ -124,7 +124,7 @@ describe("executeDiscuss", () => {
       const { cid } = await executeDiscuss({
         message: "Should we refactor the parser?",
         tags: [],
-        cwd: dir,
+        groveOverride: join(dir, ".grove"),
       });
 
       expect(cid).toMatch(/^blake3:/);
@@ -156,7 +156,7 @@ describe("executeDiscuss", () => {
         respondsTo: rootCid,
         message: "Great work, but consider edge cases",
         tags: ["review"],
-        cwd: dir,
+        groveOverride: join(dir, ".grove"),
       });
 
       expect(cid).toMatch(/^blake3:/);
@@ -175,7 +175,7 @@ describe("executeDiscuss", () => {
       const { cid } = await executeDiscuss({
         message: "Topic without mode",
         tags: [],
-        cwd: dir,
+        groveOverride: join(dir, ".grove"),
       });
 
       // Read back the stored contribution — should use resolveMode default ("evaluation"),
@@ -203,7 +203,7 @@ describe("executeDiscuss", () => {
       const { cid } = await executeDiscuss({
         message: "Architecture decision needed",
         tags: ["architecture", "urgent"],
-        cwd: dir,
+        groveOverride: join(dir, ".grove"),
       });
 
       expect(cid).toMatch(/^blake3:/);

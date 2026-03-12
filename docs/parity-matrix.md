@@ -40,7 +40,7 @@ and their classification. All `shared` capabilities use the operations layer in
 | outcome set | Y | Y | Y | Y | shared |
 | outcome get | Y | Y | Y | Y | shared |
 | outcome list | Y | Y | Y | Y | shared |
-| outcome stats | Y | - | Y | Y | shared |
+| outcome stats | Y | Y | Y | Y | shared |
 | init | Y | - | - | - | operator-only |
 | ask | Y | Y | - | - | operator-only |
 | tui | Y | - | - | - | operator-only |

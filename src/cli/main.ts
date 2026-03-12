@@ -412,6 +412,11 @@ Usage:
   grove thread <cid>                View a discussion thread
   grove threads [--tag <tag>]       List active discussion threads
 
+  grove outcome set <cid> <status>  Set outcome for a contribution
+  grove outcome get <cid>          Get outcome for a contribution
+  grove outcome list [--status]    List outcomes
+  grove outcome stats              Show outcome statistics
+
   grove export --to-discussion <owner/repo> <cid>   Export to GitHub Discussion
   grove export --to-pr <owner/repo> <cid>           Export to GitHub PR
   grove import --from-pr <owner/repo#number>        Import GitHub PR
