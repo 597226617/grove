@@ -19,12 +19,14 @@ export const reviewLoopPreset: PresetConfig = {
         description: "Writes and iterates on code",
         maxInstances: 2,
         edges: [{ target: "reviewer", edgeType: "delegates" }],
+        command: "claude --role coder",
       },
       {
         name: "reviewer",
         description: "Reviews code and provides feedback",
         maxInstances: 2,
         edges: [{ target: "coder", edgeType: "feedback" }],
+        command: "claude --role reviewer",
       },
     ],
     spawning: { dynamic: true, maxDepth: 2 },
@@ -56,5 +58,5 @@ export const reviewLoopPreset: PresetConfig = {
     },
   ],
   services: { server: true, mcp: false },
-  backend: "local",
+  backend: "nexus",
 };

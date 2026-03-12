@@ -30,11 +30,13 @@ import { ActivityPanelView } from "../views/activity-panel.js";
 import { AgentGraphView } from "../views/agent-graph.js";
 import { AgentListView } from "../views/agent-list.js";
 import { ArtifactPreviewView } from "../views/artifact-preview.js";
+import { BountiesPanelView } from "../views/bounties-panel.js";
 import { ClaimsView } from "../views/claims.js";
 import { DagView } from "../views/dag.js";
 import { DashboardView } from "../views/dashboard.js";
 import { DetailView } from "../views/detail.js";
 import { FrontierView } from "../views/frontier-view.js";
+import { GossipPanelView } from "../views/gossip-panel.js";
 import { OutcomesPanelView } from "../views/outcomes-panel.js";
 import { SearchPanelView } from "../views/search-panel.js";
 import { TerminalView } from "../views/terminal.js";
@@ -330,6 +332,35 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                   intervalMs={intervalMs}
                   active={isPanelVisible(panelState, Panel.Outcomes)}
                   cursor={isFocused(Panel.Outcomes) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+          </box>
+        )}
+
+        {/* Bounties / Gossip panels */}
+        {(isPanelVisible(panelState, Panel.Bounties) ||
+          isPanelVisible(panelState, Panel.Gossip)) && (
+          <box flexDirection="row" flexGrow={1}>
+            {isPanelVisible(panelState, Panel.Bounties) && (
+              <PanelChrome panel={Panel.Bounties} focused={isFocused(Panel.Bounties)}>
+                <BountiesPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Bounties)}
+                  cursor={isFocused(Panel.Bounties) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+            {isPanelVisible(panelState, Panel.Gossip) && (
+              <PanelChrome panel={Panel.Gossip} focused={isFocused(Panel.Gossip)}>
+                <GossipPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Gossip)}
+                  cursor={isFocused(Panel.Gossip) ? nav.state.cursor : -1}
                   onRowCountChanged={onRowCountChanged}
                 />
               </PanelChrome>

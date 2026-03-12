@@ -25,6 +25,8 @@ export const Panel = {
   Search: 10,
   Threads: 11,
   Outcomes: 12,
+  Bounties: 13,
+  Gossip: 14,
 } as const;
 export type Panel = (typeof Panel)[keyof typeof Panel];
 
@@ -42,6 +44,8 @@ export const PANEL_LABELS: Readonly<Record<Panel, string>> = {
   [Panel.Search]: "Search",
   [Panel.Threads]: "Threads",
   [Panel.Outcomes]: "Outcomes",
+  [Panel.Bounties]: "Bounties",
+  [Panel.Gossip]: "Gossip",
 };
 
 /** Protocol core panels — always visible. */
@@ -62,6 +66,8 @@ export const OPERATOR_PANELS: readonly Panel[] = [
   Panel.Search,
   Panel.Threads,
   Panel.Outcomes,
+  Panel.Bounties,
+  Panel.Gossip,
 ];
 
 // ---------------------------------------------------------------------------

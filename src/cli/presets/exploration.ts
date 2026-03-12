@@ -22,6 +22,7 @@ export const explorationPreset: PresetConfig = {
           { target: "critic", edgeType: "delegates" },
           { target: "synthesizer", edgeType: "feeds" },
         ],
+        command: "claude --role explorer",
       },
       {
         name: "critic",
@@ -31,12 +32,14 @@ export const explorationPreset: PresetConfig = {
           { target: "explorer", edgeType: "feedback" },
           { target: "synthesizer", edgeType: "feeds" },
         ],
+        command: "claude --role critic",
       },
       {
         name: "synthesizer",
         description: "Combines insights into coherent results",
         maxInstances: 1,
         edges: [{ target: "explorer", edgeType: "requests" }],
+        command: "claude --role synthesizer",
       },
     ],
     spawning: { dynamic: true, maxDepth: 3 },

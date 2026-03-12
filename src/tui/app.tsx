@@ -292,6 +292,14 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       panels.toggle(Panel.Outcomes);
       return;
     }
+    if (input === "[") {
+      panels.toggle(Panel.Bounties);
+      return;
+    }
+    if (input === "]") {
+      panels.toggle(Panel.Gossip);
+      return;
+    }
 
     // Tab/Shift+Tab: cycle focus
     if (input === "tab") {
