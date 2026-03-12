@@ -156,7 +156,7 @@ export interface WorkspaceManager {
    * @param options - Agent identity and optional metadata
    * @returns Information about the created workspace
    */
-  createBareWorkspace?(key: string, options: CheckoutOptions): Promise<WorkspaceInfo>;
+  createBareWorkspace(key: string, options: CheckoutOptions): Promise<WorkspaceInfo>;
 
   /**
    * Update the lastActivityAt timestamp for a workspace.

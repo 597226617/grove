@@ -25,7 +25,6 @@ import type {
   ContributionDetail,
   DagData,
   DashboardData,
-  GroveMetadata,
   OperatorStats,
   PaginatedQuery,
   ProviderCapabilities,
@@ -33,7 +32,15 @@ import type {
   TuiDataProvider,
   TuiOutcomeProvider,
 } from "./provider.js";
-import { buildFrontierSummary } from "./provider-utils.js";
+import {
+  activityFromStore,
+  claimsFromStore,
+  contributionDetailFromStore,
+  dagFromStore,
+  dashboardFromStores,
+  diffArtifactsFromBuffers,
+  outcomeStatsFromStore,
+} from "./provider-shared.js";
 
 /** Configuration for the local provider. */
 export interface LocalProviderDeps {
@@ -73,28 +80,7 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
   }
 
   async getDashboard(): Promise<DashboardData> {
-    const [contributionCount, activeClaims, recentContributions, frontier] = await Promise.all([
-      this.store.count(),
-      this.claims.activeClaims(),
-      this.store.list({ limit: 10 }),
-      this.calc.compute({ limit: 3 }),
-    ]);
-
-    const metadata: GroveMetadata = {
-      name: this.name,
-      contributionCount,
-      activeClaimCount: activeClaims.length,
-      mode: "local",
-    };
-
-    const frontierSummary = buildFrontierSummary(frontier);
-
-    return {
-      metadata,
-      activeClaims,
-      recentContributions,
-      frontierSummary,
-    };
+    return dashboardFromStores(this.store, this.claims, this.calc, this.name, "local");
   }
 
   async getContributions(
@@ -104,28 +90,11 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
   }
 
   async getContribution(cid: string): Promise<ContributionDetail | undefined> {
-    const contribution = await this.store.get(cid);
-    if (!contribution) return undefined;
-
-    const [ancestors, children, thread] = await Promise.all([
-      this.store.ancestors(cid),
-      this.store.children(cid),
-      this.store.thread(cid, { maxDepth: 20, limit: 50 }),
-    ]);
-
-    return { contribution, ancestors, children, thread };
+    return contributionDetailFromStore(this.store, cid);
   }
 
-  async getClaims(query?: ClaimsQuery): Promise<readonly import("../core/models.js").Claim[]> {
-    if (!query || query.status === "active") {
-      if (query?.agentId) {
-        return this.claims.listClaims({ status: "active", agentId: query.agentId });
-      }
-      return this.claims.activeClaims();
-    }
-    return this.claims.listClaims({
-      agentId: query.agentId,
-    });
+  async getClaims(query?: ClaimsQuery): Promise<readonly Claim[]> {
+    return claimsFromStore(this.claims, query);
   }
 
   async createClaim(input: ClaimInput): Promise<Claim> {
@@ -155,12 +124,13 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
       // For TUI-spawned agents, targetRef is a spawnId (not a contribution CID).
       // Fall back to a bare workspace directory so the agent gets an isolated
       // working directory that the reconciler can still track.
-      if (this.workspace.createBareWorkspace) {
-        const info = await this.workspace.createBareWorkspace(targetRef, { agent });
-        return info.workspacePath;
-      }
-      throw new Error(`Cannot create workspace for '${targetRef}'`);
+      const info = await this.workspace.createBareWorkspace(targetRef, { agent });
+      return info.workspacePath;
     }
+  }
+
+  async heartbeatClaim(claimId: string, leaseDurationMs?: number): Promise<Claim> {
+    return this.claims.heartbeat(claimId, leaseDurationMs);
   }
 
   async releaseClaim(claimId: string): Promise<void> {
@@ -181,44 +151,11 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
   }
 
   async getActivity(query?: ActivityQuery): Promise<readonly Contribution[]> {
-    return this.store.list({
-      kind: query?.kind,
-      tags: query?.tags ? [...query.tags] : undefined,
-      agentId: query?.agentId,
-      limit: query?.limit ?? 100,
-      offset: query?.offset,
-    });
+    return activityFromStore(this.store, query);
   }
 
   async getDag(rootCid?: string): Promise<DagData> {
-    if (rootCid) {
-      const visited = new Set<string>();
-      const queue: string[] = [rootCid];
-      const result: Contribution[] = [];
-
-      while (queue.length > 0 && result.length < 200) {
-        const cid = queue.shift();
-        if (cid === undefined) break;
-        if (visited.has(cid)) continue;
-        visited.add(cid);
-
-        const contribution = await this.store.get(cid);
-        if (!contribution) continue;
-        result.push(contribution);
-
-        const children = await this.store.children(cid);
-        for (const child of children) {
-          if (!visited.has(child.cid)) {
-            queue.push(child.cid);
-          }
-        }
-      }
-
-      return { contributions: result };
-    }
-
-    const contributions = await this.store.list({ limit: 200 });
-    return { contributions };
+    return dagFromStore(this.store, rootCid);
   }
 
   async getHotThreads(limit = 20): Promise<readonly ThreadSummary[]> {
@@ -239,26 +176,7 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
   }
 
   async getOutcomeStats(): Promise<OperatorStats> {
-    if (!this.outcomes) {
-      return {
-        totalContributions: 0,
-        outcomeBreakdown: { accepted: 0, rejected: 0, crashed: 0, invalidated: 0 },
-        acceptanceRate: 0,
-        byAgent: [],
-      };
-    }
-    const stats = await this.outcomes.getStats();
-    return {
-      totalContributions: stats.total,
-      outcomeBreakdown: {
-        accepted: stats.accepted,
-        rejected: stats.rejected,
-        crashed: stats.crashed,
-        invalidated: stats.invalidated,
-      },
-      acceptanceRate: stats.acceptanceRate,
-      byAgent: [],
-    };
+    return outcomeStatsFromStore(this.outcomes);
   }
 
   async listOutcomes(query?: { status?: OutcomeStatus }): Promise<readonly OutcomeRecord[]> {
@@ -316,7 +234,7 @@ export class LocalDataProvider implements TuiDataProvider, TuiOutcomeProvider, T
       this.getArtifact(parentCid, name),
       this.getArtifact(childCid, name),
     ]);
-    return { parent: parentBuf.toString("utf-8"), child: childBuf.toString("utf-8") };
+    return diffArtifactsFromBuffers(parentBuf, childBuf);
   }
 
   async search(query: string): Promise<readonly Contribution[]> {

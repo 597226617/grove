@@ -31,6 +31,7 @@ import type { ListEntry, ListOptions, NexusClient } from "./client.js";
 import type { NexusConfig, ResolvedNexusConfig } from "./config.js";
 import { resolveConfig } from "./config.js";
 import { isRetryable, mapNexusError, NexusConflictError } from "./errors.js";
+import { LruCache } from "./lru-cache.js";
 import { Semaphore } from "./semaphore.js";
 import {
   activeClaimIndexPath,
@@ -68,6 +69,12 @@ export class NexusClaimStore implements ClaimStore {
   private readonly config: ResolvedNexusConfig;
   private readonly semaphore: Semaphore;
   private readonly zoneId: string;
+  private readonly claimCache: LruCache<Claim>;
+  /** Cached activeClaims result with TTL. */
+  private activeClaimsCache:
+    | { readonly claims: readonly Claim[]; readonly expiresAt: number }
+    | undefined;
+  private static readonly ACTIVE_CLAIMS_TTL_MS = 2_500;
 
   constructor(config: NexusConfig) {
     this.config = resolveConfig(config);
@@ -75,6 +82,12 @@ export class NexusClaimStore implements ClaimStore {
     this.zoneId = this.config.zoneId;
     this.storeIdentity = `nexus:${this.zoneId}:claims`;
     this.semaphore = new Semaphore(this.config.maxConcurrency);
+    this.claimCache = new LruCache(this.config.cacheMaxEntries);
+  }
+
+  /** Invalidate the activeClaims cache (called on mutations). */
+  private invalidateActiveClaimsCache(): void {
+    this.activeClaimsCache = undefined;
   }
 
   async createClaim(claim: Claim): Promise<Claim> {
@@ -118,6 +131,8 @@ export class NexusClaimStore implements ClaimStore {
       throw err;
     }
 
+    this.claimCache.set(createdClaim.claimId, createdClaim);
+    this.invalidateActiveClaimsCache();
     return createdClaim;
   }
 
@@ -154,6 +169,8 @@ export class NexusClaimStore implements ClaimStore {
       } else {
         await this.writeClaim(renewed);
       }
+      this.claimCache.set(renewed.claimId, renewed);
+      this.invalidateActiveClaimsCache();
       return renewed;
     }
 
@@ -185,6 +202,8 @@ export class NexusClaimStore implements ClaimStore {
       throw err;
     }
 
+    this.claimCache.set(createdClaim.claimId, createdClaim);
+    this.invalidateActiveClaimsCache();
     return createdClaim;
   }
 
@@ -207,6 +226,8 @@ export class NexusClaimStore implements ClaimStore {
     };
 
     await this.writeClaimCas(updated, etag);
+    this.claimCache.set(updated.claimId, updated);
+    this.invalidateActiveClaimsCache();
     return updated;
   }
 
@@ -247,8 +268,13 @@ export class NexusClaimStore implements ClaimStore {
         };
         await this.writeClaimCas(expired, etag);
         await this.deleteActiveIndex(expired);
+        this.claimCache.set(expired.claimId, expired);
         results.push({ claim: expired, reason });
       }
+    }
+
+    if (results.length > 0) {
+      this.invalidateActiveClaimsCache();
     }
 
     return results;
@@ -262,20 +288,35 @@ export class NexusClaimStore implements ClaimStore {
       return this.readActiveClaimsFromDir(dir, now);
     }
 
+    // Check TTL-based cache for all-active-claims query
+    if (this.activeClaimsCache !== undefined && this.activeClaimsCache.expiresAt > Date.now()) {
+      return this.activeClaimsCache.claims;
+    }
+
     const dir = activeClaimsDir(this.zoneId);
     const entries = await this.listAllPages(dir, { recursive: true });
 
+    // Parallel reads for all non-directory entries
+    const claimIds = entries
+      .filter((entry) => !entry.isDirectory)
+      .map((entry) => decodeSegment(entry.name));
+
+    const results = await Promise.all(claimIds.map((claimId) => this.readClaim(claimId)));
+
     const claims: Claim[] = [];
-    for (const entry of entries) {
-      if (entry.isDirectory) continue;
-      const claimId = decodeSegment(entry.name);
-      const claim = await this.readClaim(claimId);
+    for (const claim of results) {
       if (claim !== undefined && claim.status === "active") {
         if (new Date(claim.leaseExpiresAt).getTime() >= now.getTime()) {
           claims.push(claim);
         }
       }
     }
+
+    this.activeClaimsCache = {
+      claims,
+      expiresAt: Date.now() + NexusClaimStore.ACTIVE_CLAIMS_TTL_MS,
+    };
+
     return claims;
   }
 
@@ -307,6 +348,7 @@ export class NexusClaimStore implements ClaimStore {
         if (new Date(claim.heartbeatAt).getTime() < cutoff.getTime()) {
           const path = claimPath(this.zoneId, claim.claimId);
           await this.withRetry(() => this.run(() => this.client.delete(path)), "cleanCompleted");
+          this.claimCache.delete(claim.claimId);
           deleted++;
         }
       }
@@ -357,11 +399,18 @@ export class NexusClaimStore implements ClaimStore {
     if (newStatus !== "active") {
       await this.deleteActiveIndex(updated);
     }
+    this.claimCache.set(updated.claimId, updated);
+    this.invalidateActiveClaimsCache();
     return updated;
   }
 
   private async readClaim(claimId: string): Promise<Claim | undefined> {
+    const cached = this.claimCache.get(claimId);
+    if (cached !== undefined) return cached;
     const result = await this.readClaimWithEtag(claimId);
+    if (result !== undefined) {
+      this.claimCache.set(claimId, result.claim);
+    }
     return result?.claim;
   }
 
@@ -423,11 +472,14 @@ export class NexusClaimStore implements ClaimStore {
     } catch (err) {
       if (!(err instanceof NexusConflictError)) throw err;
 
-      // Lock conflict — check if the holder is still active
+      // Lock conflict — check if the holder is still active.
+      // IMPORTANT: bypass cache to get fresh state (the holder may have
+      // heartbeated recently, and stale cache would cause false expiry).
       const existingLockData = await this.run(() => this.client.read(lockFile));
       if (existingLockData !== undefined) {
         const holderId = decoder.decode(existingLockData);
-        const holderClaim = await this.readClaim(holderId);
+        const holderResult = await this.readClaimWithEtag(holderId);
+        const holderClaim = holderResult?.claim;
 
         // If the holder is gone, expired, released, or completed, clean up and retry
         if (
