@@ -11,7 +11,7 @@ import { useCallback, useState } from "react";
 // Panel identifiers
 // ---------------------------------------------------------------------------
 
-/** Panel identifiers — protocol core (1-4), operator tooling (5-8). */
+/** Panel identifiers — protocol core (1-4), operator tooling (5-12). */
 export const Panel = {
   Dag: 1,
   Detail: 2,
@@ -21,6 +21,10 @@ export const Panel = {
   Terminal: 6,
   Artifact: 7,
   Vfs: 8,
+  Activity: 9,
+  Search: 10,
+  Threads: 11,
+  Outcomes: 12,
 } as const;
 export type Panel = (typeof Panel)[keyof typeof Panel];
 
@@ -34,6 +38,10 @@ export const PANEL_LABELS: Readonly<Record<Panel, string>> = {
   [Panel.Terminal]: "Terminal",
   [Panel.Artifact]: "Artifact",
   [Panel.Vfs]: "VFS",
+  [Panel.Activity]: "Activity",
+  [Panel.Search]: "Search",
+  [Panel.Threads]: "Threads",
+  [Panel.Outcomes]: "Outcomes",
 };
 
 /** Protocol core panels — always visible. */
@@ -50,6 +58,10 @@ export const OPERATOR_PANELS: readonly Panel[] = [
   Panel.Terminal,
   Panel.Artifact,
   Panel.Vfs,
+  Panel.Activity,
+  Panel.Search,
+  Panel.Threads,
+  Panel.Outcomes,
 ];
 
 // ---------------------------------------------------------------------------

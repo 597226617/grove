@@ -101,8 +101,18 @@ function readNexusUrlFromConfig(groveOverride?: string): string | undefined {
     if (!existsSync(configPath)) return undefined;
 
     const raw = readFileSync(configPath, "utf-8");
-    const parsed = JSON.parse(raw) as { nexusUrl?: string };
-    return parsed.nexusUrl || undefined;
+
+    // Try typed parsing first; fall back to raw JSON for backward compat
+    try {
+      const { parseGroveConfig } =
+        require("../core/config.js") as typeof import("../core/config.js");
+      const config = parseGroveConfig(raw);
+      return config.nexusUrl || undefined;
+    } catch {
+      // Fall back to untyped parse for legacy grove.json files
+      const parsed = JSON.parse(raw) as { nexusUrl?: string };
+      return parsed.nexusUrl || undefined;
+    }
   } catch {
     return undefined;
   }

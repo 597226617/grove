@@ -2,7 +2,8 @@
  * `grove init` command — create a new grove.
  *
  * Creates the .grove/ directory with SQLite store and CAS,
- * generates a default GROVE.md contract, and optionally ingests seed artifacts.
+ * generates a GROVE.md contract (optionally from a preset),
+ * writes grove.json configuration, and optionally ingests seed data.
  */
 
 import { access, mkdir, writeFile } from "node:fs/promises";
@@ -11,6 +12,8 @@ import { parseArgs } from "node:util";
 
 import type { AgentOverrides } from "../agent.js";
 import { resolveAgent } from "../agent.js";
+import { buildGroveMd, defaultGroveMdConfig, type GroveMdConfig } from "../grove-md-builder.js";
+import { getPreset, listPresetNames, type PresetConfig } from "../presets/index.js";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -26,13 +29,14 @@ export interface InitOptions {
   readonly force: boolean;
   readonly agentOverrides: AgentOverrides;
   readonly cwd: string;
+  readonly preset?: string | undefined;
 }
 
 /**
  * Parse `grove init` arguments.
  *
  * Usage: grove init [name] [--seed <path>...] [--mode <mode>] [--metric <name:direction>...]
- *        [--description <text>] [--force]
+ *        [--description <text>] [--force] [--preset <name>]
  */
 export function parseInitArgs(args: readonly string[]): InitOptions {
   const { values, positionals } = parseArgs({
@@ -43,6 +47,7 @@ export function parseInitArgs(args: readonly string[]): InitOptions {
       metric: { type: "string", multiple: true, default: [] },
       description: { type: "string" },
       force: { type: "boolean", default: false },
+      preset: { type: "string" },
       "agent-id": { type: "string" },
       "agent-name": { type: "string" },
       provider: { type: "string" },
@@ -75,6 +80,16 @@ export function parseInitArgs(args: readonly string[]): InitOptions {
     }
   }
 
+  // Validate preset if specified
+  const preset = values.preset as string | undefined;
+  if (preset !== undefined) {
+    const known = getPreset(preset);
+    if (!known) {
+      const available = listPresetNames().join(", ");
+      throw new Error(`Unknown preset '${preset}'. Available: ${available}`);
+    }
+  }
+
   const name = positionals[0] ?? basename(process.cwd());
 
   return {
@@ -84,6 +99,7 @@ export function parseInitArgs(args: readonly string[]): InitOptions {
     metric: values.metric as string[],
     description: values.description as string | undefined,
     force: values.force as boolean,
+    preset,
     agentOverrides: {
       agentId: values["agent-id"] as string | undefined,
       agentName: values["agent-name"] as string | undefined,
@@ -112,8 +128,10 @@ export interface InitDeps {
  * 2. Validate seed paths exist
  * 3. Create .grove/ directory structure
  * 4. Initialize SQLite store
- * 5. Generate GROVE.md
- * 6. Optionally ingest seed artifacts and create root contribution
+ * 5. Generate GROVE.md (from preset or defaults)
+ * 6. Write grove.json
+ * 7. Seed demo contributions if preset defines them
+ * 8. Optionally ingest seed artifacts
  */
 export async function executeInit(options: InitOptions): Promise<{ grovePath: string }> {
   const grovePath = join(options.cwd, ".grove");
@@ -135,6 +153,9 @@ export async function executeInit(options: InitOptions): Promise<{ grovePath: st
     }
   }
 
+  // Resolve preset if specified
+  const preset = options.preset ? getPreset(options.preset) : undefined;
+
   // 3. Create directory structure
   const casPath = join(grovePath, "cas");
   const workspacesPath = join(grovePath, "workspaces");
@@ -148,10 +169,54 @@ export async function executeInit(options: InitOptions): Promise<{ grovePath: st
 
   // 5. Generate GROVE.md
   const grovemdPath = join(options.cwd, "GROVE.md");
-  const grovemdContent = generateGroveMd(options);
+  const mdConfig = preset ? presetToGroveMdConfig(preset, options) : defaultGroveMdConfig(options);
+  const grovemdContent = buildGroveMd(mdConfig);
   await writeFile(grovemdPath, grovemdContent, "utf-8");
 
-  // 6. Ingest seed artifacts if provided
+  // 6. Write grove.json
+  const { writeGroveConfig } = await import("../../core/config.js");
+  const groveJsonPath = join(grovePath, "grove.json");
+  writeGroveConfig(
+    {
+      name: options.name,
+      mode: preset?.backend ?? "local",
+      preset: options.preset,
+      services: preset?.services ?? { server: false, mcp: false },
+    },
+    groveJsonPath,
+  );
+
+  // 7. Seed demo contributions if preset defines them
+  if (preset?.seedContributions && preset.seedContributions.length > 0) {
+    const { createContribution } = await import("../../core/manifest.js");
+    const { SqliteContributionStore } = await import("../../local/sqlite-store.js");
+
+    const store = new SqliteContributionStore(db);
+    const contributions = preset.seedContributions.map((seed) =>
+      createContribution({
+        kind: seed.kind,
+        mode: seed.mode,
+        summary: seed.summary,
+        artifacts: {},
+        relations: [],
+        tags: [...(seed.tags ?? [])],
+        agent: {
+          agentId: seed.agentId ?? "seed-agent",
+          // role is tracked via agentName for seed data (AgentIdentity
+          // schema in manifest.ts doesn't include role)
+          ...(seed.role ? { agentName: seed.role } : {}),
+        },
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
+    await store.putMany(contributions);
+    console.log(
+      `Seeded ${contributions.length} demo contribution(s) from preset '${options.preset}'`,
+    );
+  }
+
+  // 8. Ingest seed artifacts if provided
   if (options.seed.length > 0) {
     const { FsCas } = await import("../../local/fs-cas.js");
     const { ingestFiles } = await import("../../local/ingest/files.js");
@@ -184,120 +249,29 @@ export async function executeInit(options: InitOptions): Promise<{ grovePath: st
   db.close();
 
   console.log(`Initialized grove '${options.name}' at ${grovePath}`);
+  if (preset) {
+    console.log(`\nRun 'grove up' to start.`);
+  }
   return { grovePath };
 }
 
 // ---------------------------------------------------------------------------
-// GROVE.md template generation
+// Preset → GroveMdConfig conversion
 // ---------------------------------------------------------------------------
 
-function generateGroveMd(options: InitOptions): string {
-  const metricLines = generateMetricLines(options.metric);
-  const description = options.description ?? `Grove for ${options.name}`;
-
-  return `---
-contract_version: 2
-name: ${options.name}
-description: ${description}
-mode: ${options.mode}
-${metricLines}
-# Gates — contribution acceptance rules.
-# Uncomment and configure to enforce quality requirements.
-#
-# gates:
-#   - type: metric_improves
-#     metric: <metric_name>       # Contribution must improve this metric
-#   - type: has_artifact
-#     name: <artifact_name>       # Contribution must include this artifact
-#   - type: has_relation
-#     relation_type: derives_from # Contribution must have this relation
-#   - type: min_reviews
-#     count: 1                    # Minimum review count before acceptance
-#   - type: min_score
-#     metric: <metric_name>
-#     threshold: 0.95             # Minimum score threshold
-
-# Stop conditions — when to pause work.
-# Uncomment and configure to control agent behavior.
-#
-# stop_conditions:
-#   max_rounds_without_improvement: 5
-#   target_metric:
-#     metric: <metric_name>
-#     value: 0.99
-#   budget:
-#     max_contributions: 100
-#     max_wall_clock_seconds: 3600
-#   quorum_review_score:
-#     min_reviews: 3
-#     min_score: 8
-#   deliberation_limit:
-#     max_rounds: 10
-#     max_messages: 50
-
-# Concurrency — control parallel work.
-#
-# concurrency:
-#   max_active_claims: 10
-#   max_claims_per_agent: 2
-
-# Execution — lease and heartbeat settings.
-#
-# execution:
-#   default_lease_seconds: 300
-#   max_lease_seconds: 1800
-#   heartbeat_interval_seconds: 60
-#   stall_timeout_seconds: 120
-
-# Rate limits — prevent runaway agents.
-#
-# rate_limits:
-#   max_contributions_per_agent_per_hour: 30
-#   max_contributions_per_grove_per_hour: 100
-#   max_artifact_size_bytes: 10485760
-#   max_artifacts_per_contribution: 50
-
-# Retry — backoff configuration for failed operations.
-#
-# retry:
-#   max_attempts: 5
-#   base_delay_ms: 10000
-#   max_backoff_ms: 300000
-
-# Lifecycle hooks — shell commands run at key points.
-# Uncomment and configure as needed.
-#
-# hooks:
-#   after_checkout: "echo 'Workspace ready'"
-#   before_contribute: "bun test"
-#   after_contribute: "echo 'Contribution submitted'"
----
-
-# ${options.name}
-
-${description}
-`;
-}
-
-function generateMetricLines(metrics: readonly string[]): string {
-  if (metrics.length === 0) {
-    return `# Metrics — define measurable objectives.
-# Uncomment and configure for evaluation mode.
-#
-# metrics:
-#   metric_name:
-#     direction: minimize    # or maximize
-#     unit: ""               # optional unit label
-#     description: ""        # optional description`;
-  }
-
-  const lines = ["metrics:"];
-  for (const m of metrics) {
-    const [name, direction] = m.split(":");
-    lines.push(`  ${name}:`);
-    lines.push(`    direction: ${direction}`);
-  }
-  return lines.join("\n");
+function presetToGroveMdConfig(preset: PresetConfig, options: InitOptions): GroveMdConfig {
+  return {
+    contractVersion: preset.topology ? 3 : 2,
+    name: options.name,
+    description: options.description ?? preset.description,
+    mode: preset.mode,
+    metrics: preset.metrics,
+    topology: preset.topology,
+    gates: preset.gates,
+    stopConditions: preset.stopConditions,
+    concurrency: preset.concurrency,
+    execution: preset.execution,
+  };
 }
 
 // ---------------------------------------------------------------------------

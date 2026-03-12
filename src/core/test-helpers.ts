@@ -24,6 +24,7 @@ import {
   RelationType,
   ScoreDirection,
 } from "./models.js";
+import type { AgentTopology } from "./topology.js";
 
 /** Create an AgentIdentity with sensible defaults. */
 export function makeAgent(overrides?: Partial<AgentIdentity>): AgentIdentity {
@@ -127,6 +128,26 @@ export function makeReward(overrides?: Partial<RewardRecord>): RewardRecord {
     amount: 10,
     contributionCid: "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     createdAt: now,
+    ...overrides,
+  };
+}
+
+/** Create an AgentTopology with sensible defaults (2-role graph). */
+export function makeTopology(overrides?: Partial<AgentTopology>): AgentTopology {
+  return {
+    structure: "graph",
+    roles: [
+      {
+        name: "coder",
+        maxInstances: 3,
+        edges: [{ target: "reviewer", edgeType: "delegates" }],
+      },
+      {
+        name: "reviewer",
+        maxInstances: 2,
+        edges: [{ target: "coder", edgeType: "feedback" }],
+      },
+    ],
     ...overrides,
   };
 }

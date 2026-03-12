@@ -26,6 +26,7 @@ import type { PanelFocusState } from "../hooks/use-panel-focus.js";
 import { isPanelVisible, PANEL_LABELS, Panel } from "../hooks/use-panel-focus.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { ContributionDetail, TuiDataProvider } from "../provider.js";
+import { ActivityPanelView } from "../views/activity-panel.js";
 import { AgentGraphView } from "../views/agent-graph.js";
 import { AgentListView } from "../views/agent-list.js";
 import { ArtifactPreviewView } from "../views/artifact-preview.js";
@@ -34,7 +35,10 @@ import { DagView } from "../views/dag.js";
 import { DashboardView } from "../views/dashboard.js";
 import { DetailView } from "../views/detail.js";
 import { FrontierView } from "../views/frontier-view.js";
+import { OutcomesPanelView } from "../views/outcomes-panel.js";
+import { SearchPanelView } from "../views/search-panel.js";
 import { TerminalView } from "../views/terminal.js";
+import { ThreadsPanelView } from "../views/threads-panel.js";
 import { VfsBrowserView } from "../views/vfs-browser.js";
 
 /** Props for the PanelManager component. */
@@ -261,6 +265,64 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                   active={isPanelVisible(panelState, Panel.Vfs)}
                   cursor={isFocused(Panel.Vfs) ? nav.state.cursor : -1}
                   navigateTrigger={vfsNavigateTrigger}
+                />
+              </PanelChrome>
+            )}
+          </box>
+        )}
+
+        {/* Activity / Search panels */}
+        {(isPanelVisible(panelState, Panel.Activity) ||
+          isPanelVisible(panelState, Panel.Search)) && (
+          <box flexDirection="row" flexGrow={1}>
+            {isPanelVisible(panelState, Panel.Activity) && (
+              <PanelChrome panel={Panel.Activity} focused={isFocused(Panel.Activity)}>
+                <ActivityPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Activity)}
+                  cursor={isFocused(Panel.Activity) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+            {isPanelVisible(panelState, Panel.Search) && (
+              <PanelChrome panel={Panel.Search} focused={isFocused(Panel.Search)}>
+                <SearchPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Search)}
+                  cursor={isFocused(Panel.Search) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+          </box>
+        )}
+
+        {/* Threads / Outcomes panels */}
+        {(isPanelVisible(panelState, Panel.Threads) ||
+          isPanelVisible(panelState, Panel.Outcomes)) && (
+          <box flexDirection="row" flexGrow={1}>
+            {isPanelVisible(panelState, Panel.Threads) && (
+              <PanelChrome panel={Panel.Threads} focused={isFocused(Panel.Threads)}>
+                <ThreadsPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Threads)}
+                  cursor={isFocused(Panel.Threads) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+            {isPanelVisible(panelState, Panel.Outcomes) && (
+              <PanelChrome panel={Panel.Outcomes} focused={isFocused(Panel.Outcomes)}>
+                <OutcomesPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Outcomes)}
+                  cursor={isFocused(Panel.Outcomes) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
                 />
               </PanelChrome>
             )}

@@ -234,7 +234,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Panel toggle: 5-8
+    // Panel toggle: 5-8, 9, 0, -, =
     if (input === "5") {
       panels.toggle(Panel.AgentList);
       return;
@@ -249,6 +249,22 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     }
     if (input === "8") {
       panels.toggle(Panel.Vfs);
+      return;
+    }
+    if (input === "9") {
+      panels.toggle(Panel.Activity);
+      return;
+    }
+    if (input === "0") {
+      panels.toggle(Panel.Search);
+      return;
+    }
+    if (input === "-") {
+      panels.toggle(Panel.Threads);
+      return;
+    }
+    if (input === "=") {
+      panels.toggle(Panel.Outcomes);
       return;
     }
 
