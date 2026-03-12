@@ -12,7 +12,7 @@ import { parseArgs } from "node:util";
 
 import { threadsOperation } from "../../core/operations/index.js";
 import type { CliDeps, Writer } from "../context.js";
-import { formatHotThreads } from "../format.js";
+import { formatHotThreads, outputJson } from "../format.js";
 import { toOperationDeps } from "../operation-adapter.js";
 
 const DEFAULT_LIMIT = 10;
@@ -66,30 +66,13 @@ export async function runThreads(
 
   const summaries = result.value.threads;
 
-  if (summaries.length === 0) {
-    if (options.json) {
-      writer("[]");
-    } else {
-      writer("(no active threads)");
-    }
+  if (options.json) {
+    outputJson(result.value);
     return;
   }
 
-  if (options.json) {
-    writer(
-      JSON.stringify(
-        summaries.map((s) => ({
-          cid: s.cid,
-          summary: s.summary,
-          kind: s.kind,
-          replyCount: s.replyCount,
-          lastReplyAt: s.lastReplyAt,
-          agent: s.agentId,
-        })),
-        null,
-        2,
-      ),
-    );
+  if (summaries.length === 0) {
+    writer("(no active threads)");
     return;
   }
 

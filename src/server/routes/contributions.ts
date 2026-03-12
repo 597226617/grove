@@ -230,6 +230,7 @@ contributions.post("/", async (c) => {
       ? { context: parsed.context as Readonly<Record<string, JsonValue>> }
       : {}),
     agent: parsed.agent,
+    ...(parsed.createdAt !== undefined ? { createdAt: parsed.createdAt } : {}),
   };
 
   const opDeps = toOperationDeps(serverDeps);

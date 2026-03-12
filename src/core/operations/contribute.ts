@@ -82,6 +82,8 @@ export interface ContributeInput {
   readonly tags?: readonly string[] | undefined;
   readonly context?: Readonly<Record<string, JsonValue>> | undefined;
   readonly agent?: AgentOverrides | undefined;
+  /** Optional timestamp for replay/import. Defaults to current time if omitted. */
+  readonly createdAt?: string | undefined;
 }
 
 /** Input for the review operation. */
@@ -198,7 +200,7 @@ export async function contributeOperation(
 
     const agent = resolveAgent(input.agent);
     const mode = resolveMode(input.mode, deps);
-    const now = new Date().toISOString();
+    const createdAt = input.createdAt ?? new Date().toISOString();
 
     const contributionInput: ContributionInput = {
       kind: input.kind,
@@ -211,7 +213,7 @@ export async function contributeOperation(
       tags: [...tags],
       ...(input.context !== undefined ? { context: input.context } : {}),
       agent,
-      createdAt: now,
+      createdAt,
     };
 
     const contribution = createContribution(contributionInput);

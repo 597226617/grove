@@ -24,7 +24,7 @@ import {
 import type { OutcomeRecord, OutcomeStats, OutcomeStore } from "../../core/outcome.js";
 import { OUTCOME_STATUSES } from "../../core/outcome.js";
 import type { Writer } from "../context.js";
-import { formatTable, truncateCid } from "../format.js";
+import { formatTable, outputJson, outputJsonError, truncateCid } from "../format.js";
 import { resolveAgentId } from "../utils/grove-dir.js";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,7 @@ export interface OutcomeSetArgs {
   readonly reason?: string | undefined;
   readonly baseline?: string | undefined;
   readonly evaluator: string;
+  readonly json: boolean;
 }
 
 export interface OutcomeListArgs {
@@ -70,6 +71,7 @@ export interface OutcomeListArgs {
 
 export interface OutcomeStatsArgs {
   readonly subcommand: "stats";
+  readonly json: boolean;
 }
 
 export type OutcomeArgs = OutcomeSetArgs | OutcomeListArgs | OutcomeStatsArgs;
@@ -90,7 +92,7 @@ export function parseOutcomeArgs(argv: string[]): OutcomeArgs {
     return parseListArgs(argv.slice(1));
   }
   if (subcommand === "stats") {
-    return { subcommand: "stats" };
+    return parseStatsArgs(argv.slice(1));
   }
 
   throw new Error(`Unknown subcommand: '${subcommand ?? "(none)"}'. Expected: set, list, stats`);
@@ -103,6 +105,7 @@ function parseSetArgs(argv: string[]): OutcomeSetArgs {
       reason: { type: "string" },
       baseline: { type: "string" },
       evaluator: { type: "string" },
+      json: { type: "boolean", default: false },
     },
     allowPositionals: true,
     strict: true,
@@ -124,6 +127,7 @@ function parseSetArgs(argv: string[]): OutcomeSetArgs {
     reason: values.reason,
     baseline: values.baseline,
     evaluator: resolveAgentId(values.evaluator),
+    json: values.json ?? false,
   };
 }
 
@@ -148,6 +152,22 @@ function parseListArgs(argv: string[]): OutcomeListArgs {
     subcommand: "list",
     status: values.status,
     limit,
+    json: values.json ?? false,
+  };
+}
+
+function parseStatsArgs(argv: string[]): OutcomeStatsArgs {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      json: { type: "boolean", default: false },
+    },
+    strict: true,
+    allowPositionals: false,
+  });
+
+  return {
+    subcommand: "stats",
     json: values.json ?? false,
   };
 }
@@ -206,7 +226,7 @@ export async function runOutcome(args: OutcomeArgs, deps: OutcomeDeps): Promise<
     case "list":
       return runList(args, deps);
     case "stats":
-      return runStats(deps);
+      return runStats(args, deps);
   }
 }
 
@@ -231,8 +251,16 @@ async function runSet(args: OutcomeSetArgs, deps: OutcomeDeps): Promise<void> {
   );
 
   if (!result.ok) {
+    if (args.json) {
+      outputJsonError(result.error);
+    }
     deps.stderr(`Error: ${result.error.message}`);
     process.exitCode = 1;
+    return;
+  }
+
+  if (args.json) {
+    outputJson(result.value);
     return;
   }
 
@@ -260,19 +288,24 @@ async function runList(args: OutcomeListArgs, deps: OutcomeDeps): Promise<void> 
   const outcomes = result.value;
 
   if (args.json) {
-    deps.stdout(JSON.stringify(outcomes, null, 2));
+    outputJson(outcomes);
     return;
   }
 
   deps.stdout(formatTable(OUTCOME_COLUMNS, outcomes.map(outcomeToRow)));
 }
 
-async function runStats(deps: OutcomeDeps): Promise<void> {
+async function runStats(args: OutcomeStatsArgs, deps: OutcomeDeps): Promise<void> {
   const result = await outcomeStatsOperation(toOpDeps(deps));
 
   if (!result.ok) {
     deps.stderr(`Error: ${result.error.message}`);
     process.exitCode = 1;
+    return;
+  }
+
+  if (args.json) {
+    outputJson(result.value);
     return;
   }
 

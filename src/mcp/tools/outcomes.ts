@@ -1,9 +1,10 @@
 /**
  * MCP tools for outcome operations.
  *
- * grove_set_outcome  — Set the outcome (accepted/rejected/crashed/invalidated) for a contribution
- * grove_get_outcome  — Get the outcome for a contribution CID
+ * grove_set_outcome   — Set the outcome (accepted/rejected/crashed/invalidated) for a contribution
+ * grove_get_outcome   — Get the outcome for a contribution CID
  * grove_list_outcomes — List outcomes with optional filters
+ * grove_outcome_stats — Get aggregated outcome statistics
  *
  * All business logic is delegated to the shared operations layer.
  */
@@ -14,6 +15,7 @@ import type { AgentOverrides } from "../../core/operations/agent.js";
 import {
   getOutcomeOperation,
   listOutcomesOperation,
+  outcomeStatsOperation,
   setOutcomeOperation,
 } from "../../core/operations/index.js";
 import type { OutcomeStatus } from "../../core/outcome.js";
@@ -104,6 +106,20 @@ export function registerOutcomeTools(server: McpServer, deps: McpDeps): void {
         },
         opDeps,
       );
+      return toMcpResult(result);
+    },
+  );
+
+  // --- grove_outcome_stats ------------------------------------------------
+  server.registerTool(
+    "grove_outcome_stats",
+    {
+      description:
+        "Get aggregated outcome statistics — counts by status, acceptance rate, and total evaluated.",
+      inputSchema: {},
+    },
+    async () => {
+      const result = await outcomeStatsOperation(opDeps);
       return toMcpResult(result);
     },
   );

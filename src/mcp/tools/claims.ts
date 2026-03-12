@@ -1,8 +1,9 @@
 /**
  * MCP tools for claim operations.
  *
- * grove_claim   — Create or renew a claim to prevent duplicate work
- * grove_release — Release or complete a claim
+ * grove_claim       — Create or renew a claim to prevent duplicate work
+ * grove_release     — Release or complete a claim
+ * grove_list_claims — List claims with optional filters
  *
  * All business logic is delegated to the shared operations layer.
  */
@@ -12,7 +13,11 @@ import { z } from "zod";
 
 import type { JsonValue } from "../../core/models.js";
 import type { AgentOverrides } from "../../core/operations/agent.js";
-import { claimOperation, releaseOperation } from "../../core/operations/index.js";
+import {
+  claimOperation,
+  listClaimsOperation,
+  releaseOperation,
+} from "../../core/operations/index.js";
 import type { McpDeps } from "../deps.js";
 import { toMcpResult, toOperationDeps } from "../operation-adapter.js";
 import { agentSchema } from "../schemas.js";
@@ -36,6 +41,15 @@ const releaseInputSchema = z.object({
   action: z
     .enum(["release", "complete"])
     .describe("Whether to release (give up) or complete (finished work) the claim"),
+});
+
+const listClaimsInputSchema = z.object({
+  status: z
+    .enum(["active", "released", "expired", "completed"])
+    .optional()
+    .describe("Filter by claim status"),
+  agentId: z.string().optional().describe("Filter by agent ID"),
+  targetRef: z.string().optional().describe("Filter by target reference"),
 });
 
 // ---------------------------------------------------------------------------
@@ -86,6 +100,28 @@ export function registerClaimTools(server: McpServer, deps: McpDeps): void {
         {
           claimId: args.claimId,
           action: args.action,
+        },
+        opDeps,
+      );
+      return toMcpResult(result);
+    },
+  );
+
+  // --- grove_list_claims ---------------------------------------------------
+  server.registerTool(
+    "grove_list_claims",
+    {
+      description:
+        "List claims with optional filters by status, agent, or target reference. " +
+        "Returns claim summaries with count.",
+      inputSchema: listClaimsInputSchema,
+    },
+    async (args) => {
+      const result = await listClaimsOperation(
+        {
+          ...(args.status !== undefined ? { status: args.status } : {}),
+          ...(args.agentId !== undefined ? { agentId: args.agentId } : {}),
+          ...(args.targetRef !== undefined ? { targetRef: args.targetRef } : {}),
         },
         opDeps,
       );

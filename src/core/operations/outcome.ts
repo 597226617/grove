@@ -35,6 +35,7 @@ export interface GetOutcomeInput {
 /** Input for list outcomes. */
 export interface ListOutcomesInput {
   readonly status?: OutcomeStatus | undefined;
+  readonly evaluatedBy?: string | undefined;
   readonly limit?: number | undefined;
   readonly offset?: number | undefined;
 }
@@ -101,6 +102,7 @@ export async function listOutcomesOperation(
 
     const records = await deps.outcomeStore.list({
       status: input.status,
+      evaluatedBy: input.evaluatedBy,
       limit: input.limit,
       offset: input.offset,
     });

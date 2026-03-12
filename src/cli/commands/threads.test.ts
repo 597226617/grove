@@ -91,12 +91,21 @@ describe("runThreads", () => {
     expect(lines.join("")).toContain("no active threads");
   });
 
-  test("outputs valid JSON array when empty and --json is set", async () => {
-    const lines: string[] = [];
-    await runThreads({ tags: [], limit: 10, json: true }, deps, (msg) => lines.push(msg));
-    const parsed = JSON.parse(lines.join(""));
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toHaveLength(0);
+  test("outputs valid JSON object when empty and --json is set", async () => {
+    // outputJson writes to console.log, not the writer
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runThreads({ tags: [], limit: 10, json: true }, deps);
+    } finally {
+      console.log = origLog;
+    }
+    const parsed = JSON.parse(logged.join(""));
+    expect(parsed.threads).toBeDefined();
+    expect(Array.isArray(parsed.threads)).toBe(true);
+    expect(parsed.threads).toHaveLength(0);
+    expect(parsed.count).toBe(0);
   });
 
   test("lists hot threads sorted by reply count", async () => {
@@ -164,10 +173,19 @@ describe("runThreads", () => {
       }),
     );
 
-    const lines: string[] = [];
-    await runThreads({ tags: [], limit: 10, json: true }, deps, (msg) => lines.push(msg));
-    const parsed = JSON.parse(lines.join(""));
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed[0].replyCount).toBe(1);
+    // outputJson writes to console.log, not the writer
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runThreads({ tags: [], limit: 10, json: true }, deps);
+    } finally {
+      console.log = origLog;
+    }
+    const parsed = JSON.parse(logged.join(""));
+    expect(parsed.threads).toBeDefined();
+    expect(Array.isArray(parsed.threads)).toBe(true);
+    expect(parsed.threads[0].replyCount).toBe(1);
+    expect(parsed.count).toBe(1);
   });
 });

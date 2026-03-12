@@ -127,13 +127,20 @@ describe("runThread", () => {
 
     await deps.store.put(root);
 
-    const lines: string[] = [];
-    await runThread({ cid: root.cid, depth: 50, limit: 100, json: true }, deps, (msg) =>
-      lines.push(msg),
-    );
-    const parsed = JSON.parse(lines.join(""));
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed[0].depth).toBe(0);
+    // outputJson writes to console.log, not the writer
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runThread({ cid: root.cid, depth: 50, limit: 100, json: true }, deps);
+    } finally {
+      console.log = origLog;
+    }
+    const parsed = JSON.parse(logged.join(""));
+    expect(parsed.nodes).toBeDefined();
+    expect(Array.isArray(parsed.nodes)).toBe(true);
+    expect(parsed.nodes[0].depth).toBe(0);
+    expect(parsed.count).toBe(1);
   });
 
   test("throws on non-existent CID", async () => {

@@ -12,7 +12,7 @@ import { parseArgs } from "node:util";
 
 import { threadOperation } from "../../core/operations/index.js";
 import type { CliDeps, Writer } from "../context.js";
-import { formatThread } from "../format.js";
+import { formatThread, outputJson } from "../format.js";
 import { toOperationDeps } from "../operation-adapter.js";
 
 const DEFAULT_DEPTH = 50;
@@ -81,20 +81,7 @@ export async function runThread(
   const nodes = result.value.nodes;
 
   if (options.json) {
-    writer(
-      JSON.stringify(
-        nodes.map((n) => ({
-          cid: n.cid,
-          depth: n.depth,
-          kind: n.kind,
-          summary: n.summary,
-          agent: n.agentId,
-          createdAt: n.createdAt,
-        })),
-        null,
-        2,
-      ),
-    );
+    outputJson(result.value);
     return;
   }
 

@@ -94,6 +94,7 @@ outcomes.get("/", zValidator("query", listQuerySchema), async (c) => {
   const result = await listOutcomesOperation(
     {
       status: query.status as OutcomeStatus | undefined,
+      evaluatedBy: query.evaluatedBy,
       limit: query.limit,
       offset: query.offset,
     },

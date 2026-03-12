@@ -217,10 +217,19 @@ describe("runSearch", () => {
     const c = makeContribution({ summary: "json search" });
     await deps.store.put(c);
 
-    const output: string[] = [];
-    await runSearch({ sort: "recency", limit: 20, json: true }, deps, (s) => output.push(s));
+    // outputJson writes to console.log, not the writer
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runSearch({ sort: "recency", limit: 20, json: true }, deps);
+    } finally {
+      console.log = origLog;
+    }
 
-    const parsed = JSON.parse(output.join(""));
-    expect(Array.isArray(parsed)).toBe(true);
+    const parsed = JSON.parse(logged.join(""));
+    expect(parsed.results).toBeDefined();
+    expect(Array.isArray(parsed.results)).toBe(true);
+    expect(parsed.count).toBeGreaterThan(0);
   });
 });

@@ -32,11 +32,11 @@ and their classification. All `shared` capabilities use the operations layer in
 | tree | Y | Y | Y | Y | shared |
 | thread | Y | Y | Y | Y | shared |
 | threads | Y | Y | Y | Y | shared |
-| check stop | - | Y | - | - | shared |
+| check stop | - | Y | - | - | transport-only |
 | bounty create | Y | Y | - | - | shared |
 | bounty list | Y | Y | - | - | shared |
 | bounty claim | Y | Y | - | - | shared |
-| bounty settle | - | Y | - | - | shared |
+| bounty settle | - | Y | - | - | transport-only |
 | outcome set | Y | Y | Y | Y | shared |
 | outcome get | Y | Y | Y | Y | shared |
 | outcome list | Y | Y | Y | Y | shared |

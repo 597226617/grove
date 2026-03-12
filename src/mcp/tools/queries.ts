@@ -6,6 +6,7 @@
  * grove_log      — Recent contributions
  * grove_tree     — View DAG structure (children/ancestors)
  * grove_thread   — View a discussion thread
+ * grove_threads  — Hot threads ranked by activity
  *
  * All business logic is delegated to the shared operations layer.
  * List operations return trimmed summaries to minimize token usage.
@@ -20,6 +21,7 @@ import {
   logOperation,
   searchOperation,
   threadOperation,
+  threadsOperation,
   treeOperation,
 } from "../../core/operations/index.js";
 import type { McpDeps } from "../deps.js";
@@ -123,6 +125,18 @@ const threadInputSchema = z.object({
     .optional()
     .default(100)
     .describe("Maximum number of nodes to return (default: 100)"),
+});
+
+const threadsInputSchema = z.object({
+  tags: z.string().optional().describe("Comma-separated tags to filter threads (all must match)"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .default(10)
+    .describe("Max threads to return (default: 10)"),
 });
 
 // ---------------------------------------------------------------------------
@@ -251,6 +265,28 @@ export function registerQueryTools(server: McpServer, deps: McpDeps): void {
         {
           cid: args.cid,
           ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        },
+        opDeps,
+      );
+      return toMcpResult(result);
+    },
+  );
+
+  // --- grove_threads ------------------------------------------------------
+  server.registerTool(
+    "grove_threads",
+    {
+      description:
+        "List hot discussion threads ranked by activity. " +
+        "Returns thread summaries with reply counts and latest activity timestamps.",
+      inputSchema: threadsInputSchema,
+    },
+    async (args) => {
+      const tags = args.tags !== undefined ? args.tags.split(",").map((t) => t.trim()) : undefined;
+      const result = await threadsOperation(
+        {
+          ...(tags !== undefined ? { tags } : {}),
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
         },
         opDeps,

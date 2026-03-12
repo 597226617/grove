@@ -151,12 +151,21 @@ describe("runLog", () => {
     const c1 = makeContribution({ summary: "JSON test" });
     await deps.store.put(c1);
 
-    const output: string[] = [];
-    await runLog({ limit: 20, json: true }, deps, (s) => output.push(s));
+    // outputJson writes to console.log, not the writer
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runLog({ limit: 20, json: true }, deps);
+    } finally {
+      console.log = origLog;
+    }
 
-    const parsed = JSON.parse(output.join(""));
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed[0].summary).toBe("JSON test");
+    const parsed = JSON.parse(logged.join(""));
+    expect(parsed.results).toBeDefined();
+    expect(Array.isArray(parsed.results)).toBe(true);
+    expect(parsed.results[0].summary).toBe("JSON test");
+    expect(parsed.count).toBe(1);
   });
 
   test("filters by kind", async () => {

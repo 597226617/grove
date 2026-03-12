@@ -102,6 +102,7 @@ claims.patch("/:id", zValidator("json", patchBodySchema), async (c) => {
 claims.get("/", zValidator("query", listQuerySchema), async (c) => {
   const query = c.req.valid("query");
 
+  // Use operation for validation/filtering
   const deps = toOperationDeps(c.get("deps"));
   const result = await listClaimsOperation(
     {
@@ -112,8 +113,19 @@ claims.get("/", zValidator("query", listQuerySchema), async (c) => {
     deps,
   );
 
-  const { data, status } = toHttpResult(result);
-  return c.json(data, status);
+  if (!result.ok) {
+    const { data, status } = toHttpResult(result);
+    return c.json(data, status);
+  }
+
+  // Return full claim objects for HTTP consumers (TUI remote provider)
+  const { claimStore } = c.get("deps");
+  const fullClaims = await claimStore.listClaims({
+    status: query.status,
+    agentId: query.agentId,
+    targetRef: query.targetRef,
+  });
+  return c.json({ claims: fullClaims, count: fullClaims.length });
 });
 
 export { claims };

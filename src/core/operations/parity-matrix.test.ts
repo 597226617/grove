@@ -28,14 +28,15 @@ const SHARED_OPERATIONS_MCP: ReadonlyArray<{
   { operation: "treeOperation", mcpTool: "grove_tree" },
   { operation: "threadOperation", mcpTool: "grove_thread" },
   { operation: "checkoutOperation", mcpTool: "grove_checkout" },
-  { operation: "checkStopOperation", mcpTool: "grove_check_stop" },
+  { operation: "listClaimsOperation", mcpTool: "grove_list_claims" },
   { operation: "createBountyOperation", mcpTool: "grove_bounty_create" },
   { operation: "listBountiesOperation", mcpTool: "grove_bounty_list" },
   { operation: "claimBountyOperation", mcpTool: "grove_bounty_claim" },
-  { operation: "settleBountyOperation", mcpTool: "grove_bounty_settle" },
+  { operation: "threadsOperation", mcpTool: "grove_threads" },
   { operation: "setOutcomeOperation", mcpTool: "grove_set_outcome" },
   { operation: "getOutcomeOperation", mcpTool: "grove_get_outcome" },
   { operation: "listOutcomesOperation", mcpTool: "grove_list_outcomes" },
+  { operation: "outcomeStatsOperation", mcpTool: "grove_outcome_stats" },
 ];
 
 /**
@@ -59,6 +60,7 @@ const SHARED_OPERATIONS_CLI: ReadonlyArray<{
   { operation: "threadOperation", cliCommand: "thread" },
   { operation: "threadsOperation", cliCommand: "threads" },
   { operation: "checkoutOperation", cliCommand: "checkout" },
+  { operation: "listClaimsOperation", cliCommand: "claims" },
 ];
 
 describe("parity matrix: operations layer exports", () => {

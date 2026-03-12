@@ -263,6 +263,6 @@ describe("GET /api/claims", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.claims).toHaveLength(1);
-    expect(data.claims[0].agentId).toBe("agent-1");
+    expect(data.claims[0].agent.agentId).toBe("agent-1");
   });
 });

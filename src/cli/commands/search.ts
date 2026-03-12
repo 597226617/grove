@@ -12,10 +12,11 @@
 import { parseArgs } from "node:util";
 
 import type { ContributionKind, ContributionMode } from "../../core/models.js";
+import type { ContributionSummary } from "../../core/operations/index.js";
 import { searchOperation } from "../../core/operations/index.js";
 import type { ContributionQuery } from "../../core/store.js";
 import type { CliDeps, Writer } from "../context.js";
-import { formatContributions } from "../format.js";
+import { formatContributions, outputJson } from "../format.js";
 import { toOperationDeps } from "../operation-adapter.js";
 
 const DEFAULT_LIMIT = 20;
@@ -103,6 +104,12 @@ export async function runSearch(
       throw new Error(result.error.message);
     }
 
+    if (options.json) {
+      const sliced = result.value.results.slice(0, options.limit);
+      outputJson({ results: sliced, count: sliced.length });
+      return;
+    }
+
     // Fetch full Contribution objects for display formatting
     const cids = result.value.results.map((r) => r.cid);
     const fullMap = await deps.store.getMany(cids);
@@ -113,10 +120,6 @@ export async function runSearch(
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, options.limit);
 
-    if (options.json) {
-      writer(JSON.stringify(sorted, null, 2));
-      return;
-    }
     writer(formatContributions(sorted));
     return;
   }
@@ -154,7 +157,17 @@ export async function runSearch(
   }
 
   if (options.json) {
-    writer(JSON.stringify(results, null, 2));
+    const summaries: ContributionSummary[] = results.map((c) => ({
+      cid: c.cid,
+      summary: c.summary,
+      kind: c.kind,
+      mode: c.mode,
+      tags: c.tags,
+      ...(c.scores !== undefined ? { scores: c.scores } : {}),
+      agentId: c.agent.agentId,
+      createdAt: c.createdAt,
+    }));
+    outputJson({ results: summaries, count: summaries.length });
     return;
   }
 

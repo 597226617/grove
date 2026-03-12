@@ -12,11 +12,12 @@
 import { parseArgs } from "node:util";
 
 import type { ContributionKind, ContributionMode } from "../../core/models.js";
+import type { ContributionSummary } from "../../core/operations/index.js";
 import { logOperation } from "../../core/operations/index.js";
 import type { OutcomeStatus } from "../../core/outcome.js";
 import { OUTCOME_STATUSES } from "../../core/outcome.js";
 import type { CliDeps, Writer } from "../context.js";
-import { formatContributions } from "../format.js";
+import { formatContributions, outputJson } from "../format.js";
 import { toOperationDeps } from "../operation-adapter.js";
 
 const DEFAULT_LIMIT = 20;
@@ -93,7 +94,17 @@ export async function runLog(
       .slice(0, options.limit);
 
     if (options.json) {
-      writer(JSON.stringify(sorted, null, 2));
+      const summaries: ContributionSummary[] = sorted.map((c) => ({
+        cid: c.cid,
+        summary: c.summary,
+        kind: c.kind,
+        mode: c.mode,
+        tags: c.tags,
+        ...(c.scores !== undefined ? { scores: c.scores } : {}),
+        agentId: c.agent.agentId,
+        createdAt: c.createdAt,
+      }));
+      outputJson({ results: summaries, count: summaries.length });
       return;
     }
     writer(formatContributions(sorted));
@@ -118,6 +129,11 @@ export async function runLog(
   // The operation returns newest-first; apply CLI limit
   const sliced = result.value.results.slice(0, options.limit);
 
+  if (options.json) {
+    outputJson({ results: sliced, count: sliced.length });
+    return;
+  }
+
   // Fetch full Contribution objects for display
   const cids = sliced.map((r) => r.cid);
   const fullMap = await deps.store.getMany(cids);
@@ -125,11 +141,6 @@ export async function runLog(
   const full = cids
     .map((cid) => fullMap.get(cid))
     .filter((c): c is import("../../core/models.js").Contribution => c !== undefined);
-
-  if (options.json) {
-    writer(JSON.stringify(full, null, 2));
-    return;
-  }
 
   writer(formatContributions(full));
 }
