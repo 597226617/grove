@@ -45,6 +45,9 @@ export class SpawnManager {
   private readonly spawnRecords = new Map<string, SpawnRecord>();
   private readonly onError: (message: string) => void;
 
+  /** Overridable heartbeat interval for testing. */
+  heartbeatIntervalMs: number = HEARTBEAT_INTERVAL_MS;
+
   constructor(
     provider: TuiDataProvider,
     tmux: TmuxManager | undefined,
@@ -205,7 +208,7 @@ export class SpawnManager {
         const msg = err instanceof Error ? err.message : "Heartbeat failed";
         this.onError(`Heartbeat for ${claimId.slice(0, 8)}: ${msg}`);
       });
-    }, HEARTBEAT_INTERVAL_MS);
+    }, this.heartbeatIntervalMs);
     this.heartbeatTimers.set(claimId, timer);
   }
 

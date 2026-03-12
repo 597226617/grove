@@ -304,6 +304,30 @@ describe("SpawnManager", () => {
     expect(manager.hasHeartbeat(result2.claimId)).toBe(false);
   });
 
+  test("heartbeat error is reported via onError callback", async () => {
+    const provider = makeMockProvider();
+    // Make heartbeatClaim reject after the first successful call
+    let callCount = 0;
+    provider.heartbeatClaim = async () => {
+      callCount++;
+      throw new Error("lease expired");
+    };
+
+    const tmux = makeMockTmux();
+    const errors: string[] = [];
+    manager = new SpawnManager(provider, tmux, (msg) => errors.push(msg));
+    manager.heartbeatIntervalMs = 10; // 10ms for fast test
+
+    await manager.spawn("claude", "bash");
+
+    // Wait for at least one heartbeat tick
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(callCount).toBeGreaterThanOrEqual(1);
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors[0]).toContain("lease expired");
+  });
+
   test("spawn without workspace support throws", async () => {
     const provider = makeMockProvider();
     // Remove workspace support
