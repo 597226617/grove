@@ -116,17 +116,33 @@ function readNexusUrlFromConfig(groveOverride?: string): string | undefined {
 const DEFAULT_HEALTH_TIMEOUT_MS = 3_000;
 
 /**
+ * Health check result.
+ *
+ * - `ok`: 2xx — Nexus is working.
+ * - `auth_required`: 401/403 — server is Nexus but needs credentials
+ *   (no credential path currently exists in the TUI startup).
+ * - `not_nexus`: 404/405 — endpoint doesn't exist, wrong server.
+ * - `server_error`: 5xx — server error.
+ * - `unreachable`: network failure, timeout, DNS.
+ */
+export type NexusHealthStatus =
+  | "ok"
+  | "auth_required"
+  | "not_nexus"
+  | "server_error"
+  | "unreachable";
+
+/**
  * Lightweight health check against a Nexus server.
  *
  * Sends a minimal JSON-RPC `exists` call to `POST /api/nfs/exists`,
  * which matches the Nexus wire protocol (all VFS ops go through
  * `POST /api/nfs/{method}` as JSON-RPC).
- *
- * Healthy: 2xx (working) or 401/403 (auth required but server is Nexus).
- * Unhealthy: 404/405 (not a Nexus endpoint — mistyped URL or wrong server),
- * 5xx (server error), or network failure.
  */
-export async function checkNexusHealth(url: string, timeoutMs?: number): Promise<boolean> {
+export async function checkNexusHealth(
+  url: string,
+  timeoutMs?: number,
+): Promise<NexusHealthStatus> {
   try {
     const resp = await fetch(`${url.replace(/\/+$/, "")}/api/nfs/exists`, {
       method: "POST",
@@ -134,12 +150,12 @@ export async function checkNexusHealth(url: string, timeoutMs?: number): Promise
       body: JSON.stringify({ jsonrpc: "2.0", method: "exists", params: { path: "/" }, id: 1 }),
       signal: AbortSignal.timeout(timeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS),
     });
-    // 2xx: working Nexus. 401/403: reachable, auth required.
-    // 404/405: endpoint doesn't exist — not a Nexus server.
-    // 5xx: server error.
-    return resp.ok || resp.status === 401 || resp.status === 403;
+    if (resp.ok) return "ok";
+    if (resp.status === 401 || resp.status === 403) return "auth_required";
+    if (resp.status === 404 || resp.status === 405) return "not_nexus";
+    return "server_error";
   } catch {
-    return false;
+    return "unreachable";
   }
 }
 

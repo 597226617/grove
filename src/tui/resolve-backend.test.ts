@@ -218,7 +218,7 @@ describe("backendLabel", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkNexusHealth", () => {
-  test("returns true on 200 JSON-RPC response", async () => {
+  test("returns 'ok' on 200 JSON-RPC response", async () => {
     const server = Bun.serve({
       port: 0,
       fetch(req) {
@@ -233,13 +233,13 @@ describe("checkNexusHealth", () => {
     });
     try {
       const result = await checkNexusHealth(`http://localhost:${server.port}`);
-      expect(result).toBe(true);
+      expect(result).toBe("ok");
     } finally {
       server.stop(true);
     }
   });
 
-  test("returns true on 401 (server reachable, just auth required)", async () => {
+  test("returns 'auth_required' on 401", async () => {
     const server = Bun.serve({
       port: 0,
       fetch() {
@@ -248,13 +248,28 @@ describe("checkNexusHealth", () => {
     });
     try {
       const result = await checkNexusHealth(`http://localhost:${server.port}`);
-      expect(result).toBe(true);
+      expect(result).toBe("auth_required");
     } finally {
       server.stop(true);
     }
   });
 
-  test("returns false on 404 (not a Nexus server)", async () => {
+  test("returns 'auth_required' on 403", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("Forbidden", { status: 403 });
+      },
+    });
+    try {
+      const result = await checkNexusHealth(`http://localhost:${server.port}`);
+      expect(result).toBe("auth_required");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("returns 'not_nexus' on 404", async () => {
     const server = Bun.serve({
       port: 0,
       fetch() {
@@ -263,13 +278,13 @@ describe("checkNexusHealth", () => {
     });
     try {
       const result = await checkNexusHealth(`http://localhost:${server.port}`);
-      expect(result).toBe(false);
+      expect(result).toBe("not_nexus");
     } finally {
       server.stop(true);
     }
   });
 
-  test("returns false on 405 (method not allowed — wrong server)", async () => {
+  test("returns 'not_nexus' on 405", async () => {
     const server = Bun.serve({
       port: 0,
       fetch() {
@@ -278,13 +293,13 @@ describe("checkNexusHealth", () => {
     });
     try {
       const result = await checkNexusHealth(`http://localhost:${server.port}`);
-      expect(result).toBe(false);
+      expect(result).toBe("not_nexus");
     } finally {
       server.stop(true);
     }
   });
 
-  test("returns false on 500 error", async () => {
+  test("returns 'server_error' on 500", async () => {
     const server = Bun.serve({
       port: 0,
       fetch() {
@@ -293,19 +308,19 @@ describe("checkNexusHealth", () => {
     });
     try {
       const result = await checkNexusHealth(`http://localhost:${server.port}`);
-      expect(result).toBe(false);
+      expect(result).toBe("server_error");
     } finally {
       server.stop(true);
     }
   });
 
-  test("returns false on connection refused", async () => {
+  test("returns 'unreachable' on connection refused", async () => {
     // Use a port that is almost certainly not listening
     const result = await checkNexusHealth("http://127.0.0.1:1", 500);
-    expect(result).toBe(false);
+    expect(result).toBe("unreachable");
   });
 
-  test("returns false on timeout", async () => {
+  test("returns 'unreachable' on timeout", async () => {
     const server = Bun.serve({
       port: 0,
       async fetch() {
@@ -316,7 +331,7 @@ describe("checkNexusHealth", () => {
     });
     try {
       const result = await checkNexusHealth(`http://localhost:${server.port}`, 100);
-      expect(result).toBe(false);
+      expect(result).toBe("unreachable");
     } finally {
       server.stop(true);
     }
