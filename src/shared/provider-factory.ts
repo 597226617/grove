@@ -84,24 +84,24 @@ async function createNexusProvider(
 
   // Detect co-located grove server for gossip peer data.
   // When grove.json declares services.server, the server runs on PORT (default 4515).
+  // Always attempt resolution — resolveGroveDir() walks up from cwd when no override is given,
+  // which is the default `grove up` path.
   let serverUrl: string | undefined;
-  if (backend.groveOverride) {
-    try {
-      const { resolveGroveDir } = await import("../cli/utils/grove-dir.js");
-      const { groveDir } = resolveGroveDir(backend.groveOverride);
-      const configPath = join(groveDir, "grove.json");
-      if (existsSync(configPath)) {
-        const { readFileSync } = await import("node:fs");
-        const raw = readFileSync(configPath, "utf-8");
-        const parsed = JSON.parse(raw) as { services?: { server?: boolean } };
-        if (parsed.services?.server) {
-          const port = process.env.PORT ?? "4515";
-          serverUrl = `http://localhost:${port}`;
-        }
+  try {
+    const { resolveGroveDir } = await import("../cli/utils/grove-dir.js");
+    const { groveDir } = resolveGroveDir(backend.groveOverride);
+    const configPath = join(groveDir, "grove.json");
+    if (existsSync(configPath)) {
+      const { readFileSync } = await import("node:fs");
+      const raw = readFileSync(configPath, "utf-8");
+      const parsed = JSON.parse(raw) as { services?: { server?: boolean } };
+      if (parsed.services?.server) {
+        const port = process.env.PORT ?? "4515";
+        serverUrl = `http://localhost:${port}`;
       }
-    } catch {
-      // Config read failed — skip server URL
     }
+  } catch {
+    // Config read failed — skip server URL
   }
 
   return new NexusDataProvider({
