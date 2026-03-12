@@ -41,7 +41,7 @@ const COLUMNS = [
 function hasOutcomes(provider: TuiDataProvider): provider is TuiDataProvider & TuiOutcomeProvider {
   return (
     "listOutcomes" in provider &&
-    typeof (provider as TuiOutcomeProvider).listOutcomes === "function"
+    typeof (provider as unknown as TuiOutcomeProvider).listOutcomes === "function"
   );
 }
 
@@ -59,9 +59,10 @@ export const OutcomesPanelView: React.NamedExoticComponent<OutcomesPanelProps> =
     const fetcher = useCallback(async (): Promise<readonly OutcomeRow[]> => {
       if (!supportsOutcomes) return [];
 
-      const outcomes: readonly OutcomeRecord[] = await (
-        provider as TuiOutcomeProvider
-      ).listOutcomes({ limit: 30 });
+      const all: readonly OutcomeRecord[] = await (
+        provider as unknown as TuiOutcomeProvider
+      ).listOutcomes();
+      const outcomes = all.slice(0, 30);
       return outcomes.map((o) => ({
         cid: truncateCid(o.cid),
         status: o.status,
@@ -112,7 +113,11 @@ export const OutcomesPanelView: React.NamedExoticComponent<OutcomesPanelProps> =
             <text opacity={0.5}>No outcome annotations yet</text>
           </box>
         ) : (
-          <Table columns={[...COLUMNS]} rows={outcomes} cursor={cursor} />
+          <Table
+            columns={[...COLUMNS]}
+            rows={outcomes as unknown as readonly Record<string, string>[]}
+            cursor={cursor}
+          />
         )}
       </box>
     );

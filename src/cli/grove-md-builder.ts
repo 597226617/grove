@@ -309,8 +309,8 @@ export function buildGroveMd(config: GroveMdConfig): string {
 export function defaultGroveMdConfig(options: {
   name: string;
   mode: "evaluation" | "exploration";
-  description?: string;
-  metric?: readonly string[];
+  description?: string | undefined;
+  metric?: readonly string[] | undefined;
 }): GroveMdConfig {
   const metrics: MetricEntry[] = (options.metric ?? []).map((m) => {
     const [name, direction] = m.split(":");
