@@ -343,8 +343,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   const startHeartbeat = useCallback(
     (claimId: string) => {
       if (!provider.heartbeatClaim) return;
+      const heartbeatFn = provider.heartbeatClaim.bind(provider);
       const timer = setInterval(() => {
-        provider.heartbeatClaim!(claimId, LEASE_DURATION_MS).catch((err) => {
+        heartbeatFn(claimId, LEASE_DURATION_MS).catch((err) => {
           const msg = err instanceof Error ? err.message : "Heartbeat failed";
           showError(`Heartbeat for ${claimId.slice(0, 8)}: ${msg}`);
         });
