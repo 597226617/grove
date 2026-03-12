@@ -58,6 +58,13 @@ export interface NexusProviderConfig {
   /** Optional workspace manager for local workspace lifecycle (hybrid mode). */
   readonly workspaceManager?: WorkspaceManager | undefined;
   readonly backendLabel?: string | undefined;
+  /**
+   * Optional URL of a co-located grove server.
+   * When provided, gossip peer data is fetched from the server's
+   * `/api/gossip/peers` endpoint (gossip is server-to-server, not
+   * stored in Nexus VFS).
+   */
+  readonly serverUrl?: string | undefined;
 }
 
 /** TUI data provider backed by Nexus VFS. */
@@ -80,6 +87,7 @@ export class NexusDataProvider
   private readonly name: string;
   private readonly workspace: WorkspaceManager | undefined;
   private readonly label: string;
+  private readonly serverUrl: string | undefined;
 
   constructor(config: NexusProviderConfig) {
     this.store = new NexusContributionStore(config.nexusConfig);
@@ -88,6 +96,7 @@ export class NexusDataProvider
     this.bountyStore = new NexusBountyStore(config.nexusConfig);
     this.frontier = new DefaultFrontierCalculator(this.store);
     this.name = config.groveName ?? "nexus";
+    this.serverUrl = config.serverUrl;
     this.workspace = config.workspaceManager;
     this.label = config.backendLabel ?? "nexus";
 
@@ -320,8 +329,19 @@ export class NexusDataProvider
 
   async getGossipPeers(): Promise<readonly PeerInfo[]> {
     // Gossip is a server-to-server protocol; Nexus VFS does not store peer
-    // state. Return empty so the panel renders "No gossip peers discovered"
-    // instead of "not available for this backend".
+    // state. When a co-located grove server URL is available, fetch live
+    // peer data from its /api/gossip/peers endpoint.
+    if (this.serverUrl) {
+      try {
+        const resp = await fetch(`${this.serverUrl.replace(/\/+$/, "")}/api/gossip/peers`);
+        if (resp.ok) {
+          const body = (await resp.json()) as { peers: readonly PeerInfo[] };
+          return body.peers;
+        }
+      } catch {
+        // Server unreachable or gossip not enabled — fall through
+      }
+    }
     return [];
   }
 

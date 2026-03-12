@@ -184,9 +184,60 @@ describe("NexusDataProvider bounty/gossip", () => {
     provider.close();
   });
 
-  it("returns empty gossip peers (gossip is server-level)", async () => {
+  it("returns empty gossip peers when no serverUrl is configured", async () => {
     const provider = new NexusDataProvider({
       nexusConfig: { client: mockClient, zoneId: "test-zone" },
+    });
+    const peers = await provider.getGossipPeers();
+    expect(peers).toEqual([]);
+    provider.close();
+  });
+
+  it("fetches gossip peers from co-located server when serverUrl is set", async () => {
+    const fakePeers = [
+      {
+        peerId: "peer-1",
+        address: "http://node1:4515",
+        age: 0,
+        lastSeen: new Date().toISOString(),
+      },
+      {
+        peerId: "peer-2",
+        address: "http://node2:4515",
+        age: 1,
+        lastSeen: new Date().toISOString(),
+      },
+    ];
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/api/gossip/peers") {
+          return Response.json({ peers: fakePeers, liveness: [] });
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    });
+
+    try {
+      const provider = new NexusDataProvider({
+        nexusConfig: { client: mockClient, zoneId: "test-zone" },
+        serverUrl: `http://localhost:${server.port}`,
+      });
+      const peers = await provider.getGossipPeers();
+      expect(peers.length).toBe(2);
+      expect(peers[0]?.peerId).toBe("peer-1");
+      expect(peers[1]?.peerId).toBe("peer-2");
+      provider.close();
+    } finally {
+      server.stop();
+    }
+  });
+
+  it("returns empty peers when serverUrl is unreachable", async () => {
+    const provider = new NexusDataProvider({
+      nexusConfig: { client: mockClient, zoneId: "test-zone" },
+      serverUrl: "http://localhost:19999",
     });
     const peers = await provider.getGossipPeers();
     expect(peers).toEqual([]);
