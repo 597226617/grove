@@ -1,0 +1,303 @@
+/**
+ * Nexus-backed BountyStore adapter.
+ *
+ * Stores bounty records as JSON files in the Nexus VFS with
+ * status index markers for efficient filtered listing.
+ *
+ * Storage layout:
+ * - Bounties:       /zones/{zoneId}/bounties/{bountyId}.json
+ * - Status index:   /zones/{zoneId}/indexes/bounties/status/{status}/{bountyId}
+ */
+
+import type { Bounty, BountyStatus, RewardRecord } from "../core/bounty.js";
+import type { BountyQuery, BountyStore, RewardQuery } from "../core/bounty-store.js";
+import type { AgentIdentity } from "../core/models.js";
+import type { ListEntry, ListOptions, NexusClient } from "./client.js";
+import type { NexusConfig, ResolvedNexusConfig } from "./config.js";
+import { resolveConfig } from "./config.js";
+import { isRetryable, mapNexusError } from "./errors.js";
+import { Semaphore } from "./semaphore.js";
+import {
+  bountiesDir,
+  bountyPath,
+  bountyStatusIndexDir,
+  bountyStatusIndexPath,
+  decodeSegment,
+} from "./vfs-paths.js";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function encodeBounty(bounty: Bounty): Uint8Array {
+  return encoder.encode(JSON.stringify(bounty));
+}
+
+function decodeBounty(data: Uint8Array): Bounty {
+  return JSON.parse(decoder.decode(data)) as Bounty;
+}
+
+/**
+ * Nexus-backed BountyStore.
+ *
+ * Implements the BountyStore interface using the Nexus VFS for
+ * persistence. Follows the same patterns as NexusOutcomeStore:
+ * resolveConfig, Semaphore, retry with backoff, mapNexusError.
+ */
+export class NexusBountyStore implements BountyStore {
+  readonly storeIdentity: string;
+  private readonly client: NexusClient;
+  private readonly config: ResolvedNexusConfig;
+  private readonly semaphore: Semaphore;
+  private readonly zoneId: string;
+
+  constructor(config: NexusConfig) {
+    this.config = resolveConfig(config);
+    this.client = this.config.client;
+    this.zoneId = this.config.zoneId;
+    this.storeIdentity = `nexus:${this.zoneId}:bounties`;
+    this.semaphore = new Semaphore(this.config.maxConcurrency);
+  }
+
+  async createBounty(bounty: Bounty): Promise<Bounty> {
+    const now = new Date().toISOString();
+    const created: Bounty = {
+      ...bounty,
+      createdAt: bounty.createdAt || now,
+      updatedAt: now,
+    };
+
+    await this.withRetry(
+      () =>
+        this.run(() =>
+          this.client.write(bountyPath(this.zoneId, bounty.bountyId), encodeBounty(created)),
+        ),
+      "createBounty",
+    );
+
+    await this.writeStatusIndex(created);
+    return created;
+  }
+
+  async getBounty(bountyId: string): Promise<Bounty | undefined> {
+    const data = await this.withRetry(
+      () => this.run(() => this.client.read(bountyPath(this.zoneId, bountyId))),
+      "getBounty",
+    );
+    if (data === undefined) return undefined;
+    return decodeBounty(data);
+  }
+
+  async listBounties(query?: BountyQuery): Promise<readonly Bounty[]> {
+    let entries: readonly ListEntry[];
+
+    if (query?.status !== undefined && typeof query.status === "string") {
+      const dir = bountyStatusIndexDir(this.zoneId, query.status);
+      entries = await this.listAllPages(dir);
+    } else {
+      const dir = bountiesDir(this.zoneId);
+      entries = await this.listAllPages(dir);
+    }
+
+    const bounties: Bounty[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+
+      let bountyId: string;
+      if (query?.status !== undefined && typeof query.status === "string") {
+        bountyId = decodeSegment(entry.name);
+      } else {
+        bountyId = decodeSegment(entry.name.replace(/\.json$/, ""));
+      }
+
+      const bounty = await this.getBounty(bountyId);
+      if (bounty === undefined) continue;
+
+      // Apply status filter for array queries
+      if (query?.status !== undefined && Array.isArray(query.status)) {
+        if (!query.status.includes(bounty.status)) continue;
+      }
+
+      if (query?.creatorAgentId !== undefined && bounty.creator.agentId !== query.creatorAgentId) {
+        continue;
+      }
+      if (query?.claimedByAgentId !== undefined) {
+        if (!bounty.claimedBy || bounty.claimedBy.agentId !== query.claimedByAgentId) continue;
+      }
+      if (query?.zoneId !== undefined && bounty.zoneId !== query.zoneId) {
+        continue;
+      }
+
+      bounties.push(bounty);
+    }
+
+    // Sort by createdAt descending
+    bounties.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const offset = query?.offset ?? 0;
+    const limit = query?.limit ?? bounties.length;
+    return bounties.slice(offset, offset + limit);
+  }
+
+  async countBounties(query?: BountyQuery): Promise<number> {
+    const bounties = await this.listBounties(query);
+    return bounties.length;
+  }
+
+  async fundBounty(bountyId: string, reservationId: string): Promise<Bounty> {
+    return this.transitionBounty(bountyId, "open" as BountyStatus, (b) => ({
+      ...b,
+      reservationId,
+    }));
+  }
+
+  async claimBounty(bountyId: string, claimedBy: AgentIdentity, claimId: string): Promise<Bounty> {
+    return this.transitionBounty(bountyId, "claimed" as BountyStatus, (b) => ({
+      ...b,
+      claimedBy,
+      claimId,
+    }));
+  }
+
+  async completeBounty(bountyId: string, fulfilledByCid: string): Promise<Bounty> {
+    return this.transitionBounty(bountyId, "completed" as BountyStatus, (b) => ({
+      ...b,
+      fulfilledByCid,
+    }));
+  }
+
+  async settleBounty(bountyId: string): Promise<Bounty> {
+    return this.transitionBounty(bountyId, "settled" as BountyStatus);
+  }
+
+  async expireBounty(bountyId: string): Promise<Bounty> {
+    return this.transitionBounty(bountyId, "expired" as BountyStatus);
+  }
+
+  async cancelBounty(bountyId: string): Promise<Bounty> {
+    return this.transitionBounty(bountyId, "cancelled" as BountyStatus);
+  }
+
+  async findExpiredBounties(): Promise<readonly Bounty[]> {
+    const now = new Date();
+    const openBounties = await this.listBounties({ status: "open" as BountyStatus });
+    const claimedBounties = await this.listBounties({ status: "claimed" as BountyStatus });
+    const all = [...openBounties, ...claimedBounties];
+    return all.filter((b) => new Date(b.deadline).getTime() < now.getTime());
+  }
+
+  async recordReward(_reward: RewardRecord): Promise<void> {
+    // Rewards are not yet stored in Nexus VFS (future work)
+  }
+
+  async hasReward(_rewardId: string): Promise<boolean> {
+    return false;
+  }
+
+  async listRewards(_query?: RewardQuery): Promise<readonly RewardRecord[]> {
+    return [];
+  }
+
+  close(): void {
+    // No-op — no local state to release
+  }
+
+  // -----------------------------------------------------------------------
+  // Private helpers
+  // -----------------------------------------------------------------------
+
+  private async transitionBounty(
+    bountyId: string,
+    newStatus: BountyStatus,
+    transform?: (b: Bounty) => Bounty,
+  ): Promise<Bounty> {
+    const existing = await this.getBounty(bountyId);
+    if (!existing) throw new Error(`Bounty not found: ${bountyId}`);
+
+    const oldStatus = existing.status;
+    let updated: Bounty = {
+      ...existing,
+      status: newStatus,
+      updatedAt: new Date().toISOString(),
+    };
+    if (transform) updated = transform(updated);
+
+    await this.withRetry(
+      () =>
+        this.run(() => this.client.write(bountyPath(this.zoneId, bountyId), encodeBounty(updated))),
+      `transitionBounty:${newStatus}`,
+    );
+
+    // Clean up old status index
+    if (oldStatus !== newStatus) {
+      await this.run(() =>
+        this.client.delete(bountyStatusIndexPath(this.zoneId, oldStatus, bountyId)),
+      ).catch(() => {});
+    }
+    await this.writeStatusIndex(updated);
+
+    return updated;
+  }
+
+  private async writeStatusIndex(bounty: Bounty): Promise<void> {
+    await this.withRetry(
+      () =>
+        this.run(() =>
+          this.client.write(
+            bountyStatusIndexPath(this.zoneId, bounty.status, bounty.bountyId),
+            new Uint8Array(0),
+          ),
+        ),
+      "writeStatusIndex",
+    );
+  }
+
+  private async listAllPages(
+    dir: string,
+    opts?: Omit<ListOptions, "cursor">,
+  ): Promise<readonly ListEntry[]> {
+    const entries: ListEntry[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const listing = await this.withRetry(
+        () => this.run(() => this.client.list(dir, { ...opts, cursor })),
+        "listAllPages",
+      ).catch(() => ({
+        files: [] as ListEntry[],
+        hasMore: false as boolean,
+        nextCursor: undefined,
+      }));
+
+      for (const entry of listing.files) {
+        entries.push(entry);
+      }
+      cursor = listing.hasMore ? listing.nextCursor : undefined;
+    } while (cursor !== undefined);
+
+    return entries;
+  }
+
+  private async run<T>(fn: () => Promise<T>): Promise<T> {
+    return this.semaphore.run(fn);
+  }
+
+  private async withRetry<T>(fn: () => Promise<T>, context: string): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < this.config.retryMaxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (!isRetryable(error) || attempt === this.config.retryMaxAttempts - 1) {
+          throw mapNexusError(error, context);
+        }
+        const delay = Math.min(
+          this.config.retryBaseDelayMs * 2 ** attempt,
+          this.config.retryMaxDelayMs,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    throw mapNexusError(lastError, context);
+  }
+}

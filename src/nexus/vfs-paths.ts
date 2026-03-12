@@ -118,6 +118,30 @@ export function targetLockPath(zoneId: string, targetRef: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Bounty paths
+// ---------------------------------------------------------------------------
+
+/** Path to a bounty JSON file. */
+export function bountyPath(zoneId: string, bountyId: string): string {
+  return `/zones/${zoneId}/bounties/${encodeSegment(bountyId)}.json`;
+}
+
+/** Directory containing all bounties. */
+export function bountiesDir(zoneId: string): string {
+  return `/zones/${zoneId}/bounties`;
+}
+
+/** Path to a bounty status index marker. */
+export function bountyStatusIndexPath(zoneId: string, status: string, bountyId: string): string {
+  return `/zones/${zoneId}/indexes/bounties/status/${encodeSegment(status)}/${encodeSegment(bountyId)}`;
+}
+
+/** Directory for a specific bounty status index. */
+export function bountyStatusIndexDir(zoneId: string, status: string): string {
+  return `/zones/${zoneId}/indexes/bounties/status/${encodeSegment(status)}`;
+}
+
+// ---------------------------------------------------------------------------
 // Outcome paths
 // ---------------------------------------------------------------------------
 
