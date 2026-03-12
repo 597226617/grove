@@ -1,18 +1,25 @@
 /**
  * MCP tools for claim operations.
  *
- * grove_claim   — Create or renew a claim to prevent duplicate work
- * grove_release — Release or complete a claim
+ * grove_claim       — Create or renew a claim to prevent duplicate work
+ * grove_release     — Release or complete a claim
+ * grove_list_claims — List claims with optional filters
+ *
+ * All business logic is delegated to the shared operations layer.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import type { Claim, JsonValue } from "../../core/models.js";
-import type { AgentInput } from "../agent-identity.js";
-import { resolveAgentIdentity } from "../agent-identity.js";
+import type { JsonValue } from "../../core/models.js";
+import type { AgentOverrides } from "../../core/operations/agent.js";
+import {
+  claimOperation,
+  listClaimsOperation,
+  releaseOperation,
+} from "../../core/operations/index.js";
 import type { McpDeps } from "../deps.js";
-import { handleToolError, notFoundError } from "../error-handler.js";
+import { toMcpResult, toOperationDeps } from "../operation-adapter.js";
 import { agentSchema } from "../schemas.js";
 
 const claimInputSchema = z.object({
@@ -36,11 +43,22 @@ const releaseInputSchema = z.object({
     .describe("Whether to release (give up) or complete (finished work) the claim"),
 });
 
+const listClaimsInputSchema = z.object({
+  status: z
+    .enum(["active", "released", "expired", "completed"])
+    .optional()
+    .describe("Filter by claim status"),
+  agentId: z.string().optional().describe("Filter by agent ID"),
+  targetRef: z.string().optional().describe("Filter by target reference"),
+});
+
 // ---------------------------------------------------------------------------
 // Tool registration
 // ---------------------------------------------------------------------------
 
 export function registerClaimTools(server: McpServer, deps: McpDeps): void {
+  const opDeps = toOperationDeps(deps);
+
   // --- grove_claim --------------------------------------------------------
   server.registerTool(
     "grove_claim",
@@ -52,44 +70,19 @@ export function registerClaimTools(server: McpServer, deps: McpDeps): void {
       inputSchema: claimInputSchema,
     },
     async (args) => {
-      try {
-        const { claimStore } = deps;
-        const now = new Date();
-
-        const claim: Claim = {
-          claimId: crypto.randomUUID(),
+      const result = await claimOperation(
+        {
           targetRef: args.targetRef,
-          agent: resolveAgentIdentity(args.agent as AgentInput),
-          status: "active",
           intentSummary: args.intentSummary,
-          createdAt: now.toISOString(),
-          heartbeatAt: now.toISOString(),
-          leaseExpiresAt: new Date(now.getTime() + args.leaseDurationMs).toISOString(),
+          ...(args.leaseDurationMs !== undefined ? { leaseDurationMs: args.leaseDurationMs } : {}),
           ...(args.context !== undefined
             ? { context: args.context as Readonly<Record<string, JsonValue>> }
             : {}),
-        };
-
-        const result = await claimStore.claimOrRenew(claim);
-
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                claimId: result.claimId,
-                targetRef: result.targetRef,
-                status: result.status,
-                agentId: result.agent.agentId,
-                intentSummary: result.intentSummary,
-                leaseExpiresAt: result.leaseExpiresAt,
-              }),
-            },
-          ],
-        };
-      } catch (error) {
-        return handleToolError(error);
-      }
+          agent: args.agent as AgentOverrides,
+        },
+        opDeps,
+      );
+      return toMcpResult(result);
     },
   );
 
@@ -103,38 +96,36 @@ export function registerClaimTools(server: McpServer, deps: McpDeps): void {
       inputSchema: releaseInputSchema,
     },
     async (args) => {
-      try {
-        const { claimStore } = deps;
+      const result = await releaseOperation(
+        {
+          claimId: args.claimId,
+          action: args.action,
+        },
+        opDeps,
+      );
+      return toMcpResult(result);
+    },
+  );
 
-        // Verify claim exists
-        const existing = await claimStore.getClaim(args.claimId);
-        if (existing === undefined) {
-          return notFoundError("Claim", args.claimId);
-        }
-
-        let result: Claim;
-        if (args.action === "release") {
-          result = await claimStore.release(args.claimId);
-        } else {
-          result = await claimStore.complete(args.claimId);
-        }
-
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                claimId: result.claimId,
-                targetRef: result.targetRef,
-                status: result.status,
-                action: args.action,
-              }),
-            },
-          ],
-        };
-      } catch (error) {
-        return handleToolError(error);
-      }
+  // --- grove_list_claims ---------------------------------------------------
+  server.registerTool(
+    "grove_list_claims",
+    {
+      description:
+        "List claims with optional filters by status, agent, or target reference. " +
+        "Returns claim summaries with count.",
+      inputSchema: listClaimsInputSchema,
+    },
+    async (args) => {
+      const result = await listClaimsOperation(
+        {
+          ...(args.status !== undefined ? { status: args.status } : {}),
+          ...(args.agentId !== undefined ? { agentId: args.agentId } : {}),
+          ...(args.targetRef !== undefined ? { targetRef: args.targetRef } : {}),
+        },
+        opDeps,
+      );
+      return toMcpResult(result);
     },
   );
 }

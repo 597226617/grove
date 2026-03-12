@@ -12,9 +12,12 @@
 import { parseArgs } from "node:util";
 
 import type { ContributionKind, ContributionMode } from "../../core/models.js";
+import type { ContributionSummary } from "../../core/operations/index.js";
+import { searchOperation } from "../../core/operations/index.js";
 import type { ContributionQuery } from "../../core/store.js";
 import type { CliDeps, Writer } from "../context.js";
-import { formatContributions } from "../format.js";
+import { formatContributions, outputJson } from "../format.js";
+import { toOperationDeps } from "../operation-adapter.js";
 
 const DEFAULT_LIMIT = 20;
 
@@ -75,7 +78,6 @@ export async function runSearch(
   deps: CliDeps,
   writer: Writer = console.log,
 ): Promise<void> {
-  // Fetch all matching results (no limit yet — we must sort first, then slice)
   const filters: ContributionQuery = {
     kind: options.kind as ContributionKind | undefined,
     mode: options.mode as ContributionMode | undefined,
@@ -83,6 +85,46 @@ export async function runSearch(
     agentName: options.agent,
   };
 
+  // When using the search operation for text queries with recency sort,
+  // delegate to the operation layer. For adoption sort or no-query listing,
+  // use the store directly since adoption counting is CLI-specific logic.
+  if (options.query && options.sort === "recency") {
+    const result = await searchOperation(
+      {
+        query: options.query,
+        ...(options.kind !== undefined ? { kind: options.kind as ContributionKind } : {}),
+        ...(options.mode !== undefined ? { mode: options.mode as ContributionMode } : {}),
+        ...(options.tag !== undefined ? { tags: [options.tag] } : {}),
+        ...(options.agent !== undefined ? { agentName: options.agent } : {}),
+      },
+      toOperationDeps(deps),
+    );
+
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
+
+    if (options.json) {
+      const sliced = result.value.results.slice(0, options.limit);
+      outputJson({ results: sliced, count: sliced.length });
+      return;
+    }
+
+    // Fetch full Contribution objects for display formatting
+    const cids = result.value.results.map((r) => r.cid);
+    const fullMap = await deps.store.getMany(cids);
+    const full = cids
+      .map((cid) => fullMap.get(cid))
+      .filter((c): c is import("../../core/models.js").Contribution => c !== undefined);
+    const sorted = [...full]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(0, options.limit);
+
+    writer(formatContributions(sorted));
+    return;
+  }
+
+  // No query or adoption sort — fetch all matching, then sort and slice
   let results = options.query
     ? await deps.store.search(options.query, filters)
     : await deps.store.list(filters);
@@ -115,7 +157,17 @@ export async function runSearch(
   }
 
   if (options.json) {
-    writer(JSON.stringify(results, null, 2));
+    const summaries: ContributionSummary[] = results.map((c) => ({
+      cid: c.cid,
+      summary: c.summary,
+      kind: c.kind,
+      mode: c.mode,
+      tags: c.tags,
+      ...(c.scores !== undefined ? { scores: c.scores } : {}),
+      agentId: c.agent.agentId,
+      createdAt: c.createdAt,
+    }));
+    outputJson({ results: summaries, count: summaries.length });
     return;
   }
 

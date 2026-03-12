@@ -92,9 +92,41 @@ describe("parseOutcomeArgs", () => {
     }
   });
 
+  test("parses get subcommand", () => {
+    const args = parseOutcomeArgs(["get", "blake3:abc123"]);
+    expect(args.subcommand).toBe("get");
+    if (args.subcommand === "get") {
+      expect(args.cid).toBe("blake3:abc123");
+      expect(args.json).toBe(false);
+    }
+  });
+
+  test("parses get subcommand with --json", () => {
+    const args = parseOutcomeArgs(["get", "blake3:abc123", "--json"]);
+    expect(args.subcommand).toBe("get");
+    if (args.subcommand === "get") {
+      expect(args.json).toBe(true);
+    }
+  });
+
+  test("throws on get without CID", () => {
+    expect(() => parseOutcomeArgs(["get"])).toThrow("Usage:");
+  });
+
   test("parses stats subcommand", () => {
     const args = parseOutcomeArgs(["stats"]);
     expect(args.subcommand).toBe("stats");
+    if (args.subcommand === "stats") {
+      expect(args.json).toBe(false);
+    }
+  });
+
+  test("parses stats subcommand with --json", () => {
+    const args = parseOutcomeArgs(["stats", "--json"]);
+    expect(args.subcommand).toBe("stats");
+    if (args.subcommand === "stats") {
+      expect(args.json).toBe(true);
+    }
   });
 
   test("throws on unknown subcommand", () => {
@@ -178,6 +210,57 @@ describe("runOutcome set", () => {
 });
 
 // ---------------------------------------------------------------------------
+// runOutcome — get subcommand
+// ---------------------------------------------------------------------------
+
+describe("runOutcome get", () => {
+  test("gets an existing outcome", async () => {
+    await outcomeStore.set("blake3:gettest123", { status: "accepted", evaluatedBy: "agent-g" });
+
+    const args = parseOutcomeArgs(["get", "blake3:gettest123"]);
+    await runOutcome(args, deps);
+
+    expect(stdout.length).toBe(1);
+    expect(stdout[0]).toContain("accepted");
+    expect(stdout[0]).toContain("agent-g");
+  });
+
+  test("outputs JSON when --json flag is set", async () => {
+    await outcomeStore.set("blake3:getjson123", {
+      status: "rejected",
+      evaluatedBy: "agent-j",
+      reason: "test failure",
+    });
+
+    const args = parseOutcomeArgs(["get", "blake3:getjson123", "--json"]);
+
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runOutcome(args, deps);
+    } finally {
+      console.log = origLog;
+    }
+
+    const parsed = JSON.parse(logged.join(""));
+    expect(parsed.cid).toBe("blake3:getjson123");
+    expect(parsed.status).toBe("rejected");
+    expect(parsed.evaluatedBy).toBe("agent-j");
+    expect(parsed.reason).toBe("test failure");
+  });
+
+  test("shows error for non-existent outcome", async () => {
+    const args = parseOutcomeArgs(["get", "blake3:nonexistent"]);
+    await runOutcome(args, deps);
+
+    expect(stderr.length).toBe(1);
+    expect(stderr[0]).toContain("Error:");
+    expect(stdout.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // runOutcome — list subcommand
 // ---------------------------------------------------------------------------
 
@@ -210,9 +293,18 @@ describe("runOutcome list", () => {
     await outcomeStore.set("blake3:jsontest123", { status: "crashed", evaluatedBy: "agent-x" });
 
     const args = parseOutcomeArgs(["list", "--json"]);
-    await runOutcome(args, deps);
 
-    const parsed = JSON.parse(stdout.join(""));
+    // outputJson writes to console.log, not deps.stdout
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runOutcome(args, deps);
+    } finally {
+      console.log = origLog;
+    }
+
+    const parsed = JSON.parse(logged.join(""));
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed.length).toBe(1);
     expect(parsed[0].cid).toBe("blake3:jsontest123");
@@ -226,9 +318,18 @@ describe("runOutcome list", () => {
     await outcomeStore.set("blake3:lim3cccccc", { status: "accepted", evaluatedBy: "agent" });
 
     const args = parseOutcomeArgs(["list", "-n", "2", "--json"]);
-    await runOutcome(args, deps);
 
-    const parsed = JSON.parse(stdout.join(""));
+    // outputJson writes to console.log, not deps.stdout
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runOutcome(args, deps);
+    } finally {
+      console.log = origLog;
+    }
+
+    const parsed = JSON.parse(logged.join(""));
     expect(parsed.length).toBe(2);
   });
 });

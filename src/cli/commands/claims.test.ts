@@ -150,4 +150,48 @@ describe("grove claims", () => {
     expect(output).toContain("combo-1");
     expect(output).not.toContain("combo-2");
   });
+
+  test("outputs JSON for active claims with --json flag", async () => {
+    const c1 = makeClaim({ claimId: "json-1", targetRef: "tj-1", intentSummary: "task json" });
+    await claimStore.createClaim(c1);
+
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runClaims(["--json"], deps);
+    } finally {
+      console.log = origLog;
+    }
+
+    expect(logged.length).toBe(1);
+    const parsed = JSON.parse(logged[0] ?? "");
+    expect(parsed).toHaveProperty("claims");
+    expect(parsed).toHaveProperty("count");
+    expect(parsed.count).toBe(1);
+    expect(parsed.claims[0].claimId).toBe("json-1");
+    expect(parsed.claims[0].targetRef).toBe("tj-1");
+    expect(parsed.claims[0].intentSummary).toBe("task json");
+  });
+
+  test("outputs JSON for expired claims with --expired --json flags", async () => {
+    const c1 = makeClaim({ claimId: "ej-1", targetRef: "tej-1" });
+    await claimStore.createClaim(c1);
+    await claimStore.release("ej-1");
+
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (msg: string) => logged.push(msg);
+    try {
+      await runClaims(["--expired", "--json"], deps);
+    } finally {
+      console.log = origLog;
+    }
+
+    expect(logged.length).toBe(1);
+    const parsed = JSON.parse(logged[0] ?? "");
+    expect(parsed).toHaveProperty("claims");
+    expect(parsed).toHaveProperty("count");
+    expect(parsed.count).toBe(1);
+  });
 });

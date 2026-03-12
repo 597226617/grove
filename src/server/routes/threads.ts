@@ -9,7 +9,9 @@ import { zValidator } from "@hono/zod-validator";
 import type { Hono as HonoType } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
+import { threadOperation, threadsOperation } from "../../core/operations/index.js";
 import type { ServerEnv } from "../deps.js";
+import { toHttpResult, toOperationDeps } from "../operation-adapter.js";
 import { CID_REGEX } from "../schemas.js";
 
 const cidParamSchema = z.object({
@@ -34,45 +36,59 @@ threads.get(
   zValidator("param", cidParamSchema),
   zValidator("query", threadQuerySchema),
   async (c) => {
-    const { contributionStore } = c.get("deps");
     const { cid } = c.req.valid("param");
     const { maxDepth, limit } = c.req.valid("query");
 
-    const nodes = await contributionStore.thread(cid, { maxDepth, limit });
-    if (nodes.length === 0) {
-      return c.json({ error: { code: "NOT_FOUND", message: `Thread root ${cid} not found` } }, 404);
+    // Use operation for validation (e.g., 404 on missing root)
+    const deps = toOperationDeps(c.get("deps"));
+    const result = await threadOperation({ cid, maxDepth, limit }, deps);
+
+    if (!result.ok) {
+      const { data, status } = toHttpResult(result);
+      return c.json(data, status);
     }
 
-    return c.json(
-      nodes.map((n) => ({
+    // Return full thread nodes for HTTP consumers (TUI remote provider)
+    const { contributionStore } = c.get("deps");
+    const nodes = await contributionStore.thread(cid, { maxDepth, limit });
+    return c.json({
+      nodes: nodes.map((n) => ({
         cid: n.contribution.cid,
         depth: n.depth,
         contribution: n.contribution,
       })),
-    );
+      count: nodes.length,
+    });
   },
 );
 
 /** GET /api/threads — List active threads sorted by reply count. */
 threads.get("/", zValidator("query", threadsQuerySchema), async (c) => {
-  const { contributionStore } = c.get("deps");
   const raw = c.req.valid("query");
 
   const tags = raw.tags ? raw.tags.split(",").filter((t) => t.length > 0) : undefined;
 
-  const results = await contributionStore.hotThreads({
-    tags,
-    limit: raw.limit,
-  });
+  // Use operation for validation
+  const deps = toOperationDeps(c.get("deps"));
+  const result = await threadsOperation({ tags, limit: raw.limit }, deps);
 
-  return c.json(
-    results.map((s) => ({
-      cid: s.contribution.cid,
-      replyCount: s.replyCount,
-      lastReplyAt: s.lastReplyAt,
-      contribution: s.contribution,
+  if (!result.ok) {
+    const { data, status } = toHttpResult(result);
+    return c.json(data, status);
+  }
+
+  // Return full thread summaries for HTTP consumers (TUI remote provider)
+  const { contributionStore } = c.get("deps");
+  const threadList = await contributionStore.hotThreads({ tags, limit: raw.limit });
+  return c.json({
+    threads: threadList.map((t) => ({
+      cid: t.contribution.cid,
+      replyCount: t.replyCount,
+      lastReplyAt: t.lastReplyAt,
+      contribution: t.contribution,
     })),
-  );
+    count: threadList.length,
+  });
 });
 
 export { threads };

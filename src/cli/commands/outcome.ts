@@ -3,28 +3,32 @@
  *
  * Subcommands:
  *   grove outcome set <cid> <status>   — set the outcome for a contribution
+ *   grove outcome get <cid>            — get the outcome for a contribution
  *   grove outcome list                 — list outcomes with optional filters
  *   grove outcome stats                — show aggregated outcome statistics
  *
  * Usage:
  *   grove outcome set blake3:abc123 accepted --reason "looks good"
  *   grove outcome set blake3:abc123 rejected --baseline blake3:def456
+ *   grove outcome get blake3:abc123
+ *   grove outcome get blake3:abc123 --json
  *   grove outcome list --status accepted -n 10
  *   grove outcome list --json
  *   grove outcome stats
  */
 
 import { parseArgs } from "node:util";
-
-import type {
-  OutcomeQuery,
-  OutcomeRecord,
-  OutcomeStats,
-  OutcomeStore,
-} from "../../core/outcome.js";
+import type { OperationDeps } from "../../core/operations/index.js";
+import {
+  getOutcomeOperation,
+  listOutcomesOperation,
+  outcomeStatsOperation,
+  setOutcomeOperation,
+} from "../../core/operations/index.js";
+import type { OutcomeRecord, OutcomeStats, OutcomeStore } from "../../core/outcome.js";
 import { OUTCOME_STATUSES } from "../../core/outcome.js";
 import type { Writer } from "../context.js";
-import { formatTable, truncateCid } from "../format.js";
+import { formatTable, outputJson, outputJsonError, truncateCid } from "../format.js";
 import { resolveAgentId } from "../utils/grove-dir.js";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +39,17 @@ export interface OutcomeDeps {
   readonly outcomeStore: OutcomeStore;
   readonly stdout: Writer;
   readonly stderr: Writer;
+}
+
+/** Build OperationDeps from OutcomeDeps (only outcome-relevant fields). */
+function toOpDeps(deps: OutcomeDeps): OperationDeps {
+  return {
+    outcomeStore: deps.outcomeStore,
+    contributionStore: undefined as never,
+    claimStore: undefined as never,
+    cas: undefined as never,
+    frontier: undefined as never,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +63,13 @@ export interface OutcomeSetArgs {
   readonly reason?: string | undefined;
   readonly baseline?: string | undefined;
   readonly evaluator: string;
+  readonly json: boolean;
+}
+
+export interface OutcomeGetArgs {
+  readonly subcommand: "get";
+  readonly cid: string;
+  readonly json: boolean;
 }
 
 export interface OutcomeListArgs {
@@ -59,9 +81,10 @@ export interface OutcomeListArgs {
 
 export interface OutcomeStatsArgs {
   readonly subcommand: "stats";
+  readonly json: boolean;
 }
 
-export type OutcomeArgs = OutcomeSetArgs | OutcomeListArgs | OutcomeStatsArgs;
+export type OutcomeArgs = OutcomeSetArgs | OutcomeGetArgs | OutcomeListArgs | OutcomeStatsArgs;
 
 const DEFAULT_LIMIT = 20;
 
@@ -75,14 +98,19 @@ export function parseOutcomeArgs(argv: string[]): OutcomeArgs {
   if (subcommand === "set") {
     return parseSetArgs(argv.slice(1));
   }
+  if (subcommand === "get") {
+    return parseGetArgs(argv.slice(1));
+  }
   if (subcommand === "list") {
     return parseListArgs(argv.slice(1));
   }
   if (subcommand === "stats") {
-    return { subcommand: "stats" };
+    return parseStatsArgs(argv.slice(1));
   }
 
-  throw new Error(`Unknown subcommand: '${subcommand ?? "(none)"}'. Expected: set, list, stats`);
+  throw new Error(
+    `Unknown subcommand: '${subcommand ?? "(none)"}'. Expected: set, get, list, stats`,
+  );
 }
 
 function parseSetArgs(argv: string[]): OutcomeSetArgs {
@@ -92,6 +120,7 @@ function parseSetArgs(argv: string[]): OutcomeSetArgs {
       reason: { type: "string" },
       baseline: { type: "string" },
       evaluator: { type: "string" },
+      json: { type: "boolean", default: false },
     },
     allowPositionals: true,
     strict: true,
@@ -113,6 +142,29 @@ function parseSetArgs(argv: string[]): OutcomeSetArgs {
     reason: values.reason,
     baseline: values.baseline,
     evaluator: resolveAgentId(values.evaluator),
+    json: values.json ?? false,
+  };
+}
+
+function parseGetArgs(argv: string[]): OutcomeGetArgs {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      json: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+    strict: true,
+  });
+
+  const cid = positionals[0];
+  if (!cid) {
+    throw new Error("Usage: grove outcome get <cid> [--json]");
+  }
+
+  return {
+    subcommand: "get",
+    cid,
+    json: values.json ?? false,
   };
 }
 
@@ -137,6 +189,22 @@ function parseListArgs(argv: string[]): OutcomeListArgs {
     subcommand: "list",
     status: values.status,
     limit,
+    json: values.json ?? false,
+  };
+}
+
+function parseStatsArgs(argv: string[]): OutcomeStatsArgs {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      json: { type: "boolean", default: false },
+    },
+    strict: true,
+    allowPositionals: false,
+  });
+
+  return {
+    subcommand: "stats",
     json: values.json ?? false,
   };
 }
@@ -192,10 +260,12 @@ export async function runOutcome(args: OutcomeArgs, deps: OutcomeDeps): Promise<
   switch (args.subcommand) {
     case "set":
       return runSet(args, deps);
+    case "get":
+      return runGet(args, deps);
     case "list":
       return runList(args, deps);
     case "stats":
-      return runStats(deps);
+      return runStats(args, deps);
   }
 }
 
@@ -208,35 +278,103 @@ async function runSet(args: OutcomeSetArgs, deps: OutcomeDeps): Promise<void> {
     return;
   }
 
-  const record = await deps.outcomeStore.set(args.cid, {
-    status: args.status as OutcomeRecord["status"],
-    reason: args.reason,
-    baselineCid: args.baseline,
-    evaluatedBy: args.evaluator,
-  });
+  const result = await setOutcomeOperation(
+    {
+      cid: args.cid,
+      status: args.status as OutcomeRecord["status"],
+      ...(args.reason !== undefined ? { reason: args.reason } : {}),
+      ...(args.baseline !== undefined ? { baselineCid: args.baseline } : {}),
+      agent: { agentId: args.evaluator },
+    },
+    toOpDeps(deps),
+  );
 
+  if (!result.ok) {
+    if (args.json) {
+      outputJsonError(result.error);
+    }
+    deps.stderr(`Error: ${result.error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (args.json) {
+    outputJson(result.value);
+    return;
+  }
+
+  const record = result.value;
   deps.stdout(
     `Outcome set: ${truncateCid(record.cid)} → ${record.status} (by ${record.evaluatedBy})`,
   );
 }
 
-async function runList(args: OutcomeListArgs, deps: OutcomeDeps): Promise<void> {
-  const query: OutcomeQuery = {
-    status: args.status as OutcomeQuery["status"],
-    limit: args.limit,
-  };
+async function runGet(args: OutcomeGetArgs, deps: OutcomeDeps): Promise<void> {
+  const result = await getOutcomeOperation({ cid: args.cid }, toOpDeps(deps));
 
-  const outcomes = await deps.outcomeStore.list(query);
+  if (!result.ok) {
+    if (args.json) {
+      outputJsonError(result.error);
+    }
+    deps.stderr(`Error: ${result.error.message}`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (args.json) {
-    deps.stdout(JSON.stringify(outcomes, null, 2));
+    outputJson(result.value);
+    return;
+  }
+
+  const r = result.value;
+  deps.stdout(
+    `Outcome for ${truncateCid(r.cid)}:\n` +
+      `  Status:      ${r.status}\n` +
+      `  Evaluator:   ${r.evaluatedBy}\n` +
+      `  Evaluated:   ${r.evaluatedAt}` +
+      (r.reason ? `\n  Reason:      ${r.reason}` : "") +
+      (r.baselineCid ? `\n  Baseline:    ${truncateCid(r.baselineCid)}` : ""),
+  );
+}
+
+async function runList(args: OutcomeListArgs, deps: OutcomeDeps): Promise<void> {
+  const result = await listOutcomesOperation(
+    {
+      ...(args.status !== undefined ? { status: args.status as OutcomeRecord["status"] } : {}),
+      limit: args.limit,
+    },
+    toOpDeps(deps),
+  );
+
+  if (!result.ok) {
+    deps.stderr(`Error: ${result.error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const outcomes = result.value;
+
+  if (args.json) {
+    outputJson(outcomes);
     return;
   }
 
   deps.stdout(formatTable(OUTCOME_COLUMNS, outcomes.map(outcomeToRow)));
 }
 
-async function runStats(deps: OutcomeDeps): Promise<void> {
-  const stats = await deps.outcomeStore.getStats();
-  deps.stdout(formatStats(stats));
+async function runStats(args: OutcomeStatsArgs, deps: OutcomeDeps): Promise<void> {
+  const result = await outcomeStatsOperation(toOpDeps(deps));
+
+  if (!result.ok) {
+    deps.stderr(`Error: ${result.error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (args.json) {
+    outputJson(result.value);
+    return;
+  }
+
+  deps.stdout(formatStats(result.value));
 }
