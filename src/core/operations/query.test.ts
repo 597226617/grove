@@ -42,8 +42,24 @@ describe("frontierOperation", () => {
   });
 
   test("returns contributions ranked by recency", async () => {
-    await contributeOperation({ kind: "work", summary: "first", agent: { agentId: "a1" } }, deps);
-    await contributeOperation({ kind: "work", summary: "second", agent: { agentId: "a1" } }, deps);
+    await contributeOperation(
+      {
+        kind: "work",
+        summary: "first",
+        agent: { agentId: "a1" },
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+      deps,
+    );
+    await contributeOperation(
+      {
+        kind: "work",
+        summary: "second",
+        agent: { agentId: "a1" },
+        createdAt: "2026-01-02T00:00:00Z",
+      },
+      deps,
+    );
 
     const result = await frontierOperation({}, deps);
 
