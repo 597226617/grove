@@ -26,15 +26,21 @@ import type { PanelFocusState } from "../hooks/use-panel-focus.js";
 import { isPanelVisible, PANEL_LABELS, Panel } from "../hooks/use-panel-focus.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { ContributionDetail, TuiDataProvider } from "../provider.js";
+import { ActivityPanelView } from "../views/activity-panel.js";
 import { AgentGraphView } from "../views/agent-graph.js";
 import { AgentListView } from "../views/agent-list.js";
 import { ArtifactPreviewView } from "../views/artifact-preview.js";
+import { BountiesPanelView } from "../views/bounties-panel.js";
 import { ClaimsView } from "../views/claims.js";
 import { DagView } from "../views/dag.js";
 import { DashboardView } from "../views/dashboard.js";
 import { DetailView } from "../views/detail.js";
 import { FrontierView } from "../views/frontier-view.js";
+import { GossipPanelView } from "../views/gossip-panel.js";
+import { OutcomesPanelView } from "../views/outcomes-panel.js";
+import { SearchPanelView } from "../views/search-panel.js";
 import { TerminalView } from "../views/terminal.js";
+import { ThreadsPanelView } from "../views/threads-panel.js";
 import { VfsBrowserView } from "../views/vfs-browser.js";
 
 /** Props for the PanelManager component. */
@@ -58,6 +64,10 @@ export interface PanelManagerProps {
   readonly showArtifactDiff?: boolean | undefined;
   /** Pre-fetched active claims from the parent poller (avoids double polling). */
   readonly activeClaims?: readonly import("../../core/models.js").Claim[] | undefined;
+  /** Current search query for the Search panel. */
+  readonly searchQuery?: string | undefined;
+  /** Whether the Search panel is in input mode. */
+  readonly isSearchInputMode?: boolean | undefined;
 }
 
 /** Wraps a panel view with a titled border. */
@@ -100,6 +110,8 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
     artifactIndex,
     showArtifactDiff,
     activeClaims,
+    searchQuery,
+    isSearchInputMode,
   }: PanelManagerProps): React.ReactNode {
     const isFocused = (p: Panel) => panelState.focused === p;
 
@@ -261,6 +273,95 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                   active={isPanelVisible(panelState, Panel.Vfs)}
                   cursor={isFocused(Panel.Vfs) ? nav.state.cursor : -1}
                   navigateTrigger={vfsNavigateTrigger}
+                />
+              </PanelChrome>
+            )}
+          </box>
+        )}
+
+        {/* Activity / Search panels */}
+        {(isPanelVisible(panelState, Panel.Activity) ||
+          isPanelVisible(panelState, Panel.Search)) && (
+          <box flexDirection="row" flexGrow={1}>
+            {isPanelVisible(panelState, Panel.Activity) && (
+              <PanelChrome panel={Panel.Activity} focused={isFocused(Panel.Activity)}>
+                <ActivityPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Activity)}
+                  cursor={isFocused(Panel.Activity) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+            {isPanelVisible(panelState, Panel.Search) && (
+              <PanelChrome panel={Panel.Search} focused={isFocused(Panel.Search)}>
+                <SearchPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Search)}
+                  cursor={isFocused(Panel.Search) ? nav.state.cursor : -1}
+                  searchQuery={searchQuery ?? ""}
+                  isInputMode={isSearchInputMode ?? false}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+          </box>
+        )}
+
+        {/* Threads / Outcomes panels */}
+        {(isPanelVisible(panelState, Panel.Threads) ||
+          isPanelVisible(panelState, Panel.Outcomes)) && (
+          <box flexDirection="row" flexGrow={1}>
+            {isPanelVisible(panelState, Panel.Threads) && (
+              <PanelChrome panel={Panel.Threads} focused={isFocused(Panel.Threads)}>
+                <ThreadsPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Threads)}
+                  cursor={isFocused(Panel.Threads) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+            {isPanelVisible(panelState, Panel.Outcomes) && (
+              <PanelChrome panel={Panel.Outcomes} focused={isFocused(Panel.Outcomes)}>
+                <OutcomesPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Outcomes)}
+                  cursor={isFocused(Panel.Outcomes) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+          </box>
+        )}
+
+        {/* Bounties / Gossip panels */}
+        {(isPanelVisible(panelState, Panel.Bounties) ||
+          isPanelVisible(panelState, Panel.Gossip)) && (
+          <box flexDirection="row" flexGrow={1}>
+            {isPanelVisible(panelState, Panel.Bounties) && (
+              <PanelChrome panel={Panel.Bounties} focused={isFocused(Panel.Bounties)}>
+                <BountiesPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Bounties)}
+                  cursor={isFocused(Panel.Bounties) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
+                />
+              </PanelChrome>
+            )}
+            {isPanelVisible(panelState, Panel.Gossip) && (
+              <PanelChrome panel={Panel.Gossip} focused={isFocused(Panel.Gossip)}>
+                <GossipPanelView
+                  provider={provider}
+                  intervalMs={intervalMs}
+                  active={isPanelVisible(panelState, Panel.Gossip)}
+                  cursor={isFocused(Panel.Gossip) ? nav.state.cursor : -1}
+                  onRowCountChanged={onRowCountChanged}
                 />
               </PanelChrome>
             )}

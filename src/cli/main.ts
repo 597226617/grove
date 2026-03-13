@@ -318,6 +318,24 @@ function buildCommands(groveOverride: string | undefined): readonly Command[] {
         await handleTui(args, groveOverride);
       },
     },
+    {
+      name: "up",
+      description: "Start all grove services and TUI",
+      needsStore: false,
+      handler: async (args) => {
+        const { handleUp } = await import("./commands/up.js");
+        await handleUp(args, groveOverride);
+      },
+    },
+    {
+      name: "down",
+      description: "Stop all grove services",
+      needsStore: false,
+      handler: async (args) => {
+        const { handleDown } = await import("./commands/down.js");
+        await handleDown(args, groveOverride);
+      },
+    },
   ];
 }
 
@@ -390,7 +408,12 @@ function printUsage(): void {
   console.log(`grove — asynchronous multi-agent contribution graph
 
 Usage:
-  grove init [name]           Create a new grove
+  grove init [name]                    Create a new grove
+  grove init --preset <name> [name]    Create from preset (review-loop, exploration, swarm-ops, research-loop)
+    --nexus-url <url>                  Use Nexus backend (or set GROVE_NEXUS_URL)
+  grove up [--headless] [--no-tui]     Start all services and TUI
+  grove down                           Stop all services
+
   grove contribute            Submit a contribution
   grove discuss [cid] <msg>   Post a discussion or reply
   grove review <cid>          Submit a review of a contribution

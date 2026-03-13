@@ -6,8 +6,11 @@
  * TuiArtifactProvider + TuiVfsProvider. Used when running `grove tui --nexus <url>`.
  */
 
+import type { Bounty } from "../core/bounty.js";
+import type { BountyQuery } from "../core/bounty-store.js";
 import type { Frontier, FrontierQuery } from "../core/frontier.js";
 import { DefaultFrontierCalculator } from "../core/frontier.js";
+import type { PeerInfo } from "../core/gossip/types.js";
 import type { AgentIdentity, Claim, Contribution } from "../core/models.js";
 import type { OutcomeRecord, OutcomeStatus } from "../core/outcome.js";
 import type { ContributionQuery, ThreadSummary } from "../core/store.js";
@@ -15,6 +18,7 @@ import type { WorkspaceManager } from "../core/workspace.js";
 import type { NexusClient } from "../nexus/client.js";
 import type { NexusConfig } from "../nexus/config.js";
 import { resolveConfig } from "../nexus/config.js";
+import { NexusBountyStore } from "../nexus/nexus-bounty-store.js";
 import { NexusClaimStore } from "../nexus/nexus-claim-store.js";
 import { NexusContributionStore } from "../nexus/nexus-contribution-store.js";
 import { NexusOutcomeStore } from "../nexus/nexus-outcome-store.js";
@@ -54,6 +58,13 @@ export interface NexusProviderConfig {
   /** Optional workspace manager for local workspace lifecycle (hybrid mode). */
   readonly workspaceManager?: WorkspaceManager | undefined;
   readonly backendLabel?: string | undefined;
+  /**
+   * Optional URL of a co-located grove server.
+   * When provided, gossip peer data is fetched from the server's
+   * `/api/gossip/peers` endpoint (gossip is server-to-server, not
+   * stored in Nexus VFS).
+   */
+  readonly serverUrl?: string | undefined;
 }
 
 /** TUI data provider backed by Nexus VFS. */
@@ -69,19 +80,23 @@ export class NexusDataProvider
   private readonly store: NexusContributionStore;
   private readonly claims: NexusClaimStore;
   private readonly outcomes: NexusOutcomeStore;
+  private readonly bountyStore: NexusBountyStore;
   private readonly frontier: DefaultFrontierCalculator;
   private readonly client: NexusClient;
   private readonly zoneId: string;
   private readonly name: string;
   private readonly workspace: WorkspaceManager | undefined;
   private readonly label: string;
+  private readonly serverUrl: string | undefined;
 
   constructor(config: NexusProviderConfig) {
     this.store = new NexusContributionStore(config.nexusConfig);
     this.claims = new NexusClaimStore(config.nexusConfig);
     this.outcomes = new NexusOutcomeStore(config.nexusConfig);
+    this.bountyStore = new NexusBountyStore(config.nexusConfig);
     this.frontier = new DefaultFrontierCalculator(this.store);
     this.name = config.groveName ?? "nexus";
+    this.serverUrl = config.serverUrl;
     this.workspace = config.workspaceManager;
     this.label = config.backendLabel ?? "nexus";
 
@@ -301,6 +316,36 @@ export class NexusDataProvider
   }
 
   // ---------------------------------------------------------------------------
+  // Bounties (duck-typed — detected by bounties-panel.tsx at runtime)
+  // ---------------------------------------------------------------------------
+
+  async listBounties(query?: BountyQuery): Promise<readonly Bounty[]> {
+    return this.bountyStore.listBounties(query);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gossip (duck-typed — detected by gossip-panel.tsx at runtime)
+  // ---------------------------------------------------------------------------
+
+  async getGossipPeers(): Promise<readonly PeerInfo[]> {
+    // Gossip is a server-to-server protocol; Nexus VFS does not store peer
+    // state. When a co-located grove server URL is available, fetch live
+    // peer data from its /api/gossip/peers endpoint.
+    if (this.serverUrl) {
+      try {
+        const resp = await fetch(`${this.serverUrl.replace(/\/+$/, "")}/api/gossip/peers`);
+        if (resp.ok) {
+          const body = (await resp.json()) as { peers: readonly PeerInfo[] };
+          return body.peers;
+        }
+      } catch {
+        // Server unreachable or gossip not enabled — fall through
+      }
+    }
+    return [];
+  }
+
+  // ---------------------------------------------------------------------------
   // TuiVfsProvider
   // ---------------------------------------------------------------------------
 
@@ -319,6 +364,7 @@ export class NexusDataProvider
     this.store.close();
     this.claims.close();
     this.outcomes.close();
+    this.bountyStore.close();
     this.workspace?.close();
   }
 }

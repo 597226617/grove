@@ -363,3 +363,115 @@ describe("CLI commands (with grove)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// grove init --preset
+// ---------------------------------------------------------------------------
+
+describe("grove init --preset", () => {
+  test("grove init --preset review-loop creates correct .grove/ structure", async () => {
+    const { stdout, exitCode } = await runCli(
+      ["init", "test-grove", "--preset", "review-loop"],
+      tmpDir,
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Initialized grove");
+    expect(stdout).toContain("preset 'review-loop'");
+
+    // Verify .grove directory exists
+    expect(existsSync(join(tmpDir, ".grove"))).toBe(true);
+    expect(existsSync(join(tmpDir, ".grove", "grove.db"))).toBe(true);
+    expect(existsSync(join(tmpDir, ".grove", "cas"))).toBe(true);
+    expect(existsSync(join(tmpDir, ".grove", "workspaces"))).toBe(true);
+  });
+
+  test("grove.json contains expected preset config", async () => {
+    await runCli(["init", "test-grove", "--preset", "review-loop"], tmpDir);
+
+    const configPath = join(tmpDir, ".grove", "grove.json");
+    expect(existsSync(configPath)).toBe(true);
+
+    const raw = await readFile(configPath, "utf-8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+    expect(config.name).toBe("test-grove");
+    expect(config.preset).toBe("review-loop");
+    expect(config.mode).toBe("nexus");
+    expect(config.nexusManaged).toBe(true);
+    // nexusUrl is NOT written for managed Nexus — discovered at `grove up` time
+    expect(config.nexusUrl).toBeUndefined();
+    expect(config.services).toEqual({ server: true, mcp: false });
+  });
+
+  test("GROVE.md has expected topology for preset", async () => {
+    await runCli(["init", "test-grove", "--preset", "review-loop"], tmpDir);
+
+    const grovemdPath = join(tmpDir, "GROVE.md");
+    expect(existsSync(grovemdPath)).toBe(true);
+
+    const content = await readFile(grovemdPath, "utf-8");
+    expect(content).toContain("contract_version: 3");
+    expect(content).toContain("agent_topology:");
+    expect(content).toContain("coder");
+    expect(content).toContain("reviewer");
+  });
+
+  test("nexus-preferring preset uses managed Nexus without --nexus-url", async () => {
+    const { stdout, exitCode } = await runCli(
+      ["init", "test-grove", "--preset", "swarm-ops"],
+      tmpDir,
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Initialized grove");
+
+    const raw = await readFile(join(tmpDir, ".grove", "grove.json"), "utf-8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+    expect(config.mode).toBe("nexus");
+    expect(config.nexusManaged).toBe(true);
+    // nexusUrl is NOT written for managed Nexus — discovered at `grove up` time
+    expect(config.nexusUrl).toBeUndefined();
+  });
+
+  test("nexus-preferring preset uses nexus with --nexus-url", async () => {
+    const { stdout, exitCode } = await runCli(
+      ["init", "test-grove", "--preset", "swarm-ops", "--nexus-url", "http://localhost:4000"],
+      tmpDir,
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Initialized grove");
+
+    const raw = await readFile(join(tmpDir, ".grove", "grove.json"), "utf-8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+    expect(config.mode).toBe("nexus");
+    expect(config.nexusUrl).toBe("http://localhost:4000");
+  });
+
+  test("grove init --preset unknown fails with error", async () => {
+    const { stderr, exitCode } = await runCli(
+      ["init", "test-grove", "--preset", "nonexistent"],
+      tmpDir,
+    );
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Unknown preset");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// grove up / grove down (headless)
+// ---------------------------------------------------------------------------
+
+describe("grove up/down", () => {
+  test("grove up --headless fails without grove.json", async () => {
+    // Set up a bare grove without grove.json
+    await setupGrove();
+    const { stderr, exitCode } = await runCli(["up", "--headless"], tmpDir);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("grove.json");
+  });
+
+  test("grove down reports no services when PID file missing", async () => {
+    await setupGrove();
+    const { stdout, exitCode } = await runCli(["down"], tmpDir);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("No running grove services");
+  });
+});

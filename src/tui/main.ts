@@ -5,8 +5,6 @@
  * and renders the root App component.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { TuiDataProvider } from "./provider.js";
 import {
@@ -87,105 +85,13 @@ Keybindings:
   };
 }
 
-/** Create a data provider from a resolved backend. */
-async function createProvider(backend: ResolvedBackend, label: string): Promise<TuiDataProvider> {
-  if (backend.mode === "remote") {
-    const { RemoteDataProvider } = await import("./remote-provider.js");
-    return new RemoteDataProvider(backend.url, label);
-  }
-
-  if (backend.mode === "nexus") {
-    const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
-    const { NexusDataProvider } = await import("./nexus-provider.js");
-    const { LocalWorkspaceManager } = await import("../local/workspace.js");
-    const { mkdirSync } = await import("node:fs");
-    const { initSqliteDb } = await import("../local/sqlite-store.js");
-    const { FsCas } = await import("../local/fs-cas.js");
-
-    const client = new NexusHttpClient({ url: backend.url });
-
-    // Create workspace root for Nexus-spawned agents.
-    // groveRoot is the parent — LocalWorkspaceManager appends "workspaces".
-    const homeDir = process.env.HOME ?? "/tmp";
-    const groveRoot = join(homeDir, ".grove", "nexus-workspaces");
-    mkdirSync(groveRoot, { recursive: true });
-
-    // SQLite DB for workspace tracking (claims live in Nexus, not local SQLite)
-    const dbPath = join(groveRoot, "nexus.db");
-    const db = initSqliteDb(dbPath);
-
-    // Stub contribution store — bare workspace creation doesn't fetch artifacts
-    const stubContributionStore = {
-      get: async () => undefined,
-      put: async () => {},
-      putMany: async () => {},
-      list: async () => [],
-      ancestors: async () => [],
-      children: async () => [],
-      count: async () => 0,
-      thread: async () => [],
-      hotThreads: async () => [],
-      search: async () => [],
-      relationsOf: async () => [],
-      relatedTo: async () => [],
-      findExisting: async () => undefined,
-      replyCounts: async () => new Map(),
-      close: () => {},
-      storeIdentity: "nexus-workspace-stub",
-    } as unknown as import("../core/store.js").ContributionStore;
-
-    // Stub CAS — bare workspaces don't materialize artifacts
-    const casRoot = join(groveRoot, "cas");
-    mkdirSync(casRoot, { recursive: true });
-    const cas = new FsCas(casRoot);
-
-    const workspaceManager = new LocalWorkspaceManager({
-      groveRoot,
-      db,
-      contributionStore: stubContributionStore,
-      cas,
-    });
-
-    return new NexusDataProvider({
-      nexusConfig: { client, zoneId: "default" },
-      workspaceManager,
-      backendLabel: label,
-    });
-  }
-
-  // Local provider
-  const { initCliDeps } = await import("../cli/context.js");
-  const { createSqliteStores } = await import("../local/sqlite-store.js");
-  const { LocalDataProvider } = await import("./local-provider.js");
-
-  const deps = initCliDeps(process.cwd(), backend.groveOverride);
-  const dbPath = join(deps.groveRoot, ".grove", "grove.db");
-
-  // Read grove name from .grove/grove.json
-  let groveName = "grove";
-  try {
-    const metaPath = join(deps.groveRoot, ".grove", "grove.json");
-    if (existsSync(metaPath)) {
-      const raw = await Bun.file(metaPath).text();
-      const meta = JSON.parse(raw) as { name?: string };
-      groveName = meta.name ?? "grove";
-    }
-  } catch {
-    // Ignore — use default name
-  }
-
-  const stores = createSqliteStores(dbPath);
-
-  return new LocalDataProvider({
-    contributionStore: deps.store,
-    claimStore: stores.claimStore,
-    frontier: deps.frontier,
-    groveName,
-    outcomeStore: stores.outcomeStore,
-    cas: deps.cas,
-    workspace: deps.workspace,
-    backendLabel: label,
-  });
+/** Create a data provider from a resolved backend (delegates to shared factory). */
+async function createProviderForTui(
+  backend: ResolvedBackend,
+  label: string,
+): Promise<TuiDataProvider> {
+  const { createProvider } = await import("../shared/provider-factory.js");
+  return createProvider(backend, label);
 }
 
 /** Main TUI entry point. */
@@ -232,13 +138,13 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
 
   // Load provider and topology in parallel (except when nexus fallback just happened)
   const [provider, topology] = await Promise.all([
-    createProvider(backend, label),
+    createProviderForTui(backend, label),
     loadTopology(backend),
   ]);
 
-  // Create TmuxManager for local agent management (only in local mode)
+  // Create TmuxManager for agent management (all backend modes — Decision 4)
   let tmux: import("./agents/tmux-manager.js").TmuxManager | undefined;
-  if (backend.mode === "local") {
+  {
     const { ShellTmuxManager } = await import("./agents/tmux-manager.js");
     const mgr = new ShellTmuxManager();
     const available = await mgr.isAvailable();
