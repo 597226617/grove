@@ -42,8 +42,8 @@ interface TestServerContext {
 function buildTestServer(deps: McpDeps, sessionTtlMs: number): TestServerContext {
   const sessions = new Map<string, ManagedSession>();
 
-  // Mirror production: reap interval adapts to TTL, floor at 50ms for tests.
-  const reapIntervalMs = Math.min(60_000, Math.max(50, Math.floor(sessionTtlMs / 2)));
+  // Mirror production: reap interval = min(60s, TTL/3).
+  const reapIntervalMs = Math.min(60_000, Math.floor(sessionTtlMs / 3));
 
   const reapTimer = setInterval(() => {
     const now = Date.now();

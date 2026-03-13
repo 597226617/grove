@@ -111,7 +111,7 @@ const SESSION_TTL_MS = (() => {
 })();
 
 /** How often the reaper sweeps for stale sessions. Adapts to low TTLs. */
-const REAP_INTERVAL_MS = Math.min(60_000, Math.max(1_000, Math.floor(SESSION_TTL_MS / 2)));
+const REAP_INTERVAL_MS = Math.min(60_000, Math.floor(SESSION_TTL_MS / 3));
 
 interface ManagedSession {
   server: McpServer;
