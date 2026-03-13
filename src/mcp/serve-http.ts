@@ -198,9 +198,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     // Keep the session alive while the SSE stream is open. Without this,
     // long-lived GET streams would be reaped as "idle" even though the
     // client is actively waiting for server-initiated messages.
-    const keepAlive = setInterval(() => {
-      getSession.lastActivity = Date.now();
-    }, REAP_INTERVAL_MS / 2);
+    const keepAlive = setInterval(
+      () => {
+        getSession.lastActivity = Date.now();
+      },
+      Math.min(SESSION_TTL_MS / 2, REAP_INTERVAL_MS / 2),
+    );
     res.on("close", () => clearInterval(keepAlive));
     await getSession.transport.handleRequest(req, res);
   } else if (req.method === "DELETE") {
