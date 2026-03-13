@@ -13,6 +13,7 @@ import type { Claim, Contribution } from "../core/models.js";
 import { checkSpawn, checkSpawnDepth } from "./agents/spawn-validator.js";
 import { agentIdFromSession } from "./agents/tmux-manager.js";
 import { buildPaletteItems, CommandPalette } from "./components/command-palette.js";
+import { HelpOverlay } from "./components/help-overlay.js";
 import { InputBar } from "./components/input-bar.js";
 import { StatusBar } from "./components/status-bar.js";
 import { PanelBar } from "./components/tab-bar.js";
@@ -154,13 +155,23 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     const input = key.name;
     const isCtrl = key.ctrl;
 
-    // Command palette toggle (works in all modes)
+    // Command palette toggle (works in all modes except help)
     if (isCtrl && input === "p") {
       if (panels.state.mode === InputMode.CommandPalette) {
         panels.setMode(InputMode.Normal);
       } else {
         setPaletteIndex(0);
         panels.setMode(InputMode.CommandPalette);
+      }
+      return;
+    }
+
+    // Help overlay toggle (works in normal mode and help mode)
+    if (input === "?" || (key.shift && input === "/")) {
+      if (panels.state.mode === InputMode.Help) {
+        panels.setMode(InputMode.Normal);
+      } else if (panels.state.mode === InputMode.Normal) {
+        panels.setMode(InputMode.Help);
       }
       return;
     }
@@ -175,6 +186,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         nav.popDetail();
         return;
       }
+      return;
+    }
+
+    // In help mode, only Esc and ? dismiss (handled above)
+    if (panels.state.mode === InputMode.Help) {
       return;
     }
 
@@ -427,6 +443,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   return (
     <box flexDirection="column" width="100%" height="100%">
       <PanelBar panelState={panels.state} />
+      <HelpOverlay
+        visible={panels.state.mode === InputMode.Help}
+        isDetailView={nav.isDetailView}
+        focusedPanel={panels.state.focused}
+      />
       <CommandPalette
         visible={paletteVisible}
         tmux={tmux}
