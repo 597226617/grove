@@ -95,6 +95,19 @@ outcomes.get("/", zValidator("query", listQuerySchema), async (c) => {
 
   // When cids is provided, use batch lookup instead of list
   if (query.cids !== undefined) {
+    // Reject mixed query modes — cids is a separate lookup path
+    if (query.status !== undefined || query.evaluatedBy !== undefined) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Cannot combine 'cids' with 'status' or 'evaluatedBy' filters",
+          },
+        },
+        400,
+      );
+    }
+
     const cidList = query.cids
       .split(",")
       .map((s) => s.trim())

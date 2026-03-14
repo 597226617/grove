@@ -248,10 +248,20 @@ export class RemoteDataProvider
       }),
     );
 
-    for (const result of chunkResults) {
+    for (let i = 0; i < chunkResults.length; i++) {
+      const result = chunkResults[i] as PromiseSettledResult<readonly OutcomeRecord[]>;
+      const chunk = chunks[i] as string[];
       if (result.status === "fulfilled") {
         for (const record of result.value) {
           map.set(record.cid, record);
+        }
+      } else {
+        // Fall back to individual fetches so one bad chunk doesn't hide valid outcomes
+        const fallbackResults = await Promise.allSettled(chunk.map((cid) => this.getOutcome(cid)));
+        for (const fb of fallbackResults) {
+          if (fb.status === "fulfilled" && fb.value !== undefined) {
+            map.set(fb.value.cid, fb.value);
+          }
         }
       }
     }
