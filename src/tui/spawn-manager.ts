@@ -167,12 +167,19 @@ export class SpawnManager {
       this.spawnRecords.delete(killedAgentId);
 
       if (this.provider.releaseClaim) {
-        await safeCleanup(this.provider.releaseClaim(tracked.claimId), "release claim during kill");
+        await safeCleanup(
+          this.provider.releaseClaim(tracked.claimId),
+          "release claim during kill",
+          {
+            silent: true,
+          },
+        );
       }
       if (this.provider.cleanWorkspace) {
         await safeCleanup(
           this.provider.cleanWorkspace(tracked.targetRef, killedAgentId),
           "clean workspace during kill",
+          { silent: true },
         );
       }
       return;

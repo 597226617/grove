@@ -119,11 +119,11 @@ const BountySchema: z.ZodType<Bounty> = z.object({
 });
 
 /**
- * Schema for frontier entry summaries returned by the HTTP API.
+ * Schema for frontier entries returned by the HTTP API.
  *
- * The server returns FrontierEntrySummary (cid, summary, value) — NOT
- * the internal FrontierEntry which includes the full contribution object.
- * The contribution field is optional to accommodate both formats.
+ * The server returns FrontierEntrySummary (cid, summary, value) without
+ * the full contribution object. The contribution field is optional in the
+ * FrontierEntry type to reflect this reality.
  */
 const FrontierEntrySchema: z.ZodType<FrontierEntry> = z.object({
   cid: z.string(),
@@ -133,9 +133,7 @@ const FrontierEntrySchema: z.ZodType<FrontierEntry> = z.object({
     .unknown()
     .optional()
     .transform((data) =>
-      data !== undefined && data !== null
-        ? fromManifest(data, { verify: false })
-        : (undefined as unknown as Contribution),
+      data !== undefined && data !== null ? fromManifest(data, { verify: false }) : undefined,
     ),
 }) as z.ZodType<FrontierEntry>;
 

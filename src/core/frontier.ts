@@ -13,12 +13,18 @@ import type { Contribution, ContributionKind, JsonValue, Score } from "./models.
 import { ContributionMode, RelationType } from "./models.js";
 import type { ContributionQuery, ContributionStore } from "./store.js";
 
-/** A single entry in a frontier ranking. */
+/**
+ * A single entry in a frontier ranking.
+ *
+ * `contribution` is always present when computed locally by
+ * DefaultFrontierCalculator, but absent in HTTP API responses
+ * (the server returns FrontierEntrySummary without full objects).
+ */
 export interface FrontierEntry {
   readonly cid: string;
   readonly summary: string;
   readonly value: number;
-  readonly contribution: Contribution;
+  readonly contribution?: Contribution | undefined;
 }
 
 /** Multi-signal frontier result. */

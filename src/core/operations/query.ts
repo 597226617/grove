@@ -79,14 +79,17 @@ function toContributionSummary(c: Contribution): ContributionSummary {
   };
 }
 
+/** Convert a locally-computed FrontierEntry (always has contribution) to a summary. */
 function toFrontierEntrySummary(e: FrontierEntry): FrontierEntrySummary {
+  // contribution is always present for locally-computed frontiers
+  const c = e.contribution;
   return {
     cid: e.cid,
     summary: e.summary,
     value: e.value,
-    kind: e.contribution.kind,
-    mode: e.contribution.mode,
-    agentId: e.contribution.agent.agentId,
+    kind: c?.kind ?? "work",
+    mode: c?.mode ?? "evaluation",
+    agentId: c?.agent.agentId ?? "",
   };
 }
 

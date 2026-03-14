@@ -192,7 +192,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     // (must come BEFORE the ? handler so ? can be typed in terminal)
     if (panels.state.mode === InputMode.TerminalInput) {
       if (tmux && selectedSession && input) {
-        void safeCleanup(tmux.sendKeys(selectedSession, input), "sendKeys to tmux session");
+        void safeCleanup(tmux.sendKeys(selectedSession, input), "sendKeys to tmux session", {
+          silent: true,
+        });
       }
       return;
     }

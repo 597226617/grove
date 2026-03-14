@@ -67,7 +67,7 @@ export function frontierEntryToRow(
     cid: options?.wide ? entry.cid : truncateCid(entry.cid),
     summary: entry.summary,
     value: entry.value.toFixed(2),
-    agent: entry.contribution.agent.agentName ?? entry.contribution.agent.agentId,
-    created: formatTimestamp(entry.contribution.createdAt),
+    agent: entry.contribution?.agent.agentName ?? entry.contribution?.agent.agentId ?? "—",
+    created: entry.contribution ? formatTimestamp(entry.contribution.createdAt) : "—",
   };
 }

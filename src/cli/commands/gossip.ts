@@ -785,7 +785,10 @@ async function buildGossipMessage(peerId: string, deps: CliDeps): Promise<Gossip
         metric,
         value: entry.value,
         cid: entry.cid,
-        tags: entry.contribution.tags.length > 0 ? entry.contribution.tags : undefined,
+        tags:
+          entry.contribution && entry.contribution.tags.length > 0
+            ? entry.contribution.tags
+            : undefined,
       });
     }
   }
