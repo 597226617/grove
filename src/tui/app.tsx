@@ -179,8 +179,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In help mode, only Esc dismisses (handled above)
+    // In help mode, ? toggles off (in addition to Esc above)
     if (panels.state.mode === InputMode.Help) {
+      if (input === "?" || (key.shift && input === "/")) {
+        panels.setMode(InputMode.Normal);
+      }
       return;
     }
 

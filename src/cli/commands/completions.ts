@@ -55,26 +55,35 @@ export function generateCompletions(shell: Shell, commands?: readonly CommandMet
 function generateBash(commands: readonly CommandMeta[]): string {
   const cmdNames = commands.map((c) => c.name).join(" ");
 
-  const caseEntries = commands
-    .flatMap((cmd) => {
+  // Top-level case arms: complete subcommand names + top-level flags
+  const topCaseEntries = commands
+    .map((cmd) => {
       const flags = cmd.flags.map((f) => `--${f}`).join(" ");
       const subs = cmd.subcommands ? cmd.subcommands.map((s) => s.name).join(" ") : "";
       const completions = [subs, flags].filter(Boolean).join(" ");
-      const entries = [
-        `      ${cmd.name}) COMPREPLY=( $(compgen -W "${completions}" -- "$cur") ) ;;`,
+      return `      ${cmd.name}) COMPREPLY=( $(compgen -W "${completions}" -- "$cur") ) ;;`;
+    })
+    .join("\n");
+
+  // Nested case arms for subcommands: dispatch on COMP_WORDS[2]
+  const subCaseEntries = commands
+    .filter((cmd) => cmd.subcommands && cmd.subcommands.length > 0)
+    .flatMap((cmd) => {
+      const subArms = (cmd.subcommands ?? [])
+        .filter((sub) => sub.flags.length > 0)
+        .map((sub) => {
+          const subFlags = sub.flags.map((f) => `--${f}`).join(" ");
+          return `          ${sub.name}) COMPREPLY=( $(compgen -W "${subFlags}" -- "$cur") ) ;;`;
+        });
+      if (subArms.length === 0) return [];
+      return [
+        `      ${cmd.name})`,
+        `        case "\${COMP_WORDS[2]}" in`,
+        ...subArms,
+        `          *) ;;`,
+        `        esac`,
+        `        ;;`,
       ];
-      // Also add case arms for subcommands with their own flags
-      if (cmd.subcommands) {
-        for (const sub of cmd.subcommands) {
-          if (sub.flags.length > 0) {
-            const subFlags = sub.flags.map((f) => `--${f}`).join(" ");
-            entries.push(
-              `      ${sub.name}) COMPREPLY=( $(compgen -W "${subFlags}" -- "$cur") ) ;;`,
-            );
-          }
-        }
-      }
-      return entries;
     })
     .join("\n");
 
@@ -91,8 +100,17 @@ _grove_completions() {
     return 0
   fi
 
+  # Subcommand flag completion (COMP_CWORD >= 3)
+  if [[ \${COMP_CWORD} -ge 3 ]]; then
+    case "\${COMP_WORDS[1]}" in
+${subCaseEntries}
+      *) ;;
+    esac
+    [[ \${#COMPREPLY[@]} -gt 0 ]] && return 0
+  fi
+
   case "\${COMP_WORDS[1]}" in
-${caseEntries}
+${topCaseEntries}
       *) ;;
   esac
   return 0
@@ -197,9 +215,12 @@ function generateFish(commands: readonly CommandMeta[]): string {
         lines.push(
           `complete -c grove -n '__fish_seen_subcommand_from ${cmd.name}' -a '${sub.name}' -d '${sub.description}'`,
         );
-        // Subcommand-specific flags
+        // Subcommand-specific flags — scope by both parent AND sub to avoid
+        // name collisions (e.g. bounty list vs outcome list)
         for (const flag of sub.flags) {
-          lines.push(`complete -c grove -n '__fish_seen_subcommand_from ${sub.name}' -l '${flag}'`);
+          lines.push(
+            `complete -c grove -n '__fish_seen_subcommand_from ${cmd.name}; and __fish_seen_subcommand_from ${sub.name}' -l '${flag}'`,
+          );
         }
       }
     }

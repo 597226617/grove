@@ -201,8 +201,9 @@ export function formatHotThreads(
   summaries: readonly ThreadSummary[],
   options?: FormatTableOptions,
 ): string {
+  const wide = options?.wide;
   const rows = summaries.map((s) => ({
-    cid: truncateCid(s.contribution.cid),
+    cid: wide ? s.contribution.cid : truncateCid(s.contribution.cid),
     replies: String(s.replyCount),
     summary: s.contribution.summary,
     lastReply: formatTimestamp(s.lastReplyAt),

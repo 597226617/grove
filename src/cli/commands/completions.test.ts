@@ -91,10 +91,12 @@ describe("generateCompletions", () => {
     expect(script).toContain("--amount");
   });
 
-  test("fish: includes subcommand-specific flags", () => {
+  test("fish: scopes subcommand flags by both parent and sub", () => {
     const script = generateCompletions("fish");
-    // bounty create has --amount flag, should complete under 'create'
-    expect(script).toContain("__fish_seen_subcommand_from create");
+    // bounty create --amount should be scoped to both 'bounty' AND 'create'
+    expect(script).toContain(
+      "__fish_seen_subcommand_from bounty; and __fish_seen_subcommand_from create",
+    );
     expect(script).toContain("-l 'amount'");
   });
 
