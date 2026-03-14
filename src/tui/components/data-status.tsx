@@ -37,6 +37,15 @@ export const DataStatus: React.NamedExoticComponent<DataStatusProps> = React.mem
       );
     }
 
+    // Initial fetch failure: no cached data, not loading, but has error
+    if (error) {
+      return (
+        <box>
+          <text color="#ff4444"> [error] {error}</text>
+        </box>
+      );
+    }
+
     return null;
   },
 );

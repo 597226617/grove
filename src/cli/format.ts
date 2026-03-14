@@ -43,6 +43,7 @@ export {
   formatScore,
   formatTimestamp,
   frontierEntryToRow,
+  type RowOptions,
   truncateCid,
 } from "../shared/format.js";
 
@@ -121,7 +122,9 @@ export function formatContributions(
   contributions: readonly Contribution[],
   options?: FormatTableOptions,
 ): string {
-  return formatTable(CONTRIBUTION_COLUMNS, contributions.map(contributionToRow), options);
+  const wide = options?.wide;
+  const rows = contributions.map((c) => contributionToRow(c, { wide }));
+  return formatTable(CONTRIBUTION_COLUMNS, rows, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +147,9 @@ export function formatFrontierSection(
   options?: FormatTableOptions,
 ): string {
   if (entries.length === 0) return "";
-  const table = formatTable(FRONTIER_COLUMNS, entries.map(frontierEntryToRow), options);
+  const wide = options?.wide;
+  const rows = entries.map((e) => frontierEntryToRow(e, { wide }));
+  const table = formatTable(FRONTIER_COLUMNS, rows, options);
   return `${heading}\n${table}`;
 }
 

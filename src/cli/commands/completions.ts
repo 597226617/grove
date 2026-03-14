@@ -56,11 +56,25 @@ function generateBash(commands: readonly CommandMeta[]): string {
   const cmdNames = commands.map((c) => c.name).join(" ");
 
   const caseEntries = commands
-    .map((cmd) => {
+    .flatMap((cmd) => {
       const flags = cmd.flags.map((f) => `--${f}`).join(" ");
       const subs = cmd.subcommands ? cmd.subcommands.map((s) => s.name).join(" ") : "";
       const completions = [subs, flags].filter(Boolean).join(" ");
-      return `      ${cmd.name}) COMPREPLY=( $(compgen -W "${completions}" -- "$cur") ) ;;`;
+      const entries = [
+        `      ${cmd.name}) COMPREPLY=( $(compgen -W "${completions}" -- "$cur") ) ;;`,
+      ];
+      // Also add case arms for subcommands with their own flags
+      if (cmd.subcommands) {
+        for (const sub of cmd.subcommands) {
+          if (sub.flags.length > 0) {
+            const subFlags = sub.flags.map((f) => `--${f}`).join(" ");
+            entries.push(
+              `      ${sub.name}) COMPREPLY=( $(compgen -W "${subFlags}" -- "$cur") ) ;;`,
+            );
+          }
+        }
+      }
+      return entries;
     })
     .join("\n");
 
@@ -97,7 +111,7 @@ function generateZsh(commands: readonly CommandMeta[]): string {
     .join(" \\\n");
 
   const caseEntries = commands
-    .map((cmd) => {
+    .flatMap((cmd) => {
       const flags = cmd.flags.map((f) => `'--${f}[${f}]'`).join(" ");
       const subs = cmd.subcommands
         ? cmd.subcommands.map((s) => `'${s.name}:${s.description}'`).join(" ")
@@ -106,9 +120,20 @@ function generateZsh(commands: readonly CommandMeta[]): string {
       const args = [subs ? `'1:subcommand:(${subcmds.map((s) => s.name).join(" ")})'` : "", flags]
         .filter(Boolean)
         .join(" ");
-      // Only emit the case arm if there are flags or subcommands
-      if (!args) return `    ${cmd.name}) ;;`;
-      return `    ${cmd.name}) _arguments ${args} ;;`;
+      const entries: string[] = [];
+      if (!args) {
+        entries.push(`    ${cmd.name}) ;;`);
+      } else {
+        entries.push(`    ${cmd.name}) _arguments ${args} ;;`);
+      }
+      // Add case arms for subcommands with their own flags
+      for (const sub of subcmds) {
+        if (sub.flags.length > 0) {
+          const subFlags = sub.flags.map((f) => `'--${f}[${f}]'`).join(" ");
+          entries.push(`    ${sub.name}) _arguments ${subFlags} ;;`);
+        }
+      }
+      return entries;
     })
     .join("\n");
 
@@ -121,14 +146,14 @@ _grove() {
 ${cmdDescriptions}
   )
 
-  _arguments '1:command:->cmd' '*::arg:->args'
+  _arguments -C '1:command:->cmd' '*::arg:->args'
 
   case $state in
     cmd)
       _describe 'grove command' commands
       ;;
     args)
-      case $words[1] in
+      case $line[1] in
 ${caseEntries}
       esac
       ;;
@@ -172,6 +197,10 @@ function generateFish(commands: readonly CommandMeta[]): string {
         lines.push(
           `complete -c grove -n '__fish_seen_subcommand_from ${cmd.name}' -a '${sub.name}' -d '${sub.description}'`,
         );
+        // Subcommand-specific flags
+        for (const flag of sub.flags) {
+          lines.push(`complete -c grove -n '__fish_seen_subcommand_from ${sub.name}' -l '${flag}'`);
+        }
       }
     }
   }

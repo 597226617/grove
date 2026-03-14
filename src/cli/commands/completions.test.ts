@@ -52,6 +52,12 @@ describe("generateCompletions", () => {
     expect(script).toContain("#compdef grove");
   });
 
+  test("zsh: dispatches on $line[1] not $words[1]", () => {
+    const script = generateCompletions("zsh");
+    expect(script).toContain("case $line[1]");
+    expect(script).not.toContain("case $words[1]");
+  });
+
   test("zsh: contains all command names with descriptions", () => {
     const script = generateCompletions("zsh");
     for (const cmd of COMMANDS) {
@@ -77,6 +83,19 @@ describe("generateCompletions", () => {
     // frontier has --metric flag
     expect(script).toContain("__fish_seen_subcommand_from frontier");
     expect(script).toContain("-l 'metric'");
+  });
+
+  test("bash: includes subcommand flags", () => {
+    const script = generateCompletions("bash");
+    // bounty create has --amount flag
+    expect(script).toContain("--amount");
+  });
+
+  test("fish: includes subcommand-specific flags", () => {
+    const script = generateCompletions("fish");
+    // bounty create has --amount flag, should complete under 'create'
+    expect(script).toContain("__fish_seen_subcommand_from create");
+    expect(script).toContain("-l 'amount'");
   });
 
   test("generates completions from custom command list", () => {

@@ -470,10 +470,14 @@ Usage:
 
 Global options:
   --grove <path>              Path to grove directory (or set GROVE_DIR)
-  --wide                      Show full values in table output (no truncation)
   --help, -h                  Show this help message
   --version, -v               Show version
-  --verbose                   Show stack traces on error`);
+  --verbose                   Show stack traces on error
+
+Per-command options:
+  --wide                      Show full values in table output (no truncation)
+                              Supported by: frontier, log, search, threads
+  --json                      Machine-readable JSON output`);
 }
 
 // ---------------------------------------------------------------------------

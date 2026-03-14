@@ -166,16 +166,6 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Help overlay toggle (works in normal mode and help mode)
-    if (input === "?" || (key.shift && input === "/")) {
-      if (panels.state.mode === InputMode.Help) {
-        panels.setMode(InputMode.Normal);
-      } else if (panels.state.mode === InputMode.Normal) {
-        panels.setMode(InputMode.Help);
-      }
-      return;
-    }
-
     // Escape always exits current mode
     if (input === "escape") {
       if (panels.state.mode !== InputMode.Normal) {
@@ -189,12 +179,13 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In help mode, only Esc and ? dismiss (handled above)
+    // In help mode, only Esc dismisses (handled above)
     if (panels.state.mode === InputMode.Help) {
       return;
     }
 
     // In terminal input mode, forward keystrokes to the selected tmux session
+    // (must come BEFORE the ? handler so ? can be typed in terminal)
     if (panels.state.mode === InputMode.TerminalInput) {
       if (tmux && selectedSession && input) {
         tmux.sendKeys(selectedSession, input).catch(() => {});
@@ -248,6 +239,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         setSearchBuffer((b) => b + input);
         return;
       }
+      return;
+    }
+
+    // Help overlay toggle — only in normal mode (after all mode-specific handlers)
+    if (input === "?" || (key.shift && input === "/")) {
+      panels.setMode(InputMode.Help);
       return;
     }
 

@@ -69,17 +69,17 @@ export const COMMANDS: readonly CommandMeta[] = [
   {
     name: "discuss",
     description: "Post a discussion or reply",
-    flags: ["json", "agent-id", "agent-name", "provider", "model"],
+    flags: ["tag", "mode", "description", "json"],
   },
   {
     name: "review",
     description: "Submit a review of a contribution",
-    flags: ["verdict", "score", "summary", "json", "agent-id"],
+    flags: ["summary", "description", "score", "tag", "json"],
   },
   {
     name: "reproduce",
     description: "Submit a reproduction attempt",
-    flags: ["status", "summary", "json", "agent-id"],
+    flags: ["summary", "description", "result", "score", "tag", "json"],
   },
   {
     name: "claim",
