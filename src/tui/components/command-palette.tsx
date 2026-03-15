@@ -14,8 +14,8 @@ import type { TmuxManager } from "../agents/tmux-manager.js";
 
 /** A single actionable entry in the palette. */
 export interface PaletteItem {
-  readonly kind: "spawn" | "kill";
-  /** For spawn: role name. For kill: session name. */
+  readonly kind: "spawn" | "kill" | "register" | "delegate";
+  /** For spawn: role name. For kill: session name. For delegate: peerId. */
   readonly id: string;
   readonly label: string;
   readonly enabled: boolean;
@@ -37,6 +37,8 @@ export interface CommandPaletteProps {
   readonly sessions?: readonly string[] | undefined;
   /** Parent agent ID for lineage-aware capacity display. */
   readonly parentAgentId?: string | undefined;
+  /** Gossip peers with free agent capacity for delegation. */
+  readonly gossipPeers?: readonly { peerId: string; freeSlots: number }[] | undefined;
 }
 
 /** Build the unified list of palette items from topology roles and tmux sessions. */
@@ -48,8 +50,18 @@ export function buildPaletteItems(
   hasSpawn: boolean,
   hasKill: boolean,
   parentAgentId?: string | undefined,
+  gossipPeers?: readonly { peerId: string; freeSlots: number }[] | undefined,
 ): readonly PaletteItem[] {
   const items: PaletteItem[] = [];
+
+  // Register item — always available at the top
+  items.push({
+    kind: "register" as const,
+    id: "register-agent",
+    label: "[r] Register new agent profile",
+    enabled: true,
+    detail: "agents.json",
+  });
 
   // Spawn items from topology roles
   if (topology && hasTmux && hasSpawn) {
@@ -80,6 +92,21 @@ export function buildPaletteItems(
     }
   }
 
+  // Delegate items from gossip peers with free capacity
+  if (gossipPeers) {
+    for (const peer of gossipPeers) {
+      if (peer.freeSlots > 0) {
+        items.push({
+          kind: "delegate" as const,
+          id: peer.peerId,
+          label: `[d] Delegate to ${peer.peerId} (${peer.freeSlots} free)`,
+          enabled: true,
+          detail: `${peer.freeSlots} slots`,
+        });
+      }
+    }
+  }
+
   return items;
 }
 
@@ -96,6 +123,7 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
     selectedIndex,
     sessions,
     parentAgentId,
+    gossipPeers,
   }: CommandPaletteProps): React.ReactNode {
     const hasTmux = tmux !== undefined;
 
@@ -115,8 +143,9 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
           onSpawn !== undefined,
           onKill !== undefined,
           parentAgentId,
+          gossipPeers,
         ),
-      [topology, activeClaims, sessions, hasTmux, onSpawn, onKill, parentAgentId],
+      [topology, activeClaims, sessions, hasTmux, onSpawn, onKill, parentAgentId, gossipPeers],
     );
 
     if (!visible) {

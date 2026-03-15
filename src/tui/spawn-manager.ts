@@ -19,6 +19,13 @@ const LEASE_DURATION_MS = 300_000; // 5 minutes
 /** Heartbeat interval: renew at ~40% of lease duration. */
 const HEARTBEAT_INTERVAL_MS = 120_000; // 2 minutes
 
+/** PR context injected as env vars when spawning agents. */
+export interface PrContext {
+  readonly number: number;
+  readonly title: string;
+  readonly filesChanged: number;
+}
+
 /** Tracked state for a spawned agent. */
 interface SpawnRecord {
   readonly claimId: string;
@@ -45,6 +52,7 @@ export class SpawnManager {
   private readonly heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly spawnRecords = new Map<string, SpawnRecord>();
   private readonly onError: (message: string) => void;
+  private prContext: PrContext | undefined;
 
   /** Overridable heartbeat interval for testing. */
   heartbeatIntervalMs: number = HEARTBEAT_INTERVAL_MS;
@@ -57,6 +65,20 @@ export class SpawnManager {
     this.provider = provider;
     this.tmux = tmux;
     this.onError = onError;
+  }
+
+  /**
+   * Set PR context to inject into spawned agent environments.
+   * When set, GROVE_PR_NUMBER, GROVE_PR_TITLE, and GROVE_PR_FILES
+   * are exported in the tmux session before the agent command runs.
+   */
+  setPrContext(ctx: PrContext | undefined): void {
+    this.prContext = ctx;
+  }
+
+  /** Get the current PR context (for testing). */
+  getPrContext(): PrContext | undefined {
+    return this.prContext;
   }
 
   /**
@@ -111,6 +133,23 @@ export class SpawnManager {
         workspacePath,
       };
       await this.tmux?.spawn(options);
+
+      // Inject PR context as env vars if available.
+      // The agent can read GROVE_PR_NUMBER, GROVE_PR_TITLE, GROVE_PR_FILES.
+      if (this.prContext && this.tmux) {
+        const sessionName = `grove-${spawnId}`;
+        const envVars: Record<string, string> = {
+          GROVE_PR_NUMBER: String(this.prContext.number),
+          GROVE_PR_TITLE: this.prContext.title,
+          GROVE_PR_FILES: String(this.prContext.filesChanged),
+        };
+        for (const [key, value] of Object.entries(envVars)) {
+          // Use send-keys to export env vars in the tmux session shell.
+          // Escaping: wrap value in single quotes with inner single-quote escaping.
+          const escaped = value.replace(/'/g, "'\\''");
+          await this.tmux.sendKeys(sessionName, `export ${key}='${escaped}' Enter`);
+        }
+      }
     } catch (spawnErr) {
       // Roll back claim + workspace
       if (claim && this.provider.releaseClaim) {
