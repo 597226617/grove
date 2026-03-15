@@ -67,24 +67,30 @@ contributions:
 ## Architecture
 
 ```
-                          grove init --preset review-loop
-                                      |
-                                      v
-                    +----------------------------------+
-                    |          .grove/ directory        |
-                    |  grove.db | cas/ | GROVE.md | ... |
-                    +----------------------------------+
-                           |              |
-                    grove up              |
-                    (orchestrator)        |
-                      /    |    \         |
-                     v     v     v        v
-                 +------+ +---+ +---+  +-----+
-                 |Server| |MCP| |TUI|  | CLI |
-                 |:4515 | |   | |   |  |     |
-                 +------+ +---+ +---+  +-----+
-                     \      |     /       |
-                      v     v    v        v
+                              grove init --preset <name>
+                                        |
+                                        v
+                      +----------------------------------+
+                      |          .grove/ directory        |
+                      |  grove.db | cas/ | GROVE.md | ... |
+                      +----------------------------------+
+                             |              |
+                      grove up              |
+                      (orchestrator)        |
+                        /       \           |
+                       v         v          v
+                 +------+      +---+     +-----+
+                 |Server|      |TUI|     | CLI |
+                 |:4515 |      |   |     |     |
+                 +------+      +---+     +-----+
+                    |   \        /          |
+                    |  (optional)           |
+                    |   +-----+            |
+                    |   | MCP |            |
+                    |   |:4015|            |
+                    |   +-----+            |
+                    |      |               |
+                    v      v               v
               +------------------------------------+
               |         Protocol Core              |
               |  Contributions | Claims | Frontier |
@@ -99,6 +105,9 @@ contributions:
                               Gossip Federation
                               (CYCLON protocol)
 ```
+
+> MCP is optional -- only presets with `services.mcp: true` (currently
+> `swarm-ops`) start the MCP server. All presets start the HTTP server.
 
 **Surfaces at a glance:**
 
