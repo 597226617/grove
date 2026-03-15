@@ -109,6 +109,9 @@ export async function nexusInit(
  *
  * Starts Nexus via Docker Compose. Expects `nexus.yaml` to exist.
  * Passes `--timeout` so `nexus up` waits for health checks.
+ *
+ * Falls back to `nexus up` without `--timeout` if the installed
+ * CLI doesn't support the flag (nexus-ai-fs < 0.9.0).
  */
 export async function nexusUp(
   projectRoot: string,
@@ -122,6 +125,20 @@ export async function nexusUp(
   const code = await proc.exited;
   if (code !== 0) {
     const stderr = await new Response(proc.stderr).text();
+    // Retry without --timeout if the flag is unsupported
+    if (stderr.includes("no such option") || stderr.includes("unrecognized arguments")) {
+      const fallback = Bun.spawn(["nexus", "up"], {
+        cwd: projectRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const fallbackCode = await fallback.exited;
+      if (fallbackCode !== 0) {
+        const fallbackStderr = await new Response(fallback.stderr).text();
+        throw new Error(`nexus up failed (exit ${fallbackCode}): ${fallbackStderr.trim()}`);
+      }
+      return;
+    }
     throw new Error(`nexus up failed (exit ${code}): ${stderr.trim()}`);
   }
 }

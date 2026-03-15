@@ -19,7 +19,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Nexus CLI init is slow (~5s Python startup) — allow 15s per test
 setDefaultTimeout(15_000);
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -689,7 +689,7 @@ ports:
 
 zone: default
 `;
-    const { writeFileSync } = require("node:fs");
+
     writeFileSync(join(dir, "nexus.yaml"), nexusYaml, "utf-8");
 
     const url = readNexusUrl(dir);
@@ -698,7 +698,7 @@ zone: default
 
   test("readNexusUrl falls back to default for malformed nexus.yaml", async () => {
     const dir = await createTempDir("nexus-yaml-malformed");
-    const { writeFileSync } = require("node:fs");
+
     writeFileSync(join(dir, "nexus.yaml"), "garbage: true\n", "utf-8");
 
     const url = readNexusUrl(dir);
@@ -796,7 +796,7 @@ describe("TUI backend resolution", () => {
     await executeInit(makeOptions(dir, "review-loop", "Resolve Test"));
 
     // Write a nexus.yaml with custom port
-    const { writeFileSync } = require("node:fs");
+
     writeFileSync(join(dir, "nexus.yaml"), "ports:\n  http: 9999\n  grpc: 9998\n", "utf-8");
 
     const original = process.env.GROVE_NEXUS_URL;
