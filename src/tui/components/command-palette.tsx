@@ -41,6 +41,8 @@ export interface CommandPaletteProps {
   readonly gossipPeers?:
     | readonly { peerId: string; address: string; freeSlots: number }[]
     | undefined;
+  /** Pre-built palette items from parent (single source of truth). */
+  readonly items?: readonly PaletteItem[] | undefined;
 }
 
 /** An agent profile loaded from .grove/agents.json. */
@@ -159,6 +161,7 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
     sessions,
     parentAgentId,
     gossipPeers,
+    items: externalItems,
   }: CommandPaletteProps): React.ReactNode {
     const hasTmux = tmux !== undefined;
 
@@ -168,7 +171,8 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
     void onSpawn;
     void onKill;
 
-    const items = useMemo(
+    // Use parent-provided items (single source of truth) or build internally as fallback
+    const internalItems = useMemo(
       () =>
         buildPaletteItems(
           topology,
@@ -182,6 +186,7 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
         ),
       [topology, activeClaims, sessions, hasTmux, onSpawn, onKill, parentAgentId, gossipPeers],
     );
+    const items = externalItems ?? internalItems;
 
     if (!visible) {
       return null;

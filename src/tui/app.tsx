@@ -333,11 +333,13 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   /** Delegate work to a gossip peer by calling its /api/agents/spawn endpoint. */
   const handleDelegate = useCallback(
     async (peerAddress: string) => {
+      // Use first topology role, or fallback to "worker"
+      const role = topology?.roles[0]?.name ?? "worker";
       try {
         const resp = await fetch(`${peerAddress.replace(/\/+$/, "")}/api/agents/spawn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: "worker" }),
+          body: JSON.stringify({ role }),
         });
         if (!resp.ok) {
           const body = (await resp.json()) as { error?: string };
@@ -350,7 +352,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         showError(err instanceof Error ? err.message : "Delegation failed");
       }
     },
-    [showError],
+    [showError, topology],
   );
 
   const handleDenyQuestion = useCallback(async () => {
@@ -837,6 +839,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         selectedIndex={paletteIndex}
         sessions={paletteSessions ?? undefined}
         parentAgentId={paletteParentId}
+        items={paletteItems}
       />
       <InputBar
         visible={
