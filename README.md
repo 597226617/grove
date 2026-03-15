@@ -55,7 +55,7 @@ contributions:
 - **Multi-signal frontier** ranking across metrics, adoption, recency, reviews, and reproduction
 - **Lease-based claims** for collision-free parallel work
 - **6 built-in presets** for turnkey multi-agent topologies (review loops, swarms, research, PR review)
-- **One-command startup** via `grove up` -- launches server, MCP, and TUI together
+- **One-command startup** via `grove up` -- launches configured services and TUI together
 - **MCP-native** with stdio and HTTP/SSE transports for direct agent integration
 - **HTTP API** powered by Hono for remote agent access
 - **TUI operator dashboard** with 12+ panels for real-time visibility
@@ -130,8 +130,10 @@ $GROVE init "Latency hunt" --preset review-loop
 $GROVE up
 ```
 
-That's it. `grove up` starts the HTTP server, MCP server, and TUI in one
-command. Use `--headless` for CI or `--no-tui` for server-only mode.
+That's it. `grove up` reads `.grove/grove.json` and starts whichever services
+the preset enables (most presets start the HTTP server; only `swarm-ops`
+also starts MCP) plus the TUI. Use `--headless` for CI or `--no-tui` for
+server-only mode.
 
 ```bash
 # Or go manual
@@ -159,14 +161,14 @@ into a single named configuration. Initialize with `--preset <name>`:
 $GROVE init "My project" --preset swarm-ops
 ```
 
-| Preset | Roles | Topology | Mode | Backend | Best for |
-| --- | --- | --- | --- | --- | --- |
-| `review-loop` | coder, reviewer | graph | exploration | nexus | Code review workflows |
-| `exploration` | explorer, critic, synthesizer | graph | exploration | nexus | Open-ended discovery |
-| `swarm-ops` | coordinator, worker, QA | tree | evaluation | nexus | Production multi-agent ops |
-| `research-loop` | researcher, evaluator | graph | evaluation | local | ML research & benchmarks |
-| `pr-review` | reviewer, analyst | graph | exploration | nexus | GitHub PR analysis |
-| `federated-swarm` | worker (x8) | flat | exploration | nexus | Gossip-coordinated teams |
+| Preset | Roles | Topology | Mode | Backend | Services | Best for |
+| --- | --- | --- | --- | --- | --- | --- |
+| `review-loop` | coder, reviewer | graph | exploration | nexus | server | Code review workflows |
+| `exploration` | explorer, critic, synthesizer | graph | exploration | nexus | server | Open-ended discovery |
+| `swarm-ops` | coordinator, worker, QA | tree | evaluation | nexus | server + MCP | Production multi-agent ops |
+| `research-loop` | researcher, evaluator | graph | evaluation | local | server | ML research & benchmarks |
+| `pr-review` | reviewer, analyst | graph | exploration | nexus | server | GitHub PR analysis |
+| `federated-swarm` | worker (x8) | flat | exploration | nexus | server | Gossip-coordinated teams |
 
 Each preset auto-generates a `GROVE.md` contract with topology, seeds demo
 contributions, and configures services. Nexus-backed presets support
@@ -177,9 +179,9 @@ contributions, and configures services. Nexus-backed presets support
 `grove up` is the orchestrator that starts your entire Grove environment:
 
 ```bash
-$GROVE up                     # Server + MCP + TUI
-$GROVE up --headless          # Server + MCP only (CI mode)
-$GROVE up --no-tui            # Server + MCP, no interactive dashboard
+$GROVE up                     # Configured services + TUI
+$GROVE up --headless          # Services only (CI mode)
+$GROVE up --no-tui            # Services, no interactive dashboard
 $GROVE up --grove /custom     # Custom .grove directory
 ```
 
@@ -187,7 +189,9 @@ $GROVE up --grove /custom     # Custom .grove directory
 
 1. Reads `.grove/grove.json` for configuration
 2. Starts managed Nexus backend (if configured) with health checks
-3. Spawns HTTP server (port 4515) and MCP server (port 4015) in parallel
+3. Spawns enabled services in parallel -- HTTP server (port 4515) and, if the
+   preset enables it, MCP server (port 4015). Which services start is controlled
+   by `services.server` and `services.mcp` in the preset config.
 4. Writes `.grove/grove.pid` for process tracking
 5. Launches the TUI as the foreground process
 
@@ -246,7 +250,7 @@ bun run src/server/serve.ts    # port 4515 by default
 | Threads | `GET /api/threads`, `GET /api/threads/:cid` | Discussion state |
 | Claims | `POST /api/claims`, `PATCH /api/claims/:id`, `GET /api/claims` | Create, heartbeat, release, complete |
 | Bounties | `GET /api/bounties`, `GET /api/bounties/:id` | Bounty listing with filters |
-| Outcomes | `GET /api/outcomes/stats`, `GET\|POST /api/outcomes/:cid` | Operator metadata |
+| Outcomes | `GET /api/outcomes/stats`, `GET /api/outcomes`, `GET\|POST /api/outcomes/:cid` | Operator metadata |
 | Gossip | `POST /api/gossip/exchange\|shuffle`, `GET /api/gossip/peers\|frontier` | Federation endpoints |
 | Metadata | `GET /api/grove`, `GET /api/grove/topology` | Instance stats and topology |
 
