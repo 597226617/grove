@@ -43,6 +43,14 @@ export interface CommandPaletteProps {
     | undefined;
 }
 
+/** An agent profile loaded from .grove/agents.json. */
+export interface LoadedProfile {
+  readonly name: string;
+  readonly role: string;
+  readonly platform: string;
+  readonly command?: string | undefined;
+}
+
 /** Build the unified list of palette items from topology roles and tmux sessions. */
 export function buildPaletteItems(
   topology: AgentTopology | undefined,
@@ -53,6 +61,7 @@ export function buildPaletteItems(
   hasKill: boolean,
   parentAgentId?: string | undefined,
   gossipPeers?: readonly { peerId: string; address: string; freeSlots: number }[] | undefined,
+  agentProfiles?: readonly LoadedProfile[] | undefined,
 ): readonly PaletteItem[] {
   const items: PaletteItem[] = [];
 
@@ -65,9 +74,33 @@ export function buildPaletteItems(
     detail: "agents.json",
   });
 
-  // Spawn items from topology roles
+  // Spawn items from registered profiles (take precedence over raw topology roles)
+  const profileRoles = new Set<string>();
+  if (agentProfiles && agentProfiles.length > 0 && hasTmux && hasSpawn) {
+    for (const profile of agentProfiles) {
+      profileRoles.add(profile.role);
+      const check = topology
+        ? checkSpawn(topology, profile.role, activeClaims, parentAgentId)
+        : { allowed: true, currentInstances: 0 };
+      const max =
+        "maxInstances" in check && check.maxInstances !== undefined
+          ? String(check.maxInstances)
+          : "\u221E";
+      const suffix = !check.allowed ? " (at capacity)" : "";
+      items.push({
+        kind: "spawn",
+        id: profile.role,
+        label: `spawn: ${profile.name} [${profile.platform}]`,
+        enabled: check.allowed,
+        detail: `${check.currentInstances}/${max}${suffix}`,
+      });
+    }
+  }
+
+  // Spawn items from topology roles (only those not already covered by profiles)
   if (topology && hasTmux && hasSpawn) {
     for (const role of topology.roles) {
+      if (profileRoles.has(role.name)) continue;
       const check = checkSpawn(topology, role.name, activeClaims, parentAgentId);
       const max = check.maxInstances !== undefined ? String(check.maxInstances) : "\u221E";
       const suffix = !check.allowed ? " (at capacity)" : "";

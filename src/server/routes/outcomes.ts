@@ -17,7 +17,7 @@ import {
   setOutcomeOperation,
 } from "../../core/operations/index.js";
 import type { OutcomeStatus } from "../../core/outcome.js";
-import { postOutcomeComment } from "../../github/outcome-poster.js";
+import { postCheckRun, postOutcomeComment } from "../../github/outcome-poster.js";
 import type { ServerEnv } from "../deps.js";
 import { toHttpResult, toOperationDeps } from "../operation-adapter.js";
 import { CID_REGEX } from "../schemas.js";
@@ -95,11 +95,14 @@ outcomes.post("/:cid", zValidator("param", cidParamSchema), async (c) => {
           const { getActivePR } = await import("../../github/active-pr.js");
           const pr = await getActivePR();
           if (pr) {
+            const outcomeStatus = parsed.data.status as "accepted" | "rejected";
+
+            // Post PR comment
             await postOutcomeComment({
               prNumber: pr.number,
               cid,
               summary: contribution.summary,
-              outcome: parsed.data.status as "accepted" | "rejected",
+              outcome: outcomeStatus,
               ...(contribution.agent.agentName !== undefined
                 ? { agentName: contribution.agent.agentName }
                 : {}),
@@ -111,6 +114,32 @@ outcomes.post("/:cid", zValidator("param", cidParamSchema), async (c) => {
                   }
                 : {}),
             });
+
+            // Post check run (requires owner/repo from PR URL detection)
+            // Use gh api to detect repo owner/name and head SHA
+            try {
+              const ghProc = Bun.spawn(
+                ["gh", "pr", "view", String(pr.number), "--json", "headRefOid,url"],
+                { stdout: "pipe", stderr: "pipe" },
+              );
+              const ghOut = await new Response(ghProc.stdout).text();
+              if ((await ghProc.exited) === 0) {
+                const prData = JSON.parse(ghOut) as { headRefOid: string; url: string };
+                const urlMatch = prData.url.match(/github\.com\/([^/]+)\/([^/]+)\//);
+                if (urlMatch) {
+                  await postCheckRun({
+                    owner: urlMatch[1]!,
+                    repo: urlMatch[2]!,
+                    headSha: prData.headRefOid,
+                    name: `grove/${contribution.agent.role ?? "agent"}`,
+                    conclusion: outcomeStatus === "accepted" ? "success" : "failure",
+                    summary: `${contribution.summary} — ${outcomeStatus}`,
+                  });
+                }
+              }
+            } catch {
+              // Check run posting is best-effort
+            }
           }
         } catch {
           // Non-fatal — GitHub posting is best-effort

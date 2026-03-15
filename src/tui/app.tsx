@@ -166,12 +166,51 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     }
   }, [activePR]);
 
+  // Poll gossip peers for delegate items in command palette
+  const gossipFetcher = useCallback(async () => {
+    const gp = provider as unknown as {
+      getGossipPeers?: () => Promise<
+        readonly { peerId: string; address: string; freeSlots?: number; totalSlots?: number }[]
+      >;
+    };
+    if (!gp.getGossipPeers) return undefined;
+    const peers = await gp.getGossipPeers();
+    return peers
+      .filter(
+        (p): p is typeof p & { freeSlots: number; totalSlots: number } =>
+          p.freeSlots !== undefined && p.freeSlots > 0,
+      )
+      .map((p) => ({ peerId: p.peerId, address: p.address, freeSlots: p.freeSlots }));
+  }, [provider]);
+  const { data: gossipPeers } = usePolledData(gossipFetcher, intervalMs * 4, paletteVisible);
+
   // Derive parentAgentId from the selected session for lineage-aware palette display
   const paletteParentId = selectedSession ? agentIdFromSession(selectedSession) : undefined;
 
   // Derive the palette items so the keyboard handler can look up the selected action.
   // Only advertise spawn if the provider supports workspace checkout (remote does not).
   const canSpawn = provider.checkoutWorkspace !== undefined;
+
+  // Load agent profiles from .grove/agents.json
+  const profilesFetcher = useCallback(async () => {
+    try {
+      const { readFileSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const path = resolve(process.cwd(), ".grove", "agents.json");
+      const json = readFileSync(path, "utf-8");
+      const { parseAgentProfiles } = await import("../core/agent-profile.js");
+      return parseAgentProfiles(json).profiles.map((p) => ({
+        name: p.name,
+        role: p.role,
+        platform: p.platform,
+        command: p.command,
+      }));
+    } catch {
+      return undefined;
+    }
+  }, []);
+  const { data: agentProfiles } = usePolledData(profilesFetcher, intervalMs * 10, true);
+
   const paletteItems = useMemo(
     () =>
       buildPaletteItems(
@@ -182,9 +221,19 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         canSpawn,
         true,
         paletteParentId,
-        undefined, // gossipPeers — wired when gossip transport is available
+        gossipPeers ?? undefined,
+        agentProfiles ?? undefined,
       ),
-    [topology, activeClaims, paletteSessions, tmux, canSpawn, paletteParentId],
+    [
+      topology,
+      activeClaims,
+      paletteSessions,
+      tmux,
+      canSpawn,
+      paletteParentId,
+      gossipPeers,
+      agentProfiles,
+    ],
   );
 
   const handleContributionsLoaded = useCallback((contributions: readonly Contribution[]) => {
@@ -390,18 +439,48 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         const item = paletteItems[paletteIndex];
         if (item?.enabled) {
           if (item.kind === "spawn") {
-            // Use role's command if defined, else $SHELL (or fallback to bash).
+            // Use profile command > role command > $SHELL > bash
+            const profileCommand = agentProfiles?.find((p) => p.role === item.id)?.command;
             const roleCommand = topology?.roles.find((r) => r.name === item.id)?.command;
-            const shell = roleCommand ?? process.env.SHELL ?? "bash";
+            const shell = profileCommand ?? roleCommand ?? process.env.SHELL ?? "bash";
             handleSpawn(item.id, shell, "HEAD", paletteParentId);
           } else if (item.kind === "kill") {
             handleKill(item.id);
           } else if (item.kind === "register") {
-            // Registration is handled by writing to .grove/agents.json
-            // For now, show a message that registration is available via CLI
-            showError(
-              "Register agents via: grove agent register --name @name --role role --platform platform",
-            );
+            // Create .grove/agents.json template if it doesn't exist
+            void (async () => {
+              try {
+                const { existsSync, writeFileSync, mkdirSync } = await import("node:fs");
+                const { resolve } = await import("node:path");
+                const dir = resolve(process.cwd(), ".grove");
+                const path = resolve(dir, "agents.json");
+                if (!existsSync(path)) {
+                  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+                  const template = JSON.stringify(
+                    {
+                      profiles: [
+                        {
+                          name: "@agent-1",
+                          role: topology?.roles[0]?.name ?? "worker",
+                          platform: "claude-code",
+                          command: "claude --dangerously-skip-permissions",
+                        },
+                      ],
+                    },
+                    null,
+                    2,
+                  );
+                  writeFileSync(path, template);
+                  showError(`Created ${path} — edit to add agent profiles`);
+                } else {
+                  showError(
+                    `Profiles loaded from ${path} (${String(agentProfiles?.length ?? 0)} profiles)`,
+                  );
+                }
+              } catch (err) {
+                showError(err instanceof Error ? err.message : "Registration failed");
+              }
+            })();
           } else if (item.kind === "delegate") {
             void handleDelegate(item.id);
           }
@@ -435,8 +514,19 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     // In message input mode, build message character by character
     if (panels.state.mode === InputMode.MessageInput) {
       if (input === "return") {
-        if (messageBuffer.trim() && messageRecipients) {
-          void sendTuiMessage(messageRecipients, messageBuffer);
+        const buf = messageBuffer.trim();
+        if (buf) {
+          if (messageRecipients === "@direct") {
+            // Parse "@recipient rest of message" from buffer
+            const match = buf.match(/^(@\S+)\s+(.+)/s);
+            if (match) {
+              void sendTuiMessage(match[1]!, match[2]!);
+            } else {
+              showError("Usage: @recipient message");
+            }
+          } else if (messageRecipients) {
+            void sendTuiMessage(messageRecipients, buf);
+          }
         }
         panels.setMode(InputMode.Normal);
         return;
@@ -568,10 +658,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Direct message (enters message input mode with recipient prompt)
+    // Direct message (enters message input mode, user types @recipient message)
     if (input === "@") {
-      setMessageBuffer("");
-      setMessageRecipients(""); // Will need to type recipient
+      setMessageBuffer("@");
+      setMessageRecipients("@direct"); // Sentinel — parsed from buffer on Enter
       panels.setMode(InputMode.MessageInput);
       return;
     }
