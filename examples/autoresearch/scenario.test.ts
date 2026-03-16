@@ -134,9 +134,7 @@ describe("relation graph", () => {
     );
     expect(adopts).toBeDefined();
     expect(derives).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(adopts!.targetCid).toBe(result.workA.cid);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(derives!.targetCid).toBe(result.workB.cid);
   });
 
@@ -184,12 +182,9 @@ describe("frontier by metric", () => {
     const frontier = await ctx.frontier.compute({ metric: "val_bpb" });
     const bpbEntries = frontier.byMetric.val_bpb;
     expect(bpbEntries).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries!.length).toBeGreaterThanOrEqual(1);
     // Best val_bpb is 0.93 (adoption), then 0.98 (workB), then 1.04 (reproduction), then 1.05 (workA)
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries![0].value).toBe(0.93);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries![0].cid).toBe(result.adoptionB.cid);
   });
 
@@ -198,9 +193,7 @@ describe("frontier by metric", () => {
     const vramEntries = frontier.byMetric.peak_vram_gb;
     expect(vramEntries).toBeDefined();
     // Best VRAM is 42.3 (workA)
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(vramEntries![0].value).toBe(42.3);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(vramEntries![0].cid).toBe(result.workA.cid);
   });
 
@@ -274,7 +267,6 @@ describe("claims", () => {
     expect(claim.status).toBe(ClaimStatus.Active);
     const retrieved = await ctx.claimStore.getClaim("claim-optimize-parser");
     expect(retrieved).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(retrieved!.targetRef).toBe("optimize-parser");
   });
 
@@ -369,7 +361,6 @@ describe("stop conditions", () => {
     const stopResult = await evaluateStopConditions(contract, ctx.contributionStore);
     const targetMetric = stopResult.conditions.target_metric;
     expect(targetMetric).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(targetMetric!.met).toBe(false);
   });
 
@@ -377,7 +368,6 @@ describe("stop conditions", () => {
     const stopResult = await evaluateStopConditions(contract, ctx.contributionStore);
     const budget = stopResult.conditions.budget;
     expect(budget).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(budget!.met).toBe(false);
   });
 

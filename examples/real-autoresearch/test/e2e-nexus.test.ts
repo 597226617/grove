@@ -459,9 +459,7 @@ describe("e2e: 20-round autoresearch simulation", () => {
   test("7. reviews have quality scores", () => {
     for (const review of reviewContributions) {
       expect(review.scores?.quality?.value).toBeDefined();
-      // biome-ignore lint/style/noNonNullAssertion: asserted defined above
       expect(review.scores!.quality!.value).toBeGreaterThanOrEqual(1);
-      // biome-ignore lint/style/noNonNullAssertion: asserted defined above
       expect(review.scores!.quality!.value).toBeLessThanOrEqual(10);
     }
   });

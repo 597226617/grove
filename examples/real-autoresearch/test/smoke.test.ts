@@ -118,7 +118,6 @@ describe("smoke: single agent full loop", () => {
 
     const stored = await ctx.contributionStore.get(baselineCid);
     expect(stored).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(stored!.scores?.val_bpb?.value).toBe(1.05);
   });
 
@@ -174,10 +173,8 @@ describe("smoke: single agent full loop", () => {
     const frontier = await ctx.frontier.compute({ metric: "val_bpb" });
     const bpbEntries = frontier.byMetric.val_bpb;
     expect(bpbEntries).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries!.length).toBeGreaterThanOrEqual(2);
     // Best val_bpb should be 0.98 (improved), then 1.05 (baseline)
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries![0].value).toBe(0.98);
   });
 
