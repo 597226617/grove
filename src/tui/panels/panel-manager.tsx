@@ -87,6 +87,10 @@ export interface PanelManagerProps {
   readonly zoomLevel?: ZoomLevel | undefined;
   /** Active tmux sessions for split pane view. */
   readonly activeSessions?: readonly string[] | undefined;
+  /** Terminal scroll offset for pinned scrollback (item 9). */
+  readonly terminalScrollOffset?: number | undefined;
+  /** Terminal output buffers for cross-agent transcript search (item 17). */
+  readonly terminalBuffers?: ReadonlyMap<string, string> | undefined;
 }
 
 /** Zoom level for panel layout. */
@@ -187,6 +191,8 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
     onFrontierCidsChanged,
     zoomLevel,
     activeSessions,
+    terminalScrollOffset,
+    terminalBuffers,
   }: PanelManagerProps): React.ReactNode {
     const isFocused = (p: Panel) => panelState.focused === p;
     const zoom = zoomLevel ?? "normal";
@@ -361,6 +367,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                       intervalMs={intervalMs}
                       active
                       mode={panelState.mode}
+                      scrollOffset={terminalScrollOffset}
                     />
                   )}
                 </PanelChrome>
@@ -439,6 +446,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
                     searchQuery={searchQuery ?? ""}
                     isInputMode={isSearchInputMode ?? false}
                     onRowCountChanged={onRowCountChanged}
+                    terminalBuffers={terminalBuffers}
                   />
                 </PanelChrome>
               )}

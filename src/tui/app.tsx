@@ -71,6 +71,7 @@ export interface TuiKeyboardState {
   readonly compareMode: boolean;
   readonly compareCids: readonly string[];
   readonly zoomLevel: ZoomLevel;
+  readonly terminalScrollOffset: number;
 }
 
 /** Actions for the TUI keyboard state reducer. */
@@ -95,7 +96,10 @@ export type TuiAction =
   | { readonly type: "COMPARE_SELECT"; readonly cid: string }
   | { readonly type: "COMPARE_ADOPT" }
   | { readonly type: "ZOOM_CYCLE" }
-  | { readonly type: "ZOOM_RESET" };
+  | { readonly type: "ZOOM_RESET" }
+  | { readonly type: "TERMINAL_SCROLL_UP" }
+  | { readonly type: "TERMINAL_SCROLL_DOWN" }
+  | { readonly type: "TERMINAL_SCROLL_BOTTOM" };
 
 const INITIAL_KEYBOARD_STATE: TuiKeyboardState = {
   vfsNavigateTrigger: 0,
@@ -109,6 +113,7 @@ const INITIAL_KEYBOARD_STATE: TuiKeyboardState = {
   compareMode: false,
   compareCids: [],
   zoomLevel: "normal",
+  terminalScrollOffset: 0,
 };
 
 /** Pure reducer for TUI keyboard state — testable and serializable. */
@@ -169,6 +174,12 @@ export function tuiReducer(state: TuiKeyboardState, action: TuiAction): TuiKeybo
       return { ...state, zoomLevel: nextZoom(state.zoomLevel) };
     case "ZOOM_RESET":
       return state.zoomLevel === "normal" ? state : { ...state, zoomLevel: "normal" };
+    case "TERMINAL_SCROLL_UP":
+      return { ...state, terminalScrollOffset: state.terminalScrollOffset + 5 };
+    case "TERMINAL_SCROLL_DOWN":
+      return { ...state, terminalScrollOffset: Math.max(0, state.terminalScrollOffset - 5) };
+    case "TERMINAL_SCROLL_BOTTOM":
+      return state.terminalScrollOffset === 0 ? state : { ...state, terminalScrollOffset: 0 };
   }
 }
 
@@ -184,31 +195,52 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   const { showTooltips, dismissAll: dismissTooltips } = useFirstLaunchTooltips();
   const { persistedState, saveState } = useSessionPersistence();
   const keybindingOverrides = useKeybindingOverrides();
-
   const [ks, dispatch] = useReducer(tuiReducer, INITIAL_KEYBOARD_STATE);
 
-  // Restore persisted zoom level on first load (item 13)
+  // Restore persisted state on first load (item 13)
   const restoredRef = useRef(false);
   useEffect(() => {
     if (restoredRef.current || !persistedState) return;
     restoredRef.current = true;
+    // Restore zoom level
     if (persistedState.zoomLevel && persistedState.zoomLevel !== "normal") {
-      // Cycle to the saved zoom level
       let current: ZoomLevel = "normal";
       while (current !== persistedState.zoomLevel) {
         dispatch({ type: "ZOOM_CYCLE" });
         current = nextZoom(current);
       }
     }
-  }, [persistedState]);
+    // Restore search query
+    if (persistedState.searchQuery) {
+      dispatch({ type: "SEARCH_CHAR", char: "" }); // no-op but triggers state
+      // Set buffer then submit to populate searchQuery
+      for (const ch of persistedState.searchQuery) {
+        dispatch({ type: "SEARCH_CHAR", char: ch });
+      }
+      dispatch({ type: "SEARCH_SUBMIT" });
+    }
+    // Restore focused panel
+    if (persistedState.focusedPanel !== undefined) {
+      panels.focus(persistedState.focusedPanel as import("./hooks/use-panel-focus.js").Panel);
+    }
+    // Restore visible operator panels
+    if (persistedState.visibleOperatorPanels) {
+      for (const p of persistedState.visibleOperatorPanels) {
+        panels.toggle(p as import("./hooks/use-panel-focus.js").Panel);
+      }
+    }
+  }, [persistedState, panels]);
 
-  // Save state on zoom/search changes (item 13)
+  // Persist state on changes (item 13)
   useEffect(() => {
+    const visibleOps = [...panels.state.visibleOperator];
     saveState({
       zoomLevel: ks.zoomLevel,
       searchQuery: ks.searchQuery || undefined,
+      focusedPanel: panels.state.focused,
+      visibleOperatorPanels: visibleOps.length > 0 ? visibleOps : undefined,
     });
-  }, [ks.zoomLevel, ks.searchQuery, saveState]);
+  }, [ks.zoomLevel, ks.searchQuery, panels.state.focused, panels.state.visibleOperator, saveState]);
 
   const [contributionList, setContributionList] = useState<readonly Contribution[]>([]);
   const [rowCount, setRowCount] = useState(0);
@@ -351,6 +383,30 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     }
   }, []);
   const { data: agentProfiles } = usePolledData(profilesFetcher, intervalMs * 10, true);
+
+  // Build terminal buffer map for cross-agent transcript search (item 17)
+  const activeGroveSessions = useMemo(
+    () => paletteSessions?.filter((s) => s.startsWith("grove-")) ?? [],
+    [paletteSessions],
+  );
+  const terminalBuffersFetcher = useCallback(async () => {
+    if (!tmux || activeGroveSessions.length === 0) return new Map<string, string>();
+    const map = new Map<string, string>();
+    for (const s of activeGroveSessions) {
+      try {
+        const out = await tmux.capturePanes(s);
+        map.set(s, out);
+      } catch {
+        // skip failed captures
+      }
+    }
+    return map;
+  }, [tmux, activeGroveSessions]);
+  const { data: terminalBuffers } = usePolledData<Map<string, string>>(
+    terminalBuffersFetcher,
+    intervalMs * 5, // cold tier — transcript search is infrequent
+    activeGroveSessions.length > 0,
+  );
 
   const paletteItems = useMemo(
     () =>
@@ -563,6 +619,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       onSpawnPalette: () => dispatch({ type: "PALETTE_RESET" }),
       onZoomCycle: () => dispatch({ type: "ZOOM_CYCLE" }),
       onZoomReset: () => dispatch({ type: "ZOOM_RESET" }),
+      onTerminalScrollUp: () => dispatch({ type: "TERMINAL_SCROLL_UP" }),
+      onTerminalScrollDown: () => dispatch({ type: "TERMINAL_SCROLL_DOWN" }),
+      onTerminalScrollBottom: () => dispatch({ type: "TERMINAL_SCROLL_BOTTOM" }),
       onVfsNavigate: () => dispatch({ type: "VFS_NAVIGATE" }),
       onArtifactPrev: () => dispatch({ type: "ARTIFACT_PREV" }),
       onArtifactNext: () => dispatch({ type: "ARTIFACT_NEXT" }),
@@ -574,7 +633,10 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         showError(`Adopted: ${(cid ?? "").slice(0, 16)}...`);
         dispatch({ type: "COMPARE_ADOPT" });
       },
-      onSearchStart: () => dispatch({ type: "SEARCH_START", currentQuery: ks.searchQuery }),
+      onSearchStart: () => {
+        dispatch({ type: "SEARCH_START", currentQuery: ks.searchQuery });
+        panels.setMode(InputMode.SearchInput);
+      },
       onSearchSubmit: () => {
         dispatch({ type: "SEARCH_SUBMIT" });
         panels.setMode(InputMode.Normal);
@@ -685,6 +747,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       frontierCids,
       selectedSession,
       hasTmux: tmux !== undefined,
+      keybindingOverrides,
     }),
     [
       panels,
@@ -712,6 +775,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       agentProfiles,
       topology,
       paletteParentId,
+      keybindingOverrides,
     ],
   );
 
@@ -784,6 +848,8 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         onFrontierCidsChanged={handleFrontierCidsChanged}
         zoomLevel={ks.zoomLevel}
         activeSessions={paletteSessions?.filter((s) => s.startsWith("grove-"))}
+        terminalScrollOffset={ks.terminalScrollOffset}
+        terminalBuffers={terminalBuffers ?? undefined}
       />
       <StatusBar
         mode={panels.state.mode}

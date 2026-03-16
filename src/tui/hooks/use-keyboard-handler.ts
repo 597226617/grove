@@ -7,6 +7,7 @@
 
 import type { KeyEvent } from "@opentui/core";
 import type { ZoomLevel } from "../panels/panel-manager.js";
+import type { KeybindingOverrides } from "./use-keybinding-overrides.js";
 import type { NavigationActions } from "./use-navigation.js";
 import { InputMode, Panel, type PanelFocusActions } from "./use-panel-focus.js";
 
@@ -44,6 +45,9 @@ export interface KeyboardActions {
   readonly onPaletteSelect: () => void;
   readonly onZoomCycle: () => void;
   readonly onZoomReset: () => void;
+  readonly onTerminalScrollUp: () => void;
+  readonly onTerminalScrollDown: () => void;
+  readonly onTerminalScrollBottom: () => void;
   readonly onSelect: (index: number) => void;
   readonly rowCount: number;
   readonly pageSize: number;
@@ -52,6 +56,8 @@ export interface KeyboardActions {
   readonly frontierCids: readonly string[];
   readonly selectedSession: string | undefined;
   readonly hasTmux: boolean;
+  /** Keybinding overrides from .grove/keybindings.json (item 19). */
+  readonly keybindingOverrides?: KeybindingOverrides | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +87,40 @@ export function routeKey(key: KeyEvent, actions: KeyboardActions): boolean {
   const isCtrl = key.ctrl;
   const mode = actions.panels.state.mode;
   const focused = actions.panels.state.focused;
+
+  // Keybinding overrides (item 19): check if this key maps to a remapped action.
+  // Override lookup only applies in normal mode to avoid breaking modal input.
+  const overrides = actions.keybindingOverrides;
+  if (mode === InputMode.Normal && overrides && input && !isCtrl) {
+    // Reverse lookup: find which action this key is mapped to
+    for (const [action, boundKey] of Object.entries(overrides)) {
+      if (boundKey === input) {
+        switch (action) {
+          case "quit":
+            actions.onQuit();
+            return true;
+          case "help":
+            actions.panels.setMode(InputMode.Help);
+            return true;
+          case "zoom_cycle":
+            actions.onZoomCycle();
+            return true;
+          case "broadcast":
+            actions.onBroadcastMode();
+            return true;
+          case "direct_message":
+            actions.onDirectMessageMode();
+            return true;
+          case "refresh":
+            return true;
+          case "palette":
+            actions.onSpawnPalette();
+            actions.panels.setMode(InputMode.CommandPalette);
+            return true;
+        }
+      }
+    }
+  }
 
   // Command palette toggle (works in all modes except help)
   if (isCtrl && input === "p") {
@@ -296,6 +336,22 @@ export function routeKey(key: KeyEvent, actions: KeyboardActions): boolean {
 
   // Panel-specific keys — must be checked BEFORE global keys like "b"/"d"
   // because they are more specific (panel + mode gated).
+
+  // Terminal panel: j/k scroll output, G un-pins (item 9)
+  if (focused === Panel.Terminal) {
+    if (input === "j" || input === "down") {
+      actions.onTerminalScrollDown();
+      return true;
+    }
+    if (input === "k" || input === "up") {
+      actions.onTerminalScrollUp();
+      return true;
+    }
+    if (input === "G" || (key.shift && input === "g")) {
+      actions.onTerminalScrollBottom();
+      return true;
+    }
+  }
 
   // Artifact panel: adopt compared contribution (a/b)
   if (focused === Panel.Artifact && actions.compareMode) {
