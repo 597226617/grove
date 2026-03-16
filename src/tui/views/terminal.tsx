@@ -6,10 +6,10 @@
  * Terminal instance that maintains state across .write() calls, so only new
  * bytes are fed on each poll cycle.
  *
- * Falls back to plain text when xterm headless is not available.
+ * The rendered output preserves ANSI colors: each cell's foreground color is
+ * read from the xterm buffer and applied via OpenTUI's <text color> prop.
  *
- * In terminal input mode (press 'i' when Terminal panel focused),
- * keystrokes are forwarded to the tmux session via sendKeys.
+ * Falls back to plain text when xterm headless is not available.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -28,10 +28,8 @@ interface PersistentTerminal {
   prevContent: string;
 }
 
-/** Map of session name → persistent terminal instance. */
 const agentTerminals = new Map<string, PersistentTerminal>();
 
-/** Lazy-loaded xterm module. */
 let xtermModule: typeof import("@xterm/headless") | null = null;
 let xtermLoadFailed = false;
 
@@ -47,10 +45,6 @@ async function getXterm(): Promise<typeof import("@xterm/headless") | null> {
   }
 }
 
-/**
- * Get or create a persistent terminal for an agent session.
- * Returns null if @xterm/headless is not available.
- */
 function getAgentTerminal(
   sessionName: string,
   xterm: typeof import("@xterm/headless"),
@@ -67,62 +61,157 @@ function getAgentTerminal(
   return pt;
 }
 
-/**
- * Feed output to a persistent terminal, using delta detection.
- * If output grew with the same prefix, only feed the new bytes.
- * If output shrank or diverged (screen clear), reset and re-feed.
- */
 function feedTerminal(pt: PersistentTerminal, rawOutput: string): void {
   if (rawOutput.length > pt.prevLength && rawOutput.startsWith(pt.prevContent)) {
-    // Output grew with same prefix — feed only delta
     const delta = rawOutput.slice(pt.prevLength);
     pt.terminal.write(delta);
   } else if (rawOutput !== pt.prevContent) {
-    // Output changed (screen clear, scroll, etc.) — full re-feed
     pt.terminal.reset();
     pt.terminal.write(rawOutput);
   }
-  // else: identical output, no-op
   pt.prevLength = rawOutput.length;
   pt.prevContent = rawOutput;
 }
 
-/** Extract visible text from a terminal buffer. */
-function extractText(terminal: import("@xterm/headless").Terminal): string {
+// ---------------------------------------------------------------------------
+// Styled line extraction from xterm buffer
+// ---------------------------------------------------------------------------
+
+/** A run of characters sharing the same foreground color. */
+interface StyledSpan {
+  text: string;
+  color: string | undefined; // hex color or undefined for default
+  bold: boolean;
+}
+
+/** A line of styled spans extracted from the xterm buffer. */
+interface StyledLine {
+  spans: StyledSpan[];
+}
+
+/** ANSI 16-color palette mapped to hex. */
+const ANSI_COLORS: readonly string[] = [
+  "#000000",
+  "#cc0000",
+  "#00cc00",
+  "#cccc00",
+  "#0088cc",
+  "#cc00cc",
+  "#00cccc",
+  "#cccccc",
+  "#555555",
+  "#ff0000",
+  "#00ff00",
+  "#ffff00",
+  "#0088ff",
+  "#ff00ff",
+  "#00ffff",
+  "#ffffff",
+];
+
+/** Convert an xterm color number to a hex string. */
+function cellColorToHex(
+  color: number,
+  isRgb: boolean,
+  r: number,
+  g: number,
+  b: number,
+): string | undefined {
+  if (isRgb) {
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  // Indexed color (0-255)
+  if (color >= 0 && color < 16) {
+    return ANSI_COLORS[color];
+  }
+  if (color >= 16 && color < 232) {
+    // 216-color cube
+    const idx = color - 16;
+    const cr = Math.floor(idx / 36) * 51;
+    const cg = Math.floor((idx % 36) / 6) * 51;
+    const cb = (idx % 6) * 51;
+    return `#${cr.toString(16).padStart(2, "0")}${cg.toString(16).padStart(2, "0")}${cb.toString(16).padStart(2, "0")}`;
+  }
+  if (color >= 232 && color < 256) {
+    // Grayscale ramp
+    const v = (color - 232) * 10 + 8;
+    return `#${v.toString(16).padStart(2, "0")}${v.toString(16).padStart(2, "0")}${v.toString(16).padStart(2, "0")}`;
+  }
+  return undefined; // default terminal color
+}
+
+/** Extract styled lines from an xterm terminal buffer. */
+function extractStyledLines(terminal: import("@xterm/headless").Terminal): StyledLine[] {
   const buf = terminal.buffer.active;
-  const lines: string[] = [];
-  for (let i = 0; i < buf.length; i++) {
-    const line = buf.getLine(i);
-    if (line) {
-      lines.push(line.translateToString(true));
+  const lines: StyledLine[] = [];
+  const cell = terminal.buffer.active.getNullCell();
+
+  for (let y = 0; y < buf.length; y++) {
+    const line = buf.getLine(y);
+    if (!line) continue;
+
+    const spans: StyledSpan[] = [];
+    let currentText = "";
+    let currentColor: string | undefined;
+    let currentBold = false;
+
+    for (let x = 0; x < line.length; x++) {
+      line.getCell(x, cell);
+      if (!cell) continue;
+
+      const char = cell.getChars();
+      const fg = cell.getFgColor();
+      const isFgRgb = cell.isFgRGB();
+      const fgColor =
+        fg === 0 && !isFgRgb
+          ? undefined
+          : cellColorToHex(fg, isFgRgb, (fg >> 16) & 0xff, (fg >> 8) & 0xff, fg & 0xff);
+      const bold = cell.isBold() !== 0;
+
+      if (fgColor !== currentColor || bold !== currentBold) {
+        if (currentText) {
+          spans.push({ text: currentText, color: currentColor, bold: currentBold });
+        }
+        currentText = char;
+        currentColor = fgColor;
+        currentBold = bold;
+      } else {
+        currentText += char;
+      }
+    }
+
+    if (currentText) {
+      spans.push({ text: currentText, color: currentColor, bold: currentBold });
+    }
+
+    lines.push({ spans });
+  }
+
+  // Trim trailing empty lines
+  while (lines.length > 0) {
+    const last = lines[lines.length - 1];
+    if (!last || last.spans.every((s) => s.text.trim() === "")) {
+      lines.pop();
+    } else {
+      break;
     }
   }
-  // Trim trailing empty lines
-  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") {
-    lines.pop();
-  }
-  return lines.join("\n");
+
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-/** Props for the Terminal view. */
 export interface TerminalProps {
-  /** The tmux session name to display. */
   readonly sessionName?: string | undefined;
-  /** TmuxManager for pane capture. */
   readonly tmux?: TmuxManager | undefined;
-  /** Polling interval for capture refresh. */
   readonly intervalMs: number;
-  /** Whether this view is actively polling. */
   readonly active: boolean;
-  /** Current input mode. */
   readonly mode: InputMode;
 }
 
-/** Terminal output view. */
 export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.memo(
   function TerminalView({
     sessionName,
@@ -134,7 +223,6 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     const captureMs = Math.max(intervalMs, 200);
     const [xtermReady, setXtermReady] = useState(xtermModule !== null);
 
-    // Load xterm lazily on mount
     useEffect(() => {
       if (xtermModule) {
         setXtermReady(true);
@@ -149,7 +237,6 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       };
     }, []);
 
-    // Reset terminal when session changes
     useEffect(() => {
       if (sessionName) {
         const pt = agentTerminals.get(sessionName);
@@ -172,14 +259,14 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       active && !!sessionName && !!tmux,
     );
 
-    // Feed output to persistent terminal and extract rendered text
-    const renderedText = useMemo(() => {
+    // Feed output and extract styled lines
+    const styledLines = useMemo((): StyledLine[] | null => {
       const rawOutput = output ?? "";
       if (!rawOutput || !xtermReady || !xtermModule || !sessionName) return null;
 
       const pt = getAgentTerminal(sessionName, xtermModule);
       feedTerminal(pt, rawOutput);
-      return extractText(pt.terminal);
+      return extractStyledLines(pt.terminal);
     }, [output, xtermReady, sessionName]);
 
     if (!tmux) {
@@ -214,9 +301,32 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       </box>
     );
 
-    // Use xterm-rendered text if available, otherwise plain text fallback
-    const displayText = renderedText ?? (output ?? "").trimEnd();
-    const lines = displayText ? displayText.split("\n").slice(-30) : [];
+    // Styled rendering via xterm buffer
+    if (styledLines && styledLines.length > 0) {
+      const displayLines = styledLines.slice(-30);
+      return (
+        <box flexDirection="column">
+          {header}
+          <box flexDirection="column">
+            {displayLines.map((line, y) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: terminal lines have no stable identity
+              <box key={y}>
+                {line.spans.map((span, x) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: spans have no stable identity
+                  <text key={x} color={span.color} bold={span.bold}>
+                    {span.text}
+                  </text>
+                ))}
+              </box>
+            ))}
+          </box>
+        </box>
+      );
+    }
+
+    // Plain text fallback
+    const rawOutput = (output ?? "").trimEnd();
+    const lines = rawOutput ? rawOutput.split("\n").slice(-30) : [];
 
     return (
       <box flexDirection="column">
