@@ -437,16 +437,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     // Terminal input: forward to tmux with paste safety validation
     if (panels.state.mode === InputMode.TerminalInput) {
       if (tmux && selectedSession && input) {
-        // Validate paste safety when @grove/libghostty is available
+        // Validate paste safety before forwarding to tmux
         void (async () => {
-          try {
-            const { isPasteSafe } = await import("@grove/libghostty");
-            if (!isPasteSafe(input)) {
-              showError("Blocked: input contains potentially dangerous escape sequences");
-              return;
-            }
-          } catch {
-            // @grove/libghostty not available — skip paste check
+          const { isPasteSafe } = await import("./utils/paste-safety.js");
+          if (!isPasteSafe(input)) {
+            showError("Blocked: input contains potentially dangerous escape sequences");
+            return;
           }
           void safeCleanup(tmux.sendKeys(selectedSession, input), "sendKeys to tmux session", {
             silent: true,

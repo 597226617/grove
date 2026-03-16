@@ -55,14 +55,15 @@
     "postinstall": "bun run --cwd packages/ask-user build && bun ./scripts/install-hooks.mjs"
   },
   "dependencies": {
-    "@hono/zod-validator": "0.7.6",
     "@grove/ask-user": "workspace:*",
-    "@grove/libghostty": "workspace:*",
+    "@hono/zod-validator": "0.7.6",
     "@modelcontextprotocol/sdk": "^1.27.0",
-    "blake3": "^1.0.2",
-    "hono": "^4.12.6",
     "@opentui/core": "^0.1.87",
     "@opentui/react": "^0.1.87",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
+    "blake3": "^1.0.2",
+    "hono": "^4.12.6",
     "react": "^19.0.0",
     "yaml": "^2.8.2",
     "zod": "4.3.6"

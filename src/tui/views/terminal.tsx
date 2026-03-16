@@ -1,109 +1,108 @@
 /**
  * Terminal view — shows captured output from the selected agent's tmux session.
  *
- * Uses @grove/libghostty for full ANSI/VT rendering when available, with
- * persistent terminal state per agent. Falls back to ghostty-opentui, then
- * to plain text if neither native library is loadable.
+ * Uses @xterm/headless for full VT emulation (colors, cursor, SGR, scrolling
+ * regions) in pure JS — no native dependencies. Each agent gets a persistent
+ * Terminal instance that maintains state across .write() calls, so only new
+ * bytes are fed on each poll cycle.
  *
- * Persistent mode: Each agent gets a GhosttyTerminal that maintains state
- * across .write() calls. On each poll, only the *new* bytes from tmux are
- * fed, avoiding re-parsing the entire ANSI blob every cycle.
+ * Falls back to plain text when xterm headless is not available.
  *
  * In terminal input mode (press 'i' when Terminal panel focused),
  * keystrokes are forwarded to the tmux session via sendKeys.
  */
 
-import React, { createElement, useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { TmuxManager } from "../agents/tmux-manager.js";
 import type { InputMode } from "../hooks/use-panel-focus.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import { theme } from "../theme.js";
 
 // ---------------------------------------------------------------------------
-// Ghostty integration — try @grove/libghostty first, fall back to ghostty-opentui
+// Persistent terminal state per agent via @xterm/headless
 // ---------------------------------------------------------------------------
 
-let ghosttyRegistered = false;
-/** True when @grove/libghostty is available (persistent terminal support). */
-let libghosttyAvailable = false;
-
-/**
- * Try to load and register the terminal renderable.
- * Priority: @grove/libghostty → ghostty-opentui → plain text fallback.
- */
-const ghosttyPromise: Promise<boolean> = (async () => {
-  const opentui = (await import("@opentui/react").catch(() => null)) as {
-    extend?: (objects: Record<string, unknown>) => void;
-  } | null;
-  if (!opentui?.extend) return false;
-
-  // Try @grove/libghostty first (our own FFI bindings)
-  try {
-    const { GhosttyRenderable } = await import("@grove/libghostty/renderable");
-    opentui.extend({ "ghostty-terminal": GhosttyRenderable as unknown });
-    ghosttyRegistered = true;
-    libghosttyAvailable = true;
-    return true;
-  } catch {
-    // @grove/libghostty not available — try ghostty-opentui fallback
-  }
-
-  // Fallback: ghostty-opentui (third-party wrapper)
-  try {
-    const mod = (await import("ghostty-opentui/opentui")) as {
-      GhosttyTerminalRenderable?: unknown;
-    };
-    if (mod.GhosttyTerminalRenderable) {
-      opentui.extend({ "ghostty-terminal": mod.GhosttyTerminalRenderable });
-      ghosttyRegistered = true;
-      return true;
-    }
-  } catch {
-    // Neither available — fall back to plain text
-  }
-
-  return false;
-})();
-
-/** Hook that resolves the ghostty module once and caches the result. */
-function useGhosttyAvailable(): boolean {
-  const [available, setAvailable] = useState(ghosttyRegistered);
-  useEffect(() => {
-    if (ghosttyRegistered) {
-      setAvailable(true);
-      return;
-    }
-    let cancelled = false;
-    ghosttyPromise.then((ok) => {
-      if (!cancelled && ok) {
-        setAvailable(true);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return available;
-}
-
-// ---------------------------------------------------------------------------
-// Persistent terminal state per agent
-// ---------------------------------------------------------------------------
-
-/**
- * Tracks per-agent terminal state for delta-based feeding.
- * When @grove/libghostty is available, we track how many bytes we've
- * already fed and only send the new portion on each poll.
- */
-interface AgentTerminalState {
-  /** Number of bytes previously fed to the terminal. */
+interface PersistentTerminal {
+  terminal: import("@xterm/headless").Terminal;
   prevLength: number;
-  /** Full previous capture content for prefix comparison. */
   prevContent: string;
 }
 
-/** Global map of agent session → terminal state. */
-const agentStates = new Map<string, AgentTerminalState>();
+/** Map of session name → persistent terminal instance. */
+const agentTerminals = new Map<string, PersistentTerminal>();
+
+/** Lazy-loaded xterm module. */
+let xtermModule: typeof import("@xterm/headless") | null = null;
+let xtermLoadFailed = false;
+
+async function getXterm(): Promise<typeof import("@xterm/headless") | null> {
+  if (xtermModule) return xtermModule;
+  if (xtermLoadFailed) return null;
+  try {
+    xtermModule = await import("@xterm/headless");
+    return xtermModule;
+  } catch {
+    xtermLoadFailed = true;
+    return null;
+  }
+}
+
+/**
+ * Get or create a persistent terminal for an agent session.
+ * Returns null if @xterm/headless is not available.
+ */
+function getAgentTerminal(
+  sessionName: string,
+  xterm: typeof import("@xterm/headless"),
+): PersistentTerminal {
+  let pt = agentTerminals.get(sessionName);
+  if (!pt) {
+    pt = {
+      terminal: new xterm.Terminal({ cols: 120, rows: 30, scrollback: 1000 }),
+      prevLength: 0,
+      prevContent: "",
+    };
+    agentTerminals.set(sessionName, pt);
+  }
+  return pt;
+}
+
+/**
+ * Feed output to a persistent terminal, using delta detection.
+ * If output grew with the same prefix, only feed the new bytes.
+ * If output shrank or diverged (screen clear), reset and re-feed.
+ */
+function feedTerminal(pt: PersistentTerminal, rawOutput: string): void {
+  if (rawOutput.length > pt.prevLength && rawOutput.startsWith(pt.prevContent)) {
+    // Output grew with same prefix — feed only delta
+    const delta = rawOutput.slice(pt.prevLength);
+    pt.terminal.write(delta);
+  } else if (rawOutput !== pt.prevContent) {
+    // Output changed (screen clear, scroll, etc.) — full re-feed
+    pt.terminal.reset();
+    pt.terminal.write(rawOutput);
+  }
+  // else: identical output, no-op
+  pt.prevLength = rawOutput.length;
+  pt.prevContent = rawOutput;
+}
+
+/** Extract visible text from a terminal buffer. */
+function extractText(terminal: import("@xterm/headless").Terminal): string {
+  const buf = terminal.buffer.active;
+  const lines: string[] = [];
+  for (let i = 0; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    if (line) {
+      lines.push(line.translateToString(true));
+    }
+  }
+  // Trim trailing empty lines
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") {
+    lines.pop();
+  }
+  return lines.join("\n");
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -132,14 +131,35 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     active,
     mode,
   }: TerminalProps): React.ReactNode {
-    const captureMs = Math.max(intervalMs, 200); // minimum 200ms for terminal
-    const ghosttyAvailable = useGhosttyAvailable();
+    const captureMs = Math.max(intervalMs, 200);
+    const [xtermReady, setXtermReady] = useState(xtermModule !== null);
 
-    // Track the renderable ref for persistent feeding
-    const renderableRef = useRef<{
-      feed?: (data: string | Uint8Array) => void;
-      reset?: () => void;
-    } | null>(null);
+    // Load xterm lazily on mount
+    useEffect(() => {
+      if (xtermModule) {
+        setXtermReady(true);
+        return;
+      }
+      let cancelled = false;
+      getXterm().then((mod) => {
+        if (!cancelled && mod) setXtermReady(true);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []);
+
+    // Reset terminal when session changes
+    useEffect(() => {
+      if (sessionName) {
+        const pt = agentTerminals.get(sessionName);
+        if (pt) {
+          pt.terminal.reset();
+          pt.prevLength = 0;
+          pt.prevContent = "";
+        }
+      }
+    }, [sessionName]);
 
     const fetcher = useCallback(async () => {
       if (!tmux || !sessionName) return "";
@@ -152,13 +172,15 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       active && !!sessionName && !!tmux,
     );
 
-    // When session changes, reset persistent state
-    useEffect(() => {
-      if (sessionName) {
-        agentStates.delete(sessionName);
-        renderableRef.current?.reset?.();
-      }
-    }, [sessionName]);
+    // Feed output to persistent terminal and extract rendered text
+    const renderedText = useMemo(() => {
+      const rawOutput = output ?? "";
+      if (!rawOutput || !xtermReady || !xtermModule || !sessionName) return null;
+
+      const pt = getAgentTerminal(sessionName, xtermModule);
+      feedTerminal(pt, rawOutput);
+      return extractText(pt.terminal);
+    }, [output, xtermReady, sessionName]);
 
     if (!tmux) {
       return (
@@ -178,9 +200,7 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     }
 
     const isInputMode = mode === "terminal_input";
-    const rawOutput = output ?? "";
 
-    // Status header — shared by all rendering paths
     const header = (
       <box>
         <text color={theme.muted}>
@@ -194,46 +214,9 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       </box>
     );
 
-    // --- Ghostty path: ANSI/VT rendering ---
-    if (ghosttyAvailable && rawOutput.length > 0) {
-      // Determine rendering mode when @grove/libghostty is available
-      let useDelta = false;
-      let deltaContent = rawOutput;
-
-      if (libghosttyAvailable && sessionName) {
-        const state = agentStates.get(sessionName);
-        if (state) {
-          if (rawOutput.length > state.prevLength && rawOutput.startsWith(state.prevContent)) {
-            // Output grew and prefix matches — safe to feed only delta
-            useDelta = true;
-            deltaContent = rawOutput.slice(state.prevLength);
-          }
-          // Otherwise output shrank, changed, or screen cleared —
-          // fall back to full re-parse (ansi prop, not delta)
-        }
-        agentStates.set(sessionName, {
-          prevLength: rawOutput.length,
-          prevContent: rawOutput,
-        });
-      }
-
-      return (
-        <box flexDirection="column">
-          {header}
-          {createElement("ghostty-terminal" as string, {
-            // delta = persistent (append only), ansi = stateless (full re-parse)
-            ...(libghosttyAvailable && useDelta ? { delta: deltaContent } : { ansi: rawOutput }),
-            cols: 120,
-            rows: 30,
-            trimEnd: true,
-          })}
-        </box>
-      );
-    }
-
-    // --- Fallback path: plain text line rendering ---
-    const trimmedOutput = rawOutput.trimEnd();
-    const lines = trimmedOutput ? trimmedOutput.split("\n").slice(-30) : [];
+    // Use xterm-rendered text if available, otherwise plain text fallback
+    const displayText = renderedText ?? (output ?? "").trimEnd();
+    const lines = displayText ? displayText.split("\n").slice(-30) : [];
 
     return (
       <box flexDirection="column">
