@@ -98,10 +98,12 @@ describe("CLI dispatch", () => {
     expect(stdout).toContain("grove");
   });
 
-  test("no args prints usage", async () => {
-    const { stdout, exitCode } = await runCli([], tmpDir);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("grove");
+  // bare `grove` now launches the TUI (issue #113) instead of printing usage.
+  // This requires a TTY and OpenTUI renderer, so it can't run in CI.
+  // The behavior is verified by the TUI-specific tests and manual testing.
+  test.skip("no args launches TUI (not usage)", async () => {
+    const { exitCode } = await runCli([], tmpDir);
+    expect(exitCode).not.toBe(2);
   });
 
   test("unknown command exits 2 (usage error)", async () => {

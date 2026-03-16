@@ -94,7 +94,7 @@ export async function handleUp(args: readonly string[], groveOverride?: string):
       return;
     }
     throw new Error(
-      "No grove found. Run 'grove init' first, or 'grove init --preset <name>' for a quick start.",
+      "No grove.json found. Run 'grove init' first, or 'grove init --preset <name>' for a quick start.",
     );
   }
 
