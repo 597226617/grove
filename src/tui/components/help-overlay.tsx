@@ -6,6 +6,7 @@
  */
 
 import React from "react";
+import { theme } from "../theme.js";
 
 /** Props for the HelpOverlay component. */
 export interface HelpOverlayProps {
@@ -25,10 +26,11 @@ interface KeyBinding {
 const GLOBAL_BINDINGS: readonly KeyBinding[] = [
   { key: "?", description: "Toggle this help" },
   { key: "q", description: "Quit" },
-  { key: "Esc", description: "Back / dismiss overlay" },
+  { key: "Esc", description: "Back / dismiss / reduce zoom" },
   { key: "Ctrl+P", description: "Command palette" },
   { key: "Tab", description: "Cycle panel focus" },
   { key: "Shift+Tab", description: "Cycle panel focus (reverse)" },
+  { key: "+", description: "Zoom cycle (Normal → Half → Full)" },
 ];
 
 const PANEL_BINDINGS: readonly KeyBinding[] = [
@@ -106,16 +108,16 @@ function renderSection(title: string, bindings: readonly KeyBinding[]): React.Re
   return (
     <box flexDirection="column" key={title}>
       <box>
-        <text bold color="#00cccc">
+        <text bold color={theme.focus}>
           {title}
         </text>
       </box>
       {bindings.map((b) => (
         <box key={b.key} paddingLeft={1}>
-          <text color="#ffffff" bold>
+          <text color={theme.text} bold>
             {b.key.padEnd(14)}
           </text>
-          <text color="#888888">{b.description}</text>
+          <text color={theme.muted}>{b.description}</text>
         </box>
       ))}
     </box>
@@ -161,7 +163,7 @@ export const HelpOverlay: React.NamedExoticComponent<HelpOverlayProps> = React.m
     return (
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
         <box>
-          <text bold color="#00cccc">
+          <text bold color={theme.focus}>
             Keybinding Reference (? to close)
           </text>
         </box>

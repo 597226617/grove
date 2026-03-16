@@ -11,6 +11,7 @@ import type { Bounty } from "../../core/bounty.js";
 import type { BountyQuery, BountyStore } from "../../core/bounty-store.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
@@ -121,9 +122,10 @@ export const BountiesPanelView: React.NamedExoticComponent<BountiesPanelProps> =
           </text>
         </box>
         {bounties.length === 0 ? (
-          <box>
-            <text opacity={0.5}>No bounties yet</text>
-          </box>
+          <EmptyState
+            title="No bounties yet."
+            hint="Create bounties to incentivize contributions from agents."
+          />
         ) : (
           <Table
             columns={[...COLUMNS]}

@@ -7,6 +7,7 @@
  */
 
 import React, { useMemo } from "react";
+import { theme } from "../theme.js";
 import type { Claim } from "../../core/models.js";
 import type { AgentTopology } from "../../core/topology.js";
 import { checkSpawn } from "../agents/spawn-validator.js";
@@ -197,12 +198,12 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
     return (
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
         <box>
-          <text color="#00cccc">Command Palette (Esc to close)</text>
+          <text color={theme.focus}>Command Palette (Esc to close)</text>
         </box>
 
         {items.length === 0 && (
           <box paddingLeft={1}>
-            <text color="#888888">
+            <text color={theme.muted}>
               No actions available{!hasTmux ? " (tmux not detected)" : ""}
             </text>
           </box>
@@ -212,8 +213,8 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
           {items.map((item, i) => {
             const isSelected = i === idx;
             const dimmed = !item.enabled;
-            const labelColor = isSelected ? "#00cccc" : dimmed ? "#555555" : "#ffffff";
-            const detailColor = isSelected ? "#00cccc" : dimmed ? "#444444" : "#888888";
+            const labelColor = isSelected ? theme.focus : dimmed ? theme.disabled : theme.text;
+            const detailColor = isSelected ? theme.focus : dimmed ? theme.inactive : theme.muted;
             const cursor = isSelected ? "> " : "  ";
             return (
               <box key={`${item.kind}-${item.id}`}>
@@ -228,7 +229,7 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
         </box>
 
         <box marginTop={1} paddingLeft={1}>
-          <text color="#888888">[j/k] navigate [Enter] execute [Esc] close</text>
+          <text color={theme.muted}>[j/k] navigate [Enter] execute [Esc] close</text>
         </box>
       </box>
     );

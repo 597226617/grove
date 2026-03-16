@@ -104,7 +104,7 @@ describe("renderGraph — single node", () => {
     const result = renderGraph(layout);
     const text = allText(result.lines);
 
-    expect(text).toContain("\u2717"); // ✗
+    expect(text).toContain("\u2717"); // ✗ (theme.agentError)
   });
 });
 

@@ -10,6 +10,7 @@ import React, { useCallback, useEffect } from "react";
 import type { PeerInfo } from "../../core/gossip/types.js";
 import { formatTimestamp } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
@@ -122,9 +123,10 @@ export const GossipPanelView: React.NamedExoticComponent<GossipPanelProps> = Rea
           </text>
         </box>
         {peers.length === 0 ? (
-          <box>
-            <text opacity={0.5}>No gossip peers discovered</text>
-          </box>
+          <EmptyState
+            title="No gossip peers discovered."
+            hint="Peers appear when other grove instances connect via gossip."
+          />
         ) : (
           <Table
             columns={[...COLUMNS]}

@@ -1,10 +1,9 @@
 /**
  * Terminal view — shows captured output from the selected agent's tmux session.
  *
- * When ghostty-opentui is available, renders via GhosttyTerminalRenderable for
- * full ANSI/VT support (colors, cursor, SGR attributes). Falls back to plain
- * text capture when the native library is not loadable (e.g., missing Zig
- * shared object on the current platform).
+ * Uses @grove/libghostty for full ANSI/VT rendering when available. Falls
+ * back to ghostty-opentui, then to plain text if neither native library
+ * is loadable.
  *
  * The dynamic import is wrapped in a module-level promise so that:
  *  1. We only attempt the import once (not on every render).
@@ -18,40 +17,50 @@ import React, { createElement, useCallback, useEffect, useState } from "react";
 import type { TmuxManager } from "../agents/tmux-manager.js";
 import type { InputMode } from "../hooks/use-panel-focus.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
+import { theme } from "../theme.js";
 
 // ---------------------------------------------------------------------------
-// Ghostty integration — dynamic import with graceful fallback
+// Ghostty integration — try @grove/libghostty first, fall back to ghostty-opentui
 // ---------------------------------------------------------------------------
-
-/**
- * We attempt to load ghostty-opentui/opentui at module level so the cost is
- * paid once. The package exports `GhosttyTerminalRenderable`, a subclass of
- * OpenTUI's `TextBufferRenderable` that renders ANSI/VT content natively.
- *
- * If the import fails (missing native binary, unsupported platform, etc.)
- * we fall back to the plain-text capture path — no user-visible error.
- */
-interface GhosttyModule {
-  readonly GhosttyTerminalRenderable: unknown;
-}
 
 let ghosttyRegistered = false;
 
-const ghosttyPromise: Promise<GhosttyModule | null> = Promise.all([
-  import("ghostty-opentui/opentui") as Promise<GhosttyModule>,
-  import("@opentui/react") as Promise<{ extend?: (objects: Record<string, unknown>) => void }>,
-])
-  .then(([mod, opentui]) => {
-    // Register the renderable as an intrinsic element so it can be used in JSX
-    // via React.createElement("ghostty-terminal", { ... }).
-    // `extend` from @opentui/react maps element names to renderable classes.
-    if (typeof opentui.extend === "function" && mod.GhosttyTerminalRenderable) {
+/**
+ * Try to load and register the terminal renderable.
+ * Priority: @grove/libghostty → ghostty-opentui → plain text fallback.
+ */
+const ghosttyPromise: Promise<boolean> = (async () => {
+  const opentui = (await import("@opentui/react").catch(() => null)) as {
+    extend?: (objects: Record<string, unknown>) => void;
+  } | null;
+  if (!opentui?.extend) return false;
+
+  // Try @grove/libghostty first (our own FFI bindings)
+  try {
+    const { GhosttyRenderable } = await import("@grove/libghostty/renderable");
+    opentui.extend({ "ghostty-terminal": GhosttyRenderable as unknown });
+    ghosttyRegistered = true;
+    return true;
+  } catch {
+    // @grove/libghostty not available — try ghostty-opentui fallback
+  }
+
+  // Fallback: ghostty-opentui (third-party wrapper)
+  try {
+    const mod = (await import("ghostty-opentui/opentui")) as {
+      GhosttyTerminalRenderable?: unknown;
+    };
+    if (mod.GhosttyTerminalRenderable) {
       opentui.extend({ "ghostty-terminal": mod.GhosttyTerminalRenderable });
       ghosttyRegistered = true;
+      return true;
     }
-    return mod;
-  })
-  .catch(() => null);
+  } catch {
+    // Neither available — fall back to plain text
+  }
+
+  return false;
+})();
 
 /** Hook that resolves the ghostty module once and caches the result. */
 function useGhosttyAvailable(): boolean {
@@ -62,8 +71,8 @@ function useGhosttyAvailable(): boolean {
       return;
     }
     let cancelled = false;
-    ghosttyPromise.then((mod) => {
-      if (!cancelled && mod !== null && ghosttyRegistered) {
+    ghosttyPromise.then((ok) => {
+      if (!cancelled && ok) {
         setAvailable(true);
       }
     });
@@ -138,10 +147,10 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     // Status header — shared by both rendering paths
     const header = (
       <box>
-        <text color="#888888">
+        <text color={theme.muted}>
           session: {sessionName}
           {isInputMode ? (
-            <text color="#00cccc"> [INPUT]</text>
+            <text color={theme.focus}> [INPUT]</text>
           ) : (
             <text opacity={0.5}> (press i to type)</text>
           )}

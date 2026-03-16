@@ -13,6 +13,7 @@ import { DataStatus } from "../components/data-status.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the SearchPanel view. */
 export interface SearchPanelProps {
@@ -94,7 +95,7 @@ export const SearchPanelView: React.NamedExoticComponent<SearchPanelProps> = Rea
           <text>Search</text>
           <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
           {isInputMode ? (
-            <text color="#00cccc">
+            <text color={theme.focus}>
               {"  /"}
               {searchQuery}
               {"_"}

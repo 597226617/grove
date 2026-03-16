@@ -1,10 +1,13 @@
 /**
- * TUI entry point — launched via `grove tui`.
+ * TUI entry point — launched via `grove tui` or bare `grove`.
  *
  * Initializes the data provider, sets up the OpenTUI renderer,
- * and renders the root App component.
+ * and renders the root App component. When no .grove/ directory
+ * exists, shows the welcome screen for guided initialization.
  */
 
+import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 import type { TuiDataProvider } from "./provider.js";
 import {
@@ -94,11 +97,118 @@ async function createProviderForTui(
   return createProvider(backend, label);
 }
 
-/** Main TUI entry point. */
-export async function handleTui(args: readonly string[], groveOverride?: string): Promise<void> {
-  const opts = parseTuiArgs(args);
-  const effectiveGrove = opts.groveOverride ?? groveOverride;
+// ---------------------------------------------------------------------------
+// Grove directory detection
+// ---------------------------------------------------------------------------
 
+/**
+ * Check whether a .grove/grove.json file exists in the current working tree.
+ *
+ * Walks up from cwd (or the explicit groveOverride path) looking for the
+ * directory. Returns the resolved groveDir path if found, undefined otherwise.
+ */
+function findGroveDir(groveOverride?: string): string | undefined {
+  // If an explicit override was provided, check it directly
+  if (groveOverride) {
+    const configPath = join(groveOverride, "grove.json");
+    return existsSync(configPath) ? groveOverride : undefined;
+  }
+
+  // Check GROVE_DIR env
+  const envDir = process.env.GROVE_DIR;
+  if (envDir) {
+    const configPath = join(envDir, "grove.json");
+    return existsSync(configPath) ? envDir : undefined;
+  }
+
+  // Walk up from cwd looking for .grove/grove.json
+  const { dirname } = require("node:path") as typeof import("node:path");
+  const { resolve } = require("node:path") as typeof import("node:path");
+  let current = resolve(process.cwd());
+
+  while (true) {
+    const candidate = join(current, ".grove");
+    const configPath = join(candidate, "grove.json");
+    if (existsSync(configPath)) {
+      return candidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Welcome mode helpers
+// ---------------------------------------------------------------------------
+
+/** Build extended details string from a preset config for the welcome overlay. */
+function buildPresetDetails(preset: {
+  readonly mode: string;
+  readonly backend: string;
+  readonly topology?:
+    | {
+        readonly structure: string;
+        readonly roles: readonly { readonly name: string }[];
+      }
+    | undefined;
+  readonly concurrency?:
+    | {
+        readonly maxActiveClaims?: number | undefined;
+        readonly maxClaimsPerAgent?: number | undefined;
+      }
+    | undefined;
+}): string {
+  const lines: string[] = [];
+  lines.push(`Mode: ${preset.mode}`);
+  lines.push(`Backend: ${preset.backend}`);
+  if (preset.topology) {
+    const roleNames = preset.topology.roles.map((r) => r.name).join(", ");
+    lines.push(`Topology: ${preset.topology.structure} — ${roleNames}`);
+  }
+  if (preset.concurrency) {
+    const parts: string[] = [];
+    if (preset.concurrency.maxActiveClaims !== undefined) {
+      parts.push(`maxActiveClaims=${preset.concurrency.maxActiveClaims}`);
+    }
+    if (preset.concurrency.maxClaimsPerAgent !== undefined) {
+      parts.push(`maxClaimsPerAgent=${preset.concurrency.maxClaimsPerAgent}`);
+    }
+    if (parts.length > 0) {
+      lines.push(`Concurrency: ${parts.join(", ")}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Load all preset names and descriptions for the welcome screen. */
+async function loadPresetList(): Promise<
+  readonly { name: string; description: string; details?: string | undefined }[]
+> {
+  const { getPresetRegistry } = await import("../cli/presets/index.js");
+  const registry = getPresetRegistry();
+  return Object.entries(registry).map(([name, preset]) => ({
+    name,
+    description: preset.description,
+    details: buildPresetDetails(preset),
+  }));
+}
+
+/**
+ * Build boardroom AppProps from a resolved backend.
+ *
+ * Shared between the direct boardroom path and the post-init transition.
+ */
+async function buildAppProps(
+  effectiveGrove: string | undefined,
+  opts: { intervalMs: number; url?: string | undefined; nexus?: string | undefined },
+): Promise<{
+  appProps: import("./app.js").AppProps;
+  provider: TuiDataProvider;
+  stopGc?: (() => void) | undefined;
+}> {
   let backend = resolveBackend({
     url: opts.url,
     nexus: opts.nexus,
@@ -110,7 +220,6 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
     const health = await checkNexusHealth(backend.url);
     if (health !== "ok") {
       if (backend.source === "flag") {
-        // Explicit --nexus: give a specific error
         if (health === "auth_required") {
           throw new Error(
             `Nexus at ${backend.url} requires authentication (HTTP 401/403). No credential path is configured.`,
@@ -118,7 +227,6 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
         }
         throw new Error(`Nexus at ${backend.url} is unreachable (${health})`);
       }
-      // Auto-detected nexus not usable — fallback to local
       const reason =
         health === "auth_required"
           ? "requires authentication"
@@ -136,13 +244,12 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
 
   const label = backendLabel(backend);
 
-  // Load provider and topology in parallel (except when nexus fallback just happened)
   const [provider, topology] = await Promise.all([
     createProviderForTui(backend, label),
     loadTopology(backend),
   ]);
 
-  // Create TmuxManager for agent management (all backend modes — Decision 4)
+  // Create TmuxManager for agent management
   let tmux: import("./agents/tmux-manager.js").TmuxManager | undefined;
   {
     const { ShellTmuxManager } = await import("./agents/tmux-manager.js");
@@ -151,6 +258,33 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
     tmux = available ? mgr : undefined;
   }
 
+  // Start workspace GC for modes that have lifecycle support
+  let stopGc: (() => void) | undefined;
+  if (provider.cleanWorkspace) {
+    const { startWorkspaceGc } = await import("./workspace-gc.js");
+    stopGc = startWorkspaceGc(provider);
+  }
+
+  return {
+    appProps: { provider, intervalMs: opts.intervalMs, tmux, topology },
+    provider,
+    stopGc,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main entry points
+// ---------------------------------------------------------------------------
+
+/** Main TUI entry point. */
+export async function handleTui(args: readonly string[], groveOverride?: string): Promise<void> {
+  const opts = parseTuiArgs(args);
+  const effectiveGrove = opts.groveOverride ?? groveOverride;
+
+  // Check if grove is initialized
+  const groveDir = findGroveDir(effectiveGrove);
+  const isInitialized = groveDir !== undefined;
+
   // Bun compatibility: ensure stdin is in raw mode for keyboard input
   process.stdin.resume();
 
@@ -158,7 +292,6 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
   const { createCliRenderer } = await import("@opentui/core");
   const { createRoot } = await import("@opentui/react");
   const React = await import("react");
-  const { App } = await import("./app.js");
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
@@ -167,26 +300,70 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
 
   const root = createRoot(renderer);
 
-  // Start workspace GC for modes that have lifecycle support
-  let stopGc: (() => void) | undefined;
-  if (provider.cleanWorkspace) {
-    const { startWorkspaceGc } = await import("./workspace-gc.js");
-    stopGc = startWorkspaceGc(provider);
+  if (isInitialized) {
+    // Boardroom mode — same as before
+    const { appProps, provider, stopGc } = await buildAppProps(effectiveGrove, opts);
+    const { App } = await import("./app.js");
+
+    root.render(React.createElement(App, appProps));
+
+    renderer.start();
+    await renderer.idle();
+    stopGc?.();
+    provider.close();
+  } else {
+    // Welcome mode — no .grove/ found, guide the user through initialization
+    const presets = await loadPresetList();
+    const { TuiApp } = await import("./tui-app.js");
+
+    // Track cleanup references so we can clean up after init+boardroom
+    let activeProvider: TuiDataProvider | undefined;
+    let activeStopGc: (() => void) | undefined;
+
+    const onInit = async (presetName: string): Promise<import("./app.js").AppProps> => {
+      // Run grove init with the selected preset
+      const { executeInit } = await import("../cli/commands/init.js");
+      const groveName = basename(process.cwd());
+
+      await executeInit({
+        name: groveName,
+        mode: "evaluation",
+        seed: [],
+        metric: [],
+        force: false,
+        agentOverrides: {},
+        cwd: process.cwd(),
+        preset: presetName,
+      });
+
+      // After init, build the app props for the boardroom
+      const result = await buildAppProps(effectiveGrove, opts);
+      activeProvider = result.provider;
+      activeStopGc = result.stopGc;
+      return result.appProps;
+    };
+
+    root.render(
+      React.createElement(TuiApp, {
+        welcomeMode: true,
+        presets,
+        onInit,
+      }),
+    );
+
+    renderer.start();
+    await renderer.idle();
+    activeStopGc?.();
+    activeProvider?.close();
   }
+}
 
-  root.render(
-    React.createElement(App, {
-      provider,
-      intervalMs: opts.intervalMs,
-      tmux,
-      topology,
-    }),
-  );
-
-  renderer.start();
-
-  // Wait for renderer to be stopped (e.g., by quit action)
-  await renderer.idle();
-  stopGc?.();
-  provider.close();
+/**
+ * Direct TUI entry point for the CLI dispatcher.
+ *
+ * Called when `grove` is run with no subcommand. Delegates to handleTui
+ * which internally handles both initialized and uninitialized states.
+ */
+export async function handleTuiDirect(groveOverride?: string): Promise<void> {
+  await handleTui([], groveOverride);
 }

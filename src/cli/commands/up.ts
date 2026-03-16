@@ -94,6 +94,12 @@ export async function handleUp(args: readonly string[], groveOverride?: string):
   const configPath = join(groveDir, "grove.json");
 
   if (!existsSync(configPath)) {
+    // No grove.json — launch TUI in welcome mode for guided initialization
+    if (!opts.headless && !opts.noTui) {
+      const { handleTui } = await import("../../tui/main.js");
+      await handleTui([], effectiveGrove);
+      return;
+    }
     throw new Error(
       "No grove.json found. Run 'grove init' first, or 'grove init --preset <name>' for a quick start.",
     );

@@ -6,6 +6,7 @@
  */
 
 import React from "react";
+import { theme } from "../theme.js";
 
 /** Maximum lines displayed before truncation. */
 const MAX_VISIBLE_LINES = 20;
@@ -44,12 +45,12 @@ export const SplitDiff: React.NamedExoticComponent<SplitDiffProps> = React.memo(
       {/* Headers */}
       <box flexDirection="row">
         <box flexGrow={1}>
-          <text color="#00cccc">{leftLabel}</text>
+          <text color={theme.focus}>{leftLabel}</text>
           {leftMetric && <text opacity={0.5}> {leftMetric}</text>}
         </box>
         <text opacity={0.3}>|</text>
         <box flexGrow={1}>
-          <text color="#ff6600">{rightLabel}</text>
+          <text color={theme.compare}>{rightLabel}</text>
           {rightMetric && <text opacity={0.5}> {rightMetric}</text>}
         </box>
       </box>

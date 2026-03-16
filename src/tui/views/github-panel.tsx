@@ -8,8 +8,10 @@
 
 import React, { useCallback } from "react";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { GitHubPRSummary, TuiDataProvider, TuiGitHubProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the GitHubPanel view. */
 export interface GitHubPanelProps {
@@ -84,13 +86,14 @@ export const GitHubPanelView: React.NamedExoticComponent<GitHubPanelProps> = Rea
           />
         </box>
         {pr === undefined ? (
-          <box>
-            <text opacity={0.5}>No active PR</text>
-          </box>
+          <EmptyState
+            title="No active PR."
+            hint="PRs appear when agents push branches to GitHub."
+          />
         ) : (
           <box flexDirection="column">
             <box>
-              <text color="#00cccc">PR #{pr.number}</text>
+              <text color={theme.focus}>PR #{pr.number}</text>
               <text> {pr.title}</text>
             </box>
             <box>
@@ -104,8 +107,8 @@ export const GitHubPanelView: React.NamedExoticComponent<GitHubPanelProps> = Rea
             <box>
               <text opacity={0.5}>Files: </text>
               <text>{pr.filesChanged}</text>
-              <text color="#00cc00"> +{pr.additions}</text>
-              <text color="#ff4444"> -{pr.deletions}</text>
+              <text color={theme.success}> +{pr.additions}</text>
+              <text color={theme.error}> -{pr.deletions}</text>
             </box>
           </box>
         )}

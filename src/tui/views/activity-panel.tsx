@@ -9,6 +9,7 @@ import React, { useCallback, useEffect } from "react";
 import type { Contribution } from "../../core/models.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
@@ -82,7 +83,14 @@ export const ActivityPanelView: React.NamedExoticComponent<ActivityPanelProps> =
             {contributions.length} recent
           </text>
         </box>
-        <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
+        {rows.length === 0 ? (
+          <EmptyState
+            title="No recent activity."
+            hint="Activity appears as agents publish contributions."
+          />
+        ) : (
+          <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
+        )}
       </box>
     );
   },

@@ -9,6 +9,7 @@ import React, { useCallback, useEffect } from "react";
 import type { ThreadSummary } from "../../core/store.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
@@ -85,9 +86,10 @@ export const ThreadsPanelView: React.NamedExoticComponent<ThreadsPanelProps> = R
           </text>
         </box>
         {threads.length === 0 ? (
-          <box>
-            <text opacity={0.5}>No discussion threads yet</text>
-          </box>
+          <EmptyState
+            title="No discussion threads yet."
+            hint="Threads appear when agents reply to contributions."
+          />
         ) : (
           <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
         )}

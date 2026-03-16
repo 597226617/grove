@@ -371,8 +371,15 @@ async function main(): Promise<void> {
   const first = args[0];
 
   // Global flags — handled before dispatch
-  if (!first || first === "--help" || first === "-h") {
+  if (first === "--help" || first === "-h") {
     printUsage();
+    return;
+  }
+
+  // No subcommand → launch TUI (handles uninitialized state internally)
+  if (!first) {
+    const { handleTuiDirect } = await import("../tui/main.js");
+    await handleTuiDirect(groveOverride);
     return;
   }
 

@@ -6,6 +6,7 @@
 
 import React from "react";
 import type { OutcomeStatus } from "../../core/outcome.js";
+import { theme } from "../theme.js";
 
 /** Props for the OutcomeBadge component. */
 export interface OutcomeBadgeProps {
@@ -14,10 +15,10 @@ export interface OutcomeBadgeProps {
 
 /** Color map for outcome statuses. */
 const OUTCOME_COLORS: Record<OutcomeStatus, string> = {
-  accepted: "#00cc00",
-  rejected: "#cc0000",
-  crashed: "#cccc00",
-  invalidated: "#888888",
+  accepted: theme.success,
+  rejected: theme.error,
+  crashed: theme.warning,
+  invalidated: theme.muted,
 };
 
 /** Short labels for outcome statuses. */

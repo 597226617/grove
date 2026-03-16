@@ -7,6 +7,7 @@
  * Pure functions only — no side effects, no mutation of inputs.
  */
 
+import { theme } from "../theme.js";
 import type { GraphLayout, LayoutNode } from "./graph-layout.js";
 
 // ---------------------------------------------------------------------------
@@ -27,11 +28,11 @@ export interface RenderBuffer {
 const NODE_BOX_WIDTH = 18;
 const NODE_BOX_HEIGHT = 3;
 
-/** Status indicators for agent states. */
+/** Status indicators for agent states (sourced from theme). */
 const STATUS_ICONS: Record<string, string> = {
-  running: "\u25CF",
-  idle: "\u25CB",
-  error: "\u2717",
+  running: theme.agentRunning,
+  idle: theme.agentIdle,
+  error: theme.agentError,
 };
 
 // ---------------------------------------------------------------------------

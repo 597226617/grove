@@ -14,11 +14,13 @@ import type { AgentTopology } from "../../core/topology.js";
 import { checkSpawn } from "../agents/spawn-validator.js";
 import type { TmuxManager } from "../agents/tmux-manager.js";
 import { agentIdFromSession, tmuxSessionName } from "../agents/tmux-manager.js";
+import { EmptyState } from "../components/empty-state.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import { renderGraph } from "../layout/edge-render.js";
 import type { LayoutEdge, LiveAgentStatus } from "../layout/graph-layout.js";
 import { layoutGraph } from "../layout/graph-layout.js";
 import type { TuiDataProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the AgentGraphView. */
 export interface AgentGraphProps {
@@ -63,6 +65,24 @@ function buildDynamicEdges(
   }
 
   return edges;
+}
+
+/** Map a status string to its theme symbol (matches agent-list mapping). */
+function statusSymbol(status: string): string {
+  switch (status) {
+    case "running":
+      return theme.agentRunning;
+    case "claimed":
+    case "stalled":
+      return theme.agentWaiting;
+    case "expired":
+    case "idle":
+      return theme.agentIdle;
+    case "error":
+      return theme.agentError;
+    default:
+      return theme.agentIdle;
+  }
 }
 
 /** Build live agent status map from claims and tmux sessions. */
@@ -200,28 +220,43 @@ export const AgentGraphView: React.NamedExoticComponent<AgentGraphProps> = React
 
     if (rendered.lines.length === 0) {
       return (
-        <box>
-          <text opacity={0.5}>Empty topology — add roles to GROVE.md</text>
-        </box>
+        <EmptyState
+          title="Empty topology."
+          hint="Add roles to GROVE.md to define the agent graph."
+        />
       );
     }
 
     const headerSuffix =
       capacityWarnings.length > 0 ? ` \u26A0 ${capacityWarnings.join(", ")}` : "";
 
+    // Build a status summary from live agents
+    const statusSummary = useMemo(() => {
+      const counts: Record<string, number> = {};
+      for (const [, agents] of liveAgents) {
+        for (const agent of agents) {
+          counts[agent.status] = (counts[agent.status] ?? 0) + 1;
+        }
+      }
+      return Object.entries(counts)
+        .map(([s, count]) => `${statusSymbol(s)} ${count} ${s}`)
+        .join("  ");
+    }, [liveAgents]);
+
     return (
       <box flexDirection="column">
-        <box marginBottom={1}>
-          <text color="#888888">
+        <box marginBottom={1} flexDirection="column">
+          <text color={theme.muted}>
             Topology: {topology.structure} ({topology.roles.length} roles){headerSuffix}
           </text>
+          {statusSummary ? <text color={theme.muted}>{statusSummary}</text> : null}
         </box>
         <box flexDirection="column">
           {rendered.lines.map((line, i) => (
             <text
               // biome-ignore lint/suspicious/noArrayIndexKey: graph lines have no stable identity
               key={i}
-              color={i === cursor ? "#00cccc" : undefined}
+              color={i === cursor ? theme.focus : undefined}
             >
               {line}
             </text>

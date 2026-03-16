@@ -7,6 +7,7 @@ import type { Claim } from "../../core/models.js";
 import { formatDuration } from "../../shared/duration.js";
 import { formatTimestamp } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
@@ -99,7 +100,14 @@ export const ClaimsView: React.NamedExoticComponent<ClaimsProps> = React.memo(fu
         <text>Active Claims ({claims.length})</text>
         <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
       </box>
-      <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No active claims."
+          hint="Claims prevent duplicate work. Agents create them automatically when spawned."
+        />
+      ) : (
+        <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
+      )}
     </box>
   );
 });
