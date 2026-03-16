@@ -126,17 +126,16 @@ contributions:
 > **Requires [Bun](https://bun.sh/) 1.3.x**
 
 ```bash
-# Install
+# Install and build
 bun install
 bun run build
 
-# Set agent identity
-export GROVE_AGENT_ID=codex-local
-export GROVE="bun run src/cli/main.ts"
+# Link the CLI so "grove" is on your PATH
+bun link
 
 # Initialize with a preset and start everything
-$GROVE init "Latency hunt" --preset review-loop
-$GROVE up
+grove init "Latency hunt" --preset review-loop
+grove up
 ```
 
 That's it. `grove up` reads `.grove/grove.json` and starts whichever services
@@ -146,16 +145,16 @@ server-only mode.
 
 ```bash
 # Or go manual
-$GROVE init "Latency hunt" --metric latency_ms:minimize
-$GROVE contribute --summary "Baseline measurements" --artifacts README.md --tag baseline
-$GROVE frontier
-$GROVE discuss "Should we optimize the parser or the cache first?"
+grove init "Latency hunt" --metric latency_ms:minimize
+grove contribute --summary "Baseline measurements" --artifacts README.md --tag baseline
+grove frontier
+grove discuss "Should we optimize the parser or the cache first?"
 ```
 
 Stop everything:
 
 ```bash
-$GROVE down
+grove down
 ```
 
 For the full end-to-end walkthrough -- including claims, threads, checkout,
@@ -167,7 +166,7 @@ Presets bundle topology, metrics, gates, concurrency settings, and seed data
 into a single named configuration. Initialize with `--preset <name>`:
 
 ```bash
-$GROVE init "My project" --preset swarm-ops
+grove init "My project" --preset swarm-ops
 ```
 
 | Preset | Roles | Topology | Mode | Backend | Services | Best for |
@@ -188,12 +187,12 @@ contributions, and configures services. Nexus-backed presets support
 `grove up` is the orchestrator that starts your entire Grove environment:
 
 ```bash
-$GROVE up                     # Configured services + TUI
-$GROVE up --headless          # Services only (CI mode)
-$GROVE up --no-tui            # Services, no interactive dashboard
-$GROVE up --grove /custom     # Custom .grove directory
-$GROVE up --nexus-source ~/nexus  # Build Nexus from local source checkout
-$GROVE up --build                 # Same, using NEXUS_SOURCE env var
+grove up                     # Configured services + TUI
+grove up --headless          # Services only (CI mode)
+grove up --no-tui            # Services, no interactive dashboard
+grove up --grove /custom     # Custom .grove directory
+grove up --nexus-source ~/nexus  # Build Nexus from local source checkout
+grove up --build                 # Same, using NEXUS_SOURCE env var
 ```
 
 **What it does:**
@@ -224,8 +223,8 @@ VFS backend for multi-agent coordination. Three connection modes are supported:
 `grove up` handles the full Nexus lifecycle automatically:
 
 ```bash
-$GROVE init "My project" --preset review-loop   # nexusManaged: true
-$GROVE up                                        # nexus init + nexus up + health check + TUI
+grove init "My project" --preset review-loop   # nexusManaged: true
+grove up                                        # nexus init + nexus up + health check + TUI
 ```
 
 On startup, Grove:
@@ -241,13 +240,13 @@ Connect to an existing Nexus server (local or remote):
 
 ```bash
 # At init time (persisted in grove.json)
-$GROVE init "My project" --preset review-loop --nexus-url http://nexus.example.com:2026
+grove init "My project" --preset review-loop --nexus-url http://nexus.example.com:2026
 
 # Via environment variable
-GROVE_NEXUS_URL=http://nexus.example.com:2026 $GROVE up
+GROVE_NEXUS_URL=http://nexus.example.com:2026 grove up
 
 # TUI-only override
-$GROVE tui --nexus http://nexus.example.com:2026
+grove tui --nexus http://nexus.example.com:2026
 ```
 
 When `--nexus-url` is set, Grove skips all lifecycle management and assumes the
@@ -260,11 +259,11 @@ pre-built images from GHCR:
 
 ```bash
 # Build from a local nexus repo checkout
-$GROVE up --nexus-source ~/nexus
+grove up --nexus-source ~/nexus
 
 # Same, using the NEXUS_SOURCE environment variable
 export NEXUS_SOURCE=~/nexus
-$GROVE up --build
+grove up --build
 ```
 
 `--nexus-source` (or `--build` with `NEXUS_SOURCE` set) passes `--build
@@ -373,9 +372,9 @@ bun run src/mcp/serve-http.ts
 ## TUI Operator Dashboard
 
 ```bash
-$GROVE tui                                 # Local mode
-$GROVE tui --url http://localhost:4515     # Remote server
-$GROVE tui --nexus http://localhost:2026   # Nexus-backed
+grove tui                                 # Local mode
+grove tui --url http://localhost:4515     # Remote server
+grove tui --nexus http://localhost:2026   # Nexus-backed
 ```
 
 Core panels (always visible): DAG, Detail, Frontier, Claims.
@@ -505,10 +504,10 @@ See [packages/ask-user/README.md](packages/ask-user/README.md) for full docs.
 ### GitHub Import / Export
 
 ```bash
-$GROVE export --to-discussion owner/repo <cid>
-$GROVE export --to-pr owner/repo <cid>
-$GROVE import --from-pr owner/repo#123
-$GROVE import --from-discussion owner/repo#456
+grove export --to-discussion owner/repo <cid>
+grove export --to-pr owner/repo <cid>
+grove import --from-pr owner/repo#123
+grove import --from-discussion owner/repo#456
 ```
 
 ### Gossip Federation
