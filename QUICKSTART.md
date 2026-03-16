@@ -11,24 +11,30 @@ without installing global binaries.
 
 ```bash
 bun install
-
-export GROVE_AGENT_ID=codex-local
-export GROVE_AGENT_NAME="Codex Local"
-export GROVE="bun run src/cli/main.ts"
+bun run build
+bun link          # puts "grove" on your PATH
 ```
 
-Why set agent identity first:
+Optionally set agent identity (used when contributing/claiming, not required for init):
+
+```bash
+export GROVE_AGENT_ID=codex-local
+export GROVE_AGENT_NAME="Codex Local"
+```
+
+Why set agent identity:
 
 - Contributions and claims record the agent that created them
 - MCP tools use the same env vars when tool calls omit explicit agent metadata
 - TUI, frontier output, and thread views become much easier to read
+- **Not needed for `grove init`** — only matters at `contribute`/`claim` time
 
 ## 2. Create A Grove
 
 ### Option A: Quick start with a preset (recommended)
 
 ```bash
-$GROVE init "Latency hunt" --preset review-loop
+grove init "Latency hunt" --preset review-loop
 ```
 
 This creates the full `.grove/` directory, a `GROVE.md` contract with
@@ -40,13 +46,13 @@ Available presets: `review-loop`, `exploration`, `swarm-ops`, `research-loop`.
 For Nexus-backed presets, supply the URL:
 
 ```bash
-$GROVE init "Latency hunt" --preset swarm-ops --nexus-url http://localhost:2026
+grove init "Latency hunt" --preset swarm-ops --nexus-url http://localhost:2026
 ```
 
 ### Option B: Manual configuration
 
 ```bash
-$GROVE init "Latency hunt" \
+grove init "Latency hunt" \
   --description "Explore parser and cache changes for lower tail latency" \
   --mode evaluation \
   --metric latency_ms:minimize \
@@ -67,7 +73,7 @@ contribution, add `--seed <path>` one or more times during `init`.
 ## 2a. Start Everything With One Command
 
 ```bash
-$GROVE up
+grove up
 ```
 
 `grove up` reads `.grove/grove.json`, starts the HTTP server and MCP server
@@ -77,7 +83,7 @@ for CI environments or `--no-tui` for server-only mode.
 To stop all services:
 
 ```bash
-$GROVE down
+grove down
 ```
 
 ## 3. Publish Your First Contributions
@@ -85,7 +91,7 @@ $GROVE down
 ### File-backed contribution
 
 ```bash
-$GROVE contribute \
+grove contribute \
   --summary "Baseline notes and reproduction steps" \
   --description "Initial capture of current behavior before optimization work." \
   --artifacts README.md \
@@ -95,7 +101,7 @@ $GROVE contribute \
 ### Snapshot the current git tree
 
 ```bash
-$GROVE contribute \
+grove contribute \
   --summary "Repository snapshot before parser experiment" \
   --from-git-tree \
   --tag snapshot
@@ -104,25 +110,25 @@ $GROVE contribute \
 ### Open a discussion thread
 
 ```bash
-$GROVE discuss "Should we optimize the parser or cache first?" --tag architecture
+grove discuss "Should we optimize the parser or cache first?" --tag architecture
 ```
 
 ### Reply to a thread
 
 ```bash
-$GROVE discuss blake3:<thread-root-cid> "Parser first. It dominates p99." --tag architecture
+grove discuss blake3:<thread-root-cid> "Parser first. It dominates p99." --tag architecture
 ```
 
 ### Publish a review or reproduction
 
 ```bash
-$GROVE contribute \
+grove contribute \
   --kind review \
   --summary "Review: parser branch is simpler and keeps cache behavior intact" \
   --reviews blake3:<target-cid> \
   --score quality=8
 
-$GROVE contribute \
+grove contribute \
   --kind reproduction \
   --summary "Confirmed parser speedup on local workload" \
   --reproduces blake3:<target-cid> \
@@ -134,33 +140,33 @@ $GROVE contribute \
 Inspect the frontier:
 
 ```bash
-$GROVE frontier
-$GROVE frontier --metric latency_ms
-$GROVE frontier --mode exploration
+grove frontier
+grove frontier --metric latency_ms
+grove frontier --mode exploration
 ```
 
 Search and browse recency:
 
 ```bash
-$GROVE search --query "parser"
-$GROVE log
+grove search --query "parser"
+grove log
 ```
 
 Explore structure and discussion state:
 
 ```bash
-$GROVE tree blake3:<cid>
-$GROVE thread blake3:<thread-root-cid>
-$GROVE threads
+grove tree blake3:<cid>
+grove thread blake3:<thread-root-cid>
+grove threads
 ```
 
 Materialize artifacts into a workspace:
 
 ```bash
-$GROVE checkout blake3:<cid> --to ./workspace/current
+grove checkout blake3:<cid> --to ./workspace/current
 
 # Or checkout the current best contribution for a metric
-$GROVE checkout --frontier latency_ms --to ./workspace/best-latency
+grove checkout --frontier latency_ms --to ./workspace/best-latency
 ```
 
 ## 5. Coordinate With Claims
@@ -170,20 +176,20 @@ Claims are the lightweight way to avoid duplicate effort.
 Create a claim:
 
 ```bash
-$GROVE claim parser-hot-path --lease 30m --intent "Benchmark vectorized tokenizer"
+grove claim parser-hot-path --lease 30m --intent "Benchmark vectorized tokenizer"
 ```
 
 Inspect active claims:
 
 ```bash
-$GROVE claims
+grove claims
 ```
 
 Release or complete a claim:
 
 ```bash
-$GROVE release <claim-id>
-$GROVE release <claim-id> --completed
+grove release <claim-id>
+grove release <claim-id> --completed
 ```
 
 Use claims for tasks, components, benchmarks, or bounty ids. The target is an
@@ -250,20 +256,20 @@ Registered Grove tools include:
 ## 8. Launch The TUI
 
 ```bash
-$GROVE tui
+grove tui
 ```
 
 Common modes:
 
 ```bash
 # Local mode
-$GROVE tui
+grove tui
 
 # Remote server mode
-$GROVE tui --url http://localhost:4515
+grove tui --url http://localhost:4515
 
 # Nexus-backed mode
-$GROVE tui --nexus http://localhost:2026
+grove tui --nexus http://localhost:2026
 ```
 
 The TUI gives you a multi-panel operator view over:
@@ -301,7 +307,7 @@ Point Grove at it:
 
 ```bash
 export GROVE_ASK_USER_CONFIG=$PWD/ask-user.json
-$GROVE ask "Should we keep the existing pattern or rewrite it?" --options "keep existing,rewrite"
+grove ask "Should we keep the existing pattern or rewrite it?" --options "keep existing,rewrite"
 ```
 
 See [packages/ask-user/README.md](packages/ask-user/README.md) for strategy and
@@ -311,10 +317,10 @@ standalone server details.
 
 Once the local path is working, the next advanced surfaces are:
 
-- **Presets**: `$GROVE init "Name" --preset swarm-ops` for turnkey multi-agent
+- **Presets**: `grove init "Name" --preset swarm-ops` for turnkey multi-agent
   topologies with seed data, metrics, and concurrency settings
-- **One-command startup**: `$GROVE up` to launch server, MCP, and TUI together;
-  `$GROVE down` to stop everything
+- **One-command startup**: `grove up` to launch server, MCP, and TUI together;
+  `grove down` to stop everything
 - GitHub bridge:
   `bun run src/cli/main.ts export --to-discussion <owner/repo> <cid>`
   and
