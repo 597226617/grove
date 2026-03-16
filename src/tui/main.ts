@@ -7,8 +7,9 @@
  */
 
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
+import type { RunningServices } from "../shared/service-lifecycle.js";
 import type { TuiDataProvider } from "./provider.js";
 import {
   backendLabel,
@@ -300,63 +301,90 @@ export async function handleTui(args: readonly string[], groveOverride?: string)
 
   const root = createRoot(renderer);
 
-  if (isInitialized) {
-    // Boardroom mode — same as before
-    const { appProps, provider, stopGc } = await buildAppProps(effectiveGrove, opts);
-    const { App } = await import("./app.js");
+  // Track services + cleanup references for both paths
+  let runningServices: RunningServices | undefined;
+  let activeProvider: TuiDataProvider | undefined;
+  let activeStopGc: (() => void) | undefined;
 
-    root.render(React.createElement(App, appProps));
+  /** Shutdown handler — stops services, GC, and provider. */
+  const cleanup = async () => {
+    activeStopGc?.();
+    activeProvider?.close();
+    if (runningServices) {
+      const { stopServices } = await import("../shared/service-lifecycle.js");
+      await stopServices(runningServices);
+    }
+  };
 
-    renderer.start();
-    await renderer.idle();
-    stopGc?.();
-    provider.close();
-  } else {
-    // Welcome mode — no .grove/ found, guide the user through initialization
-    const presets = await loadPresetList();
-    const { TuiApp } = await import("./tui-app.js");
+  // Register signal handlers for graceful shutdown
+  const onSignal = () => {
+    cleanup().then(() => process.exit(0));
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
 
-    // Track cleanup references so we can clean up after init+boardroom
-    let activeProvider: TuiDataProvider | undefined;
-    let activeStopGc: (() => void) | undefined;
+  try {
+    if (isInitialized) {
+      // Start services (HTTP, MCP, managed Nexus) before launching boardroom
+      const resolvedGrove = groveDir ?? join(process.cwd(), ".grove");
+      const { startServices } = await import("../shared/service-lifecycle.js");
+      runningServices = await startServices({ groveDir: resolvedGrove });
 
-    const onInit = async (
-      presetName: string,
-      groveName: string,
-    ): Promise<import("./app.js").AppProps> => {
-      // Run grove init with the selected preset and user-provided name
-      const { executeInit } = await import("../cli/commands/init.js");
-
-      await executeInit({
-        name: groveName,
-        mode: "evaluation",
-        seed: [],
-        metric: [],
-        force: false,
-        agentOverrides: {},
-        cwd: process.cwd(),
-        preset: presetName,
-      });
-
-      // After init, build the app props for the boardroom
+      // Build boardroom props (provider, topology, tmux)
       const result = await buildAppProps(effectiveGrove, opts);
       activeProvider = result.provider;
       activeStopGc = result.stopGc;
-      return result.appProps;
-    };
 
-    root.render(
-      React.createElement(TuiApp, {
-        welcomeMode: true,
-        presets,
-        onInit,
-      }),
-    );
+      const { App } = await import("./app.js");
+      root.render(React.createElement(App, result.appProps));
+    } else {
+      // Welcome mode — no .grove/ found, guide through init then start services
+      const presets = await loadPresetList();
+      const { TuiApp } = await import("./tui-app.js");
+
+      const onInit = async (
+        presetName: string,
+        groveName: string,
+      ): Promise<import("./app.js").AppProps> => {
+        // Run grove init
+        const { executeInit } = await import("../cli/commands/init.js");
+        await executeInit({
+          name: groveName,
+          mode: "evaluation",
+          seed: [],
+          metric: [],
+          force: false,
+          agentOverrides: {},
+          cwd: process.cwd(),
+          preset: presetName,
+        });
+
+        // Start services after init (same as `grove up`)
+        const newGroveDir = join(process.cwd(), ".grove");
+        const { startServices } = await import("../shared/service-lifecycle.js");
+        runningServices = await startServices({ groveDir: newGroveDir });
+
+        // Build boardroom props
+        const result = await buildAppProps(effectiveGrove, opts);
+        activeProvider = result.provider;
+        activeStopGc = result.stopGc;
+        return result.appProps;
+      };
+
+      root.render(
+        React.createElement(TuiApp, {
+          welcomeMode: true,
+          presets,
+          onInit,
+        }),
+      );
+    }
 
     renderer.start();
     await renderer.idle();
-    activeStopGc?.();
-    activeProvider?.close();
+  } finally {
+    // TUI exited — clean up everything
+    await cleanup();
   }
 }
 
