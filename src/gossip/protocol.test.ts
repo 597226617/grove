@@ -601,6 +601,42 @@ describe("DefaultGossipService", () => {
       expect(entry).toBeDefined();
       expect(entry?.value).toBe(20);
     });
+
+    it("legacy peer without direction does not overwrite existing minimize entry with worse value", async () => {
+      // Existing entry has direction: "minimize" (lower is better).
+      // Legacy peer sends same (metric, cid) without direction and a WORSE (higher) value.
+      // The existing better value must be preserved.
+      const frontier1: FrontierDigestEntry[] = [
+        { metric: "loss", value: 0.03, cid: "blake3:m1", direction: "minimize" },
+      ];
+      await service.handleExchange({ ...makeGossipMessage("peer-1"), frontier: frontier1 });
+
+      // Legacy peer omits direction, sends worse value
+      const frontier2: FrontierDigestEntry[] = [{ metric: "loss", value: 0.05, cid: "blake3:m1" }];
+      await service.handleExchange({ ...makeGossipMessage("peer-2"), frontier: frontier2 });
+
+      const merged = service.mergedFrontier();
+      const entry = merged.find((e) => e.cid === "blake3:m1");
+      expect(entry).toBeDefined();
+      expect(entry?.value).toBe(0.03); // Lower value preserved
+      expect(entry?.direction).toBe("minimize"); // Direction preserved
+    });
+
+    it("legacy peer without direction can overwrite existing minimize entry with better value", async () => {
+      // Legacy peer sends a BETTER (lower) value for a minimize metric
+      const frontier1: FrontierDigestEntry[] = [
+        { metric: "loss", value: 0.05, cid: "blake3:m2", direction: "minimize" },
+      ];
+      await service.handleExchange({ ...makeGossipMessage("peer-1"), frontier: frontier1 });
+
+      const frontier2: FrontierDigestEntry[] = [{ metric: "loss", value: 0.02, cid: "blake3:m2" }];
+      await service.handleExchange({ ...makeGossipMessage("peer-2"), frontier: frontier2 });
+
+      const merged = service.mergedFrontier();
+      const entry = merged.find((e) => e.cid === "blake3:m2");
+      expect(entry).toBeDefined();
+      expect(entry?.value).toBe(0.02); // Better lower value accepted
+    });
   });
 
   // -------------------------------------------------------------------------

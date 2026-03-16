@@ -48,12 +48,19 @@ import { CyclonPeerSampler } from "./cyclon.js";
 // Direction-aware helpers
 // ---------------------------------------------------------------------------
 
-/** Compare two values, respecting the metric direction. Default: maximize. */
+/**
+ * Compare two values, respecting the metric direction. Default: maximize.
+ *
+ * When the candidate omits direction, falls back to the existing entry's
+ * direction (backward compatibility with legacy peers that don't send it).
+ */
 function isBetterValue(
   candidate: number,
   existing: number,
-  direction: "minimize" | "maximize" | undefined,
+  candidateDirection: "minimize" | "maximize" | undefined,
+  existingDirection: "minimize" | "maximize" | undefined,
 ): boolean {
+  const direction = candidateDirection ?? existingDirection ?? "maximize";
   return direction === "minimize" ? candidate < existing : candidate > existing;
 }
 
@@ -286,7 +293,10 @@ export class DefaultGossipService implements GossipService {
     for (const entry of this.remoteFrontier) {
       const key = `${entry.metric}::${entry.cid}`;
       const existing = index.get(key);
-      if (!existing || isBetterValue(entry.value, existing.value, entry.direction)) {
+      if (
+        !existing ||
+        isBetterValue(entry.value, existing.value, entry.direction, existing.direction)
+      ) {
         index.set(key, entry);
       }
     }
@@ -458,7 +468,10 @@ export class DefaultGossipService implements GossipService {
     for (const entry of remote) {
       const key = `${entry.metric}::${entry.cid}`;
       const existing = index.get(key);
-      if (!existing || isBetterValue(entry.value, existing.value, entry.direction)) {
+      if (
+        !existing ||
+        isBetterValue(entry.value, existing.value, entry.direction, existing.direction)
+      ) {
         index.set(key, entry);
       }
     }

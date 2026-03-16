@@ -138,6 +138,13 @@ export class NexusBountyStore implements BountyStore {
     for (const bounty of fetched) {
       if (bounty === undefined) continue;
 
+      // Re-check single-string status against the loaded bounty document.
+      // The status index is eventually consistent — concurrent transitions
+      // can leave stale index markers, so the document is authoritative.
+      if (query?.status !== undefined && typeof query.status === "string") {
+        if (bounty.status !== query.status) continue;
+      }
+
       // Apply status filter for array queries
       if (query?.status !== undefined && Array.isArray(query.status)) {
         if (!query.status.includes(bounty.status)) continue;
