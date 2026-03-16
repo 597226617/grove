@@ -300,12 +300,19 @@ function extractStyledLines(terminal: import("@xterm/headless").Terminal): Style
 // Component
 // ---------------------------------------------------------------------------
 
+/** Number of visible terminal lines. */
+const VIEWPORT_LINES = 30;
+
 export interface TerminalProps {
   readonly sessionName?: string | undefined;
   readonly tmux?: TmuxManager | undefined;
   readonly intervalMs: number;
   readonly active: boolean;
   readonly mode: InputMode;
+  /** Scroll offset from the bottom (0 = auto-scroll, >0 = pinned). */
+  readonly scrollOffset?: number | undefined;
+  /** Callback when the user scrolls (changes offset). */
+  readonly onScrollChange?: ((offset: number) => void) | undefined;
 }
 
 export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.memo(
@@ -315,7 +322,10 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     intervalMs,
     active,
     mode,
+    scrollOffset,
+    onScrollChange: _onScrollChange,
   }: TerminalProps): React.ReactNode {
+    void _onScrollChange; // available for parent scroll tracking
     const captureMs = Math.max(intervalMs, 200);
     const [xtermReady, setXtermReady] = useState(xtermModule !== null);
 
@@ -397,12 +407,23 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       </box>
     );
 
+    const offset = scrollOffset ?? 0;
+    const isPinned = offset > 0;
+
     // Styled rendering via xterm buffer
     if (styledLines && styledLines.length > 0) {
-      const displayLines = styledLines.slice(-30);
+      const total = styledLines.length;
+      const end = Math.max(0, total - offset);
+      const start = Math.max(0, end - VIEWPORT_LINES);
+      const displayLines = styledLines.slice(start, end);
       return (
         <box flexDirection="column">
           {header}
+          {isPinned && (
+            <box>
+              <text color={theme.warning}>[pinned \u2193]</text>
+            </box>
+          )}
           <box flexDirection="column">
             {displayLines.map((line, y) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: terminal lines have no stable identity
@@ -422,7 +443,10 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
 
     // Plain text fallback
     const rawOutput = (output ?? "").trimEnd();
-    const lines = rawOutput ? rawOutput.split("\n").slice(-30) : [];
+    const allLines = rawOutput ? rawOutput.split("\n") : [];
+    const plainEnd = Math.max(0, allLines.length - offset);
+    const plainStart = Math.max(0, plainEnd - VIEWPORT_LINES);
+    const lines = allLines.slice(plainStart, plainEnd);
 
     return (
       <box flexDirection="column">

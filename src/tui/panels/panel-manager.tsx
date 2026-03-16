@@ -44,6 +44,7 @@ import { GitHubPanelView } from "../views/github-panel.js";
 import { GossipPanelView } from "../views/gossip-panel.js";
 import { InboxPanelView } from "../views/inbox-panel.js";
 import { OutcomesPanelView } from "../views/outcomes-panel.js";
+import { PipelineView } from "../views/pipeline-view.js";
 import { SearchPanelView } from "../views/search-panel.js";
 import { TerminalView } from "../views/terminal.js";
 import { ThreadsPanelView } from "../views/threads-panel.js";
@@ -224,6 +225,15 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
       intervalMs,
       isPanelVisible(panelState, Panel.Artifact) && detailCid !== undefined,
     );
+
+    // Pipeline view mode — render PipelineView instead of grid (item 11)
+    if (panelState.viewMode === "pipeline") {
+      return (
+        <box flexDirection="column" flexGrow={1}>
+          <PipelineView provider={provider} tmux={tmux} intervalMs={intervalMs} active />
+        </box>
+      );
+    }
 
     // Compute artifact names list and select by index
     const artifactNames = detailData?.contribution.artifacts

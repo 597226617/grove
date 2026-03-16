@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { type InputMode, Panel } from "../hooks/use-panel-focus.js";
+import { type InputMode, Panel, type ViewMode } from "../hooks/use-panel-focus.js";
 import { theme } from "../theme.js";
 
 /** Props for the StatusBar component. */
@@ -23,6 +23,8 @@ export interface StatusBarProps {
   readonly focusedPanel?: Panel | undefined;
   /** Number of active agents. */
   readonly agentCount?: number | undefined;
+  /** Current view mode (grid or pipeline). */
+  readonly viewMode?: ViewMode | undefined;
 }
 
 /** Mode labels for the status bar. */
@@ -68,6 +70,7 @@ export const StatusBar: React.NamedExoticComponent<StatusBarProps> = React.memo(
   costLabel,
   focusedPanel,
   agentCount,
+  viewMode,
 }: StatusBarProps): React.ReactNode {
   const modeLabel = MODE_LABELS[mode];
   const hints = panelHints(focusedPanel, isDetailView);
@@ -83,6 +86,7 @@ export const StatusBar: React.NamedExoticComponent<StatusBarProps> = React.memo(
       )}
       <box>
         <text color={theme.focus}>[{modeLabel}]</text>
+        {viewMode === "pipeline" && <text color={theme.warning}> [PIPELINE]</text>}
         <text opacity={0.5}>{hints}</text>
         {agentLabel && (
           <text color={theme.muted}>

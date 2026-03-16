@@ -61,6 +61,7 @@ function mockActions(overrides?: {
     focused: overrides?.focused ?? Panel.Dag,
     visibleOperator: new Set(),
     mode: overrides?.mode ?? InputMode.Normal,
+    viewMode: "grid",
   };
 
   const actions: KeyboardActions = {
@@ -71,6 +72,7 @@ function mockActions(overrides?: {
       cycleNext: () => record("panels.cycleNext"),
       cyclePrev: () => record("panels.cyclePrev"),
       setMode: (m) => record("panels.setMode", m),
+      cycleViewMode: () => record("panels.cycleViewMode"),
       isVisible: () => true,
       visiblePanels: [],
     },

@@ -276,6 +276,12 @@ export function routeKey(key: KeyEvent, actions: KeyboardActions): boolean {
     return true;
   }
 
+  // View mode cycle: V key (item 11 — grid ↔ pipeline)
+  if (input === "V" || (key.shift && input === "v")) {
+    actions.panels.cycleViewMode();
+    return true;
+  }
+
   // Terminal input mode entry
   if (input === "i" && focused === Panel.Terminal) {
     actions.panels.setMode(InputMode.TerminalInput);

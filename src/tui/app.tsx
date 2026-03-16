@@ -20,11 +20,13 @@ import { InputBar } from "./components/input-bar.js";
 import { StatusBar } from "./components/status-bar.js";
 import { PanelBar } from "./components/tab-bar.js";
 import { TooltipOverlay, useFirstLaunchTooltips } from "./components/tooltip-overlay.js";
+import { useKeybindingOverrides } from "./hooks/use-keybinding-overrides.js";
 import type { KeyboardActions } from "./hooks/use-keyboard-handler.js";
 import { nextZoom, routeKey } from "./hooks/use-keyboard-handler.js";
 import { useNavigation } from "./hooks/use-navigation.js";
 import { InputMode, usePanelFocus } from "./hooks/use-panel-focus.js";
 import { usePolledData } from "./hooks/use-polled-data.js";
+import { useSessionPersistence } from "./hooks/use-session-persistence.js";
 import type { ZoomLevel } from "./panels/panel-manager.js";
 import { PanelManager } from "./panels/panel-manager.js";
 import {
@@ -180,8 +182,33 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   const nav = useNavigation();
   const panels = usePanelFocus();
   const { showTooltips, dismissAll: dismissTooltips } = useFirstLaunchTooltips();
+  const { persistedState, saveState } = useSessionPersistence();
+  const keybindingOverrides = useKeybindingOverrides();
 
   const [ks, dispatch] = useReducer(tuiReducer, INITIAL_KEYBOARD_STATE);
+
+  // Restore persisted zoom level on first load (item 13)
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !persistedState) return;
+    restoredRef.current = true;
+    if (persistedState.zoomLevel && persistedState.zoomLevel !== "normal") {
+      // Cycle to the saved zoom level
+      let current: ZoomLevel = "normal";
+      while (current !== persistedState.zoomLevel) {
+        dispatch({ type: "ZOOM_CYCLE" });
+        current = nextZoom(current);
+      }
+    }
+  }, [persistedState]);
+
+  // Save state on zoom/search changes (item 13)
+  useEffect(() => {
+    saveState({
+      zoomLevel: ks.zoomLevel,
+      searchQuery: ks.searchQuery || undefined,
+    });
+  }, [ks.zoomLevel, ks.searchQuery, saveState]);
 
   const [contributionList, setContributionList] = useState<readonly Contribution[]>([]);
   const [rowCount, setRowCount] = useState(0);
@@ -764,6 +791,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         error={lastError}
         focusedPanel={panels.state.focused}
         agentCount={paletteSessions?.filter((s) => s.startsWith("grove-")).length}
+        viewMode={panels.state.viewMode}
         costLabel={
           sessionCosts
             ? `$${sessionCosts.totalCostUsd.toFixed(2)} | ${formatTokens(sessionCosts.totalTokens)}`
