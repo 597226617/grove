@@ -151,7 +151,6 @@ describe("crashed contribution", () => {
     await ctx.contributionStore.put(crashed);
     const stored = await ctx.contributionStore.get(crashed.cid);
     expect(stored).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(stored!.tags).toContain("crashed");
   });
 
@@ -235,7 +234,6 @@ describe("extreme metric values", () => {
     await ctx.contributionStore.put(large);
 
     const stored = await ctx.contributionStore.get(large.cid);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(stored!.scores?.val_bpb?.value).toBe(999.99);
   });
 

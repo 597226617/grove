@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect } from "react";
 import { formatTimestamp } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { PendingQuestion, TuiAskUserProvider, TuiDataProvider } from "../provider.js";
@@ -115,9 +116,10 @@ export const DecisionsPanelView: React.NamedExoticComponent<DecisionsPanelProps>
           </text>
         </box>
         {questions.length === 0 ? (
-          <box>
-            <text opacity={0.5}>No pending questions</text>
-          </box>
+          <EmptyState
+            title="No pending decisions."
+            hint="Questions from agents appear here. Press Enter to answer."
+          />
         ) : (
           <Table
             columns={[...COLUMNS]}

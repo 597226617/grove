@@ -10,9 +10,11 @@ import { contributionsToDagNodes, renderDag } from "../../cli/format-dag.js";
 import type { Contribution } from "../../core/models.js";
 import type { OutcomeRecord } from "../../core/outcome.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { OutcomeBadge } from "../components/outcome-badge.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { DagData, TuiDataProvider, TuiOutcomeProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the DAG view. */
 export interface DagProps {
@@ -25,11 +27,11 @@ export interface DagProps {
 
 /** Color map for contribution kinds. */
 const KIND_COLORS: Record<string, string> = {
-  work: "#00cc00",
-  review: "#cccc00",
-  discussion: "#0088cc",
-  adoption: "#cc00cc",
-  reproduction: "#00cccc",
+  work: theme.work,
+  review: theme.review,
+  discussion: theme.discussion,
+  adoption: theme.adoption,
+  reproduction: theme.reproduction,
 };
 
 /** DAG view component. */
@@ -101,9 +103,10 @@ export const DagView: React.NamedExoticComponent<DagProps> = React.memo(function
 
   if (dagLines.length === 0) {
     return (
-      <box>
-        <text opacity={0.5}>(empty graph)</text>
-      </box>
+      <EmptyState
+        title="No contributions yet."
+        hint="Spawn an agent (Ctrl+P) or run grove contribute to get started."
+      />
     );
   }
 
@@ -115,9 +118,10 @@ export const DagView: React.NamedExoticComponent<DagProps> = React.memo(function
         <text>Contribution DAG ({contributions.length} nodes) </text>
         <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
         <text opacity={0.5}>
-          <text color="#00cc00">work</text> <text color="#cccc00">review</text>{" "}
-          <text color="#0088cc">discussion</text> <text color="#cc00cc">adoption</text>{" "}
-          <text color="#00cccc">reproduction</text>
+          <text color={theme.work}>work</text> <text color={theme.review}>review</text>{" "}
+          <text color={theme.discussion}>discussion</text>{" "}
+          <text color={theme.adoption}>adoption</text>{" "}
+          <text color={theme.reproduction}>reproduction</text>
         </text>
       </box>
       {dagLines.map((line, i) => {
@@ -135,11 +139,11 @@ export const DagView: React.NamedExoticComponent<DagProps> = React.memo(function
 
         return (
           <box key={`dag-${String(i)}`}>
-            {isSelected ? <text color="#00cccc">{"> "}</text> : <text> </text>}
+            {isSelected ? <text color={theme.focus}>{"> "}</text> : <text> </text>}
             <text opacity={0.5}>{line.graphPrefix}</text>
             {isNodeLine && (
               <>
-                <text color={isSelected ? "#00cccc" : color}> {line.label}</text>
+                <text color={isSelected ? theme.focus : color}> {line.label}</text>
                 {outcome && (
                   <>
                     <text> </text>

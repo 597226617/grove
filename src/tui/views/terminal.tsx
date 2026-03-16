@@ -1,98 +1,217 @@
 /**
  * Terminal view — shows captured output from the selected agent's tmux session.
  *
- * When ghostty-opentui is available, renders via GhosttyTerminalRenderable for
- * full ANSI/VT support (colors, cursor, SGR attributes). Falls back to plain
- * text capture when the native library is not loadable (e.g., missing Zig
- * shared object on the current platform).
+ * Uses @xterm/headless for full VT emulation (colors, cursor, SGR, scrolling
+ * regions) in pure JS — no native dependencies. Each agent gets a persistent
+ * Terminal instance that maintains state across .write() calls, so only new
+ * bytes are fed on each poll cycle.
  *
- * The dynamic import is wrapped in a module-level promise so that:
- *  1. We only attempt the import once (not on every render).
- *  2. The fallback path has zero overhead — no per-frame try/catch.
+ * The rendered output preserves ANSI colors: each cell's foreground color is
+ * read from the xterm buffer and applied via OpenTUI's <text color> prop.
  *
- * In terminal input mode (press 'i' when Terminal panel focused),
- * keystrokes are forwarded to the tmux session via sendKeys.
+ * Falls back to plain text when xterm headless is not available.
  */
 
-import React, { createElement, useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { TmuxManager } from "../agents/tmux-manager.js";
 import type { InputMode } from "../hooks/use-panel-focus.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
+import { theme } from "../theme.js";
 
 // ---------------------------------------------------------------------------
-// Ghostty integration — dynamic import with graceful fallback
+// Persistent terminal state per agent via @xterm/headless
 // ---------------------------------------------------------------------------
 
-/**
- * We attempt to load ghostty-opentui/opentui at module level so the cost is
- * paid once. The package exports `GhosttyTerminalRenderable`, a subclass of
- * OpenTUI's `TextBufferRenderable` that renders ANSI/VT content natively.
- *
- * If the import fails (missing native binary, unsupported platform, etc.)
- * we fall back to the plain-text capture path — no user-visible error.
- */
-interface GhosttyModule {
-  readonly GhosttyTerminalRenderable: unknown;
+interface PersistentTerminal {
+  terminal: import("@xterm/headless").Terminal;
+  prevLength: number;
+  prevContent: string;
 }
 
-let ghosttyRegistered = false;
+const agentTerminals = new Map<string, PersistentTerminal>();
 
-const ghosttyPromise: Promise<GhosttyModule | null> = Promise.all([
-  import("ghostty-opentui/opentui") as Promise<GhosttyModule>,
-  import("@opentui/react") as Promise<{ extend?: (objects: Record<string, unknown>) => void }>,
-])
-  .then(([mod, opentui]) => {
-    // Register the renderable as an intrinsic element so it can be used in JSX
-    // via React.createElement("ghostty-terminal", { ... }).
-    // `extend` from @opentui/react maps element names to renderable classes.
-    if (typeof opentui.extend === "function" && mod.GhosttyTerminalRenderable) {
-      opentui.extend({ "ghostty-terminal": mod.GhosttyTerminalRenderable });
-      ghosttyRegistered = true;
-    }
-    return mod;
-  })
-  .catch(() => null);
+let xtermModule: typeof import("@xterm/headless") | null = null;
+let xtermLoadFailed = false;
 
-/** Hook that resolves the ghostty module once and caches the result. */
-function useGhosttyAvailable(): boolean {
-  const [available, setAvailable] = useState(ghosttyRegistered);
-  useEffect(() => {
-    if (ghosttyRegistered) {
-      setAvailable(true);
-      return;
-    }
-    let cancelled = false;
-    ghosttyPromise.then((mod) => {
-      if (!cancelled && mod !== null && ghosttyRegistered) {
-        setAvailable(true);
-      }
-    });
-    return () => {
-      cancelled = true;
+async function getXterm(): Promise<typeof import("@xterm/headless") | null> {
+  if (xtermModule) return xtermModule;
+  if (xtermLoadFailed) return null;
+  try {
+    xtermModule = await import("@xterm/headless");
+    return xtermModule;
+  } catch {
+    xtermLoadFailed = true;
+    return null;
+  }
+}
+
+function getAgentTerminal(
+  sessionName: string,
+  xterm: typeof import("@xterm/headless"),
+): PersistentTerminal {
+  let pt = agentTerminals.get(sessionName);
+  if (!pt) {
+    pt = {
+      terminal: new xterm.Terminal({ cols: 120, rows: 30, scrollback: 1000 }),
+      prevLength: 0,
+      prevContent: "",
     };
-  }, []);
-  return available;
+    agentTerminals.set(sessionName, pt);
+  }
+  return pt;
+}
+
+function feedTerminal(pt: PersistentTerminal, rawOutput: string): void {
+  if (rawOutput.length > pt.prevLength && rawOutput.startsWith(pt.prevContent)) {
+    const delta = rawOutput.slice(pt.prevLength);
+    pt.terminal.write(delta);
+  } else if (rawOutput !== pt.prevContent) {
+    pt.terminal.reset();
+    pt.terminal.write(rawOutput);
+  }
+  pt.prevLength = rawOutput.length;
+  pt.prevContent = rawOutput;
+}
+
+// ---------------------------------------------------------------------------
+// Styled line extraction from xterm buffer
+// ---------------------------------------------------------------------------
+
+/** A run of characters sharing the same foreground color. */
+interface StyledSpan {
+  text: string;
+  color: string | undefined; // hex color or undefined for default
+  bold: boolean;
+}
+
+/** A line of styled spans extracted from the xterm buffer. */
+interface StyledLine {
+  spans: StyledSpan[];
+}
+
+/** ANSI 16-color palette mapped to hex. */
+const ANSI_COLORS: readonly string[] = [
+  "#000000",
+  "#cc0000",
+  "#00cc00",
+  "#cccc00",
+  "#0088cc",
+  "#cc00cc",
+  "#00cccc",
+  "#cccccc",
+  "#555555",
+  "#ff0000",
+  "#00ff00",
+  "#ffff00",
+  "#0088ff",
+  "#ff00ff",
+  "#00ffff",
+  "#ffffff",
+];
+
+/** Convert an xterm color number to a hex string. */
+function cellColorToHex(
+  color: number,
+  isRgb: boolean,
+  r: number,
+  g: number,
+  b: number,
+): string | undefined {
+  if (isRgb) {
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  // Indexed color (0-255)
+  if (color >= 0 && color < 16) {
+    return ANSI_COLORS[color];
+  }
+  if (color >= 16 && color < 232) {
+    // 216-color cube
+    const idx = color - 16;
+    const cr = Math.floor(idx / 36) * 51;
+    const cg = Math.floor((idx % 36) / 6) * 51;
+    const cb = (idx % 6) * 51;
+    return `#${cr.toString(16).padStart(2, "0")}${cg.toString(16).padStart(2, "0")}${cb.toString(16).padStart(2, "0")}`;
+  }
+  if (color >= 232 && color < 256) {
+    // Grayscale ramp
+    const v = (color - 232) * 10 + 8;
+    return `#${v.toString(16).padStart(2, "0")}${v.toString(16).padStart(2, "0")}${v.toString(16).padStart(2, "0")}`;
+  }
+  return undefined; // default terminal color
+}
+
+/** Extract styled lines from an xterm terminal buffer. */
+function extractStyledLines(terminal: import("@xterm/headless").Terminal): StyledLine[] {
+  const buf = terminal.buffer.active;
+  const lines: StyledLine[] = [];
+  const cell = terminal.buffer.active.getNullCell();
+
+  for (let y = 0; y < buf.length; y++) {
+    const line = buf.getLine(y);
+    if (!line) continue;
+
+    const spans: StyledSpan[] = [];
+    let currentText = "";
+    let currentColor: string | undefined;
+    let currentBold = false;
+
+    for (let x = 0; x < line.length; x++) {
+      line.getCell(x, cell);
+      if (!cell) continue;
+
+      const char = cell.getChars();
+      const fg = cell.getFgColor();
+      const isFgRgb = cell.isFgRGB();
+      const fgColor =
+        fg === 0 && !isFgRgb
+          ? undefined
+          : cellColorToHex(fg, isFgRgb, (fg >> 16) & 0xff, (fg >> 8) & 0xff, fg & 0xff);
+      const bold = cell.isBold() !== 0;
+
+      if (fgColor !== currentColor || bold !== currentBold) {
+        if (currentText) {
+          spans.push({ text: currentText, color: currentColor, bold: currentBold });
+        }
+        currentText = char;
+        currentColor = fgColor;
+        currentBold = bold;
+      } else {
+        currentText += char;
+      }
+    }
+
+    if (currentText) {
+      spans.push({ text: currentText, color: currentColor, bold: currentBold });
+    }
+
+    lines.push({ spans });
+  }
+
+  // Trim trailing empty lines
+  while (lines.length > 0) {
+    const last = lines[lines.length - 1];
+    if (!last || last.spans.every((s) => s.text.trim() === "")) {
+      lines.pop();
+    } else {
+      break;
+    }
+  }
+
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-/** Props for the Terminal view. */
 export interface TerminalProps {
-  /** The tmux session name to display. */
   readonly sessionName?: string | undefined;
-  /** TmuxManager for pane capture. */
   readonly tmux?: TmuxManager | undefined;
-  /** Polling interval for capture refresh. */
   readonly intervalMs: number;
-  /** Whether this view is actively polling. */
   readonly active: boolean;
-  /** Current input mode. */
   readonly mode: InputMode;
 }
 
-/** Terminal output view. */
 export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.memo(
   function TerminalView({
     sessionName,
@@ -101,8 +220,33 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     active,
     mode,
   }: TerminalProps): React.ReactNode {
-    const captureMs = Math.max(intervalMs, 200); // minimum 200ms for terminal
-    const ghosttyAvailable = useGhosttyAvailable();
+    const captureMs = Math.max(intervalMs, 200);
+    const [xtermReady, setXtermReady] = useState(xtermModule !== null);
+
+    useEffect(() => {
+      if (xtermModule) {
+        setXtermReady(true);
+        return;
+      }
+      let cancelled = false;
+      getXterm().then((mod) => {
+        if (!cancelled && mod) setXtermReady(true);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []);
+
+    useEffect(() => {
+      if (sessionName) {
+        const pt = agentTerminals.get(sessionName);
+        if (pt) {
+          pt.terminal.reset();
+          pt.prevLength = 0;
+          pt.prevContent = "";
+        }
+      }
+    }, [sessionName]);
 
     const fetcher = useCallback(async () => {
       if (!tmux || !sessionName) return "";
@@ -114,6 +258,16 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       captureMs,
       active && !!sessionName && !!tmux,
     );
+
+    // Feed output and extract styled lines
+    const styledLines = useMemo((): StyledLine[] | null => {
+      const rawOutput = output ?? "";
+      if (!rawOutput || !xtermReady || !xtermModule || !sessionName) return null;
+
+      const pt = getAgentTerminal(sessionName, xtermModule);
+      feedTerminal(pt, rawOutput);
+      return extractStyledLines(pt.terminal);
+    }, [output, xtermReady, sessionName]);
 
     if (!tmux) {
       return (
@@ -133,15 +287,13 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
     }
 
     const isInputMode = mode === "terminal_input";
-    const rawOutput = output ?? "";
 
-    // Status header — shared by both rendering paths
     const header = (
       <box>
-        <text color="#888888">
+        <text color={theme.muted}>
           session: {sessionName}
           {isInputMode ? (
-            <text color="#00cccc"> [INPUT]</text>
+            <text color={theme.focus}> [INPUT]</text>
           ) : (
             <text opacity={0.5}> (press i to type)</text>
           )}
@@ -149,26 +301,32 @@ export const TerminalView: React.NamedExoticComponent<TerminalProps> = React.mem
       </box>
     );
 
-    // --- Ghostty path: full ANSI/VT rendering ---
-    if (ghosttyAvailable && rawOutput.length > 0) {
+    // Styled rendering via xterm buffer
+    if (styledLines && styledLines.length > 0) {
+      const displayLines = styledLines.slice(-30);
       return (
         <box flexDirection="column">
           {header}
-          {/* createElement used because "ghostty-terminal" is a dynamically
-              registered intrinsic element without static JSX type definitions. */}
-          {createElement("ghostty-terminal" as string, {
-            ansi: rawOutput,
-            cols: 120,
-            rows: 30,
-            trimEnd: true,
-          })}
+          <box flexDirection="column">
+            {displayLines.map((line, y) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: terminal lines have no stable identity
+              <box key={y}>
+                {line.spans.map((span, x) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: spans have no stable identity
+                  <text key={x} color={span.color} bold={span.bold}>
+                    {span.text}
+                  </text>
+                ))}
+              </box>
+            ))}
+          </box>
         </box>
       );
     }
 
-    // --- Fallback path: plain text line rendering ---
-    const trimmedOutput = rawOutput.trimEnd();
-    const lines = trimmedOutput ? trimmedOutput.split("\n").slice(-30) : [];
+    // Plain text fallback
+    const rawOutput = (output ?? "").trimEnd();
+    const lines = rawOutput ? rawOutput.split("\n").slice(-30) : [];
 
     return (
       <box flexDirection="column">

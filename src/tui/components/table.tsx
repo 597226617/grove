@@ -5,7 +5,8 @@
  * The selected row is highlighted with a ">" indicator.
  */
 
-import React from "react";
+import React, { createElement } from "react";
+import { theme } from "../theme.js";
 
 /** Column definition for the TUI table. */
 export interface TableColumn {
@@ -14,6 +15,9 @@ export interface TableColumn {
   readonly width?: number | undefined;
   readonly align?: "left" | "right" | undefined;
 }
+
+/** Maximum items rendered to guard against scroll-box not virtualizing. */
+const MAX_RENDER_ITEMS = 200;
 
 /** Props for the Table component. */
 export interface TableProps {
@@ -40,7 +44,10 @@ export const Table: React.NamedExoticComponent<TableProps> = React.memo(function
     );
   }
 
-  const displayRows = maxRows !== undefined ? rows.slice(0, maxRows) : rows;
+  // Apply max-items guard to prevent rendering thousands of items
+  const maxItems = maxRows ?? MAX_RENDER_ITEMS;
+  const displayRows = rows.slice(0, maxItems);
+  const truncated = rows.length > maxItems;
 
   return (
     <box flexDirection="column">
@@ -53,22 +60,33 @@ export const Table: React.NamedExoticComponent<TableProps> = React.memo(function
             .join("  ")}
         </text>
       </box>
-      {/* Rows */}
-      {displayRows.map((row, i) => {
-        const isSelected = cursor !== undefined && cursor === i;
-        return (
-          <box key={row.cid ?? row.id ?? String(i)}>
-            <text color={isSelected ? "#00cccc" : undefined}>
-              {isSelected ? "> " : "  "}
-              {columns
-                .map((col) =>
-                  padCell(row[col.key] ?? "", col.width ?? col.header.length + 4, col.align),
-                )
-                .join("  ")}
-            </text>
-          </box>
-        );
-      })}
+      {/* Rows — wrapped in scroll-box for native scrolling */}
+      {createElement(
+        "scroll-box" as string,
+        { flexGrow: 1 },
+        ...displayRows.map((row, i) => {
+          const isSelected = cursor !== undefined && cursor === i;
+          return (
+            <box key={row.cid ?? row.id ?? String(i)}>
+              <text color={isSelected ? theme.focus : undefined}>
+                {isSelected ? "> " : "  "}
+                {columns
+                  .map((col) =>
+                    padCell(row[col.key] ?? "", col.width ?? col.header.length + 4, col.align),
+                  )
+                  .join("  ")}
+              </text>
+            </box>
+          );
+        }),
+      )}
+      {truncated && (
+        <box>
+          <text color={theme.dimmed}>
+            Showing {maxItems} of {rows.length} — use search to narrow
+          </text>
+        </box>
+      )}
     </box>
   );
 });

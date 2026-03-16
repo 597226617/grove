@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect } from "react";
 import { formatTimestamp } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { InboxMessage, TuiDataProvider, TuiMessagingProvider } from "../provider.js";
@@ -120,9 +121,10 @@ export const InboxPanelView: React.NamedExoticComponent<InboxPanelProps> = React
           </text>
         </box>
         {messages.length === 0 ? (
-          <box>
-            <text opacity={0.5}>No inbox messages</text>
-          </box>
+          <EmptyState
+            title="No messages."
+            hint="Messages between agents and @you appear here. Press b to broadcast."
+          />
         ) : (
           <Table
             columns={[...COLUMNS]}

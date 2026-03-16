@@ -1,0 +1,63 @@
+/**
+ * Centralized theme constants for the TUI.
+ *
+ * All color and style tokens live here — views import `theme` instead
+ * of scattering hex literals across the codebase.
+ */
+
+/** Semantic color tokens for the TUI theme. */
+export const theme = {
+  // Focus & chrome
+  focus: "#00cccc",
+  inactive: "#444444",
+  border: "#555555",
+
+  // Status indicators
+  running: "#00cc00",
+  waiting: "#cccc00",
+  idle: "#888888",
+  error: "#ff0000",
+  stale: "#ff8800",
+
+  // Contribution kinds
+  work: "#00cc00",
+  review: "#cccc00",
+  discussion: "#0088cc",
+  adoption: "#cc00cc",
+  reproduction: "#00cccc",
+
+  // Text
+  text: "#ffffff",
+  muted: "#888888",
+  dimmed: "#666666",
+  disabled: "#555555",
+
+  // Surfaces
+  panelBg: undefined as string | undefined,
+  headerBg: "#1a1a2e",
+  selectedBg: "#0d2137",
+
+  // Semantic UI
+  success: "#00cc00",
+  warning: "#cccc00",
+  info: "#0088cc",
+  compare: "#ff6600",
+
+  // Agent status symbols
+  agentRunning: "●",
+  agentWaiting: "◐",
+  agentIdle: "○",
+  agentError: "\u2717",
+} as const;
+
+/** Per-agent color palette — assigned round-robin at registration. */
+export const AGENT_COLORS: readonly string[] = [
+  "#00cccc",
+  "#cc00cc",
+  "#cccc00",
+  "#00cc00",
+  "#0088cc",
+  "#ff6600",
+  "#ff0088",
+  "#88ff00",
+];

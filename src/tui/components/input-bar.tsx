@@ -7,6 +7,7 @@
  */
 
 import React from "react";
+import { theme } from "../theme.js";
 
 /** Props for the InputBar component. */
 export interface InputBarProps {
@@ -28,10 +29,10 @@ export const InputBar: React.NamedExoticComponent<InputBarProps> = React.memo(fu
   if (messageLabel) {
     return (
       <box paddingLeft={1} paddingRight={1}>
-        <text color="#ffcc00">[MESSAGE]</text>
-        <text color="#888888"> </text>
-        <text color="#ffffff">{messageLabel}</text>
-        <text color="#888888"> — Enter to send, Esc to cancel</text>
+        <text color={theme.warning}>[MESSAGE]</text>
+        <text color={theme.muted}> </text>
+        <text color={theme.text}>{messageLabel}</text>
+        <text color={theme.muted}> — Enter to send, Esc to cancel</text>
       </box>
     );
   }
@@ -40,10 +41,10 @@ export const InputBar: React.NamedExoticComponent<InputBarProps> = React.memo(fu
 
   return (
     <box paddingLeft={1} paddingRight={1}>
-      <text color="#ffcc00">[INPUT MODE]</text>
-      <text color="#888888"> Sending to: </text>
-      <text color="#ffffff">{target}</text>
-      <text color="#888888"> — Esc to exit</text>
+      <text color={theme.warning}>[INPUT MODE]</text>
+      <text color={theme.muted}> Sending to: </text>
+      <text color={theme.text}>{target}</text>
+      <text color={theme.muted}> — Esc to exit</text>
     </box>
   );
 });

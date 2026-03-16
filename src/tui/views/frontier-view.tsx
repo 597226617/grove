@@ -9,9 +9,11 @@ import React, { useCallback, useEffect, useMemo } from "react";
 import type { Frontier, FrontierEntry } from "../../core/frontier.js";
 import { truncateCid } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the FrontierView component. */
 export interface FrontierViewProps {
@@ -197,7 +199,7 @@ export const FrontierView: React.NamedExoticComponent<FrontierViewProps> = React
       <box flexDirection="column">
         <box marginBottom={1}>
           <text>Frontier Rankings</text>
-          {compareMode && <text color="#ff6600"> [COMPARE]</text>}
+          {compareMode && <text color={theme.compare}> [COMPARE]</text>}
           <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
           {flatRows.length > 0 ? (
             <text opacity={0.5}>
@@ -206,7 +208,11 @@ export const FrontierView: React.NamedExoticComponent<FrontierViewProps> = React
             </text>
           ) : null}
         </box>
-        <Table columns={[...COLUMNS]} rows={tableRows} cursor={cursor} />
+        {tableRows.length === 0 ? (
+          <EmptyState title="Rankings appear when agents publish scored contributions." />
+        ) : (
+          <Table columns={[...COLUMNS]} rows={tableRows} cursor={cursor} />
+        )}
       </box>
     );
   },

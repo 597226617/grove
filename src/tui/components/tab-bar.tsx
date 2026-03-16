@@ -5,6 +5,7 @@
 import React from "react";
 import type { PanelFocusState } from "../hooks/use-panel-focus.js";
 import { getVisiblePanels, PANEL_LABELS } from "../hooks/use-panel-focus.js";
+import { theme } from "../theme.js";
 
 /** Props for the PanelBar component. */
 export interface PanelBarProps {
@@ -23,7 +24,7 @@ export const PanelBar: React.NamedExoticComponent<PanelBarProps> = React.memo(fu
         const isActive = panel === panelState.focused;
         return (
           <box key={panel} marginRight={2}>
-            <text bold={isActive} color={isActive ? "#00cccc" : "#888888"}>
+            <text bold={isActive} color={isActive ? theme.focus : theme.muted}>
               {isActive ? `[${panel}:${PANEL_LABELS[panel]}]` : ` ${panel}:${PANEL_LABELS[panel]} `}
             </text>
           </box>

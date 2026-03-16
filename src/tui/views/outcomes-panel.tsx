@@ -9,6 +9,7 @@ import React, { useCallback, useEffect } from "react";
 import type { OutcomeRecord } from "../../core/outcome.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider, TuiOutcomeProvider } from "../provider.js";
@@ -115,9 +116,10 @@ export const OutcomesPanelView: React.NamedExoticComponent<OutcomesPanelProps> =
           </text>
         </box>
         {outcomes.length === 0 ? (
-          <box>
-            <text opacity={0.5}>No outcome annotations yet</text>
-          </box>
+          <EmptyState
+            title="No outcome annotations yet."
+            hint="Outcomes are recorded when contributions are evaluated."
+          />
         ) : (
           <Table
             columns={[...COLUMNS]}

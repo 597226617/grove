@@ -18,9 +18,12 @@ import { HelpOverlay } from "./components/help-overlay.js";
 import { InputBar } from "./components/input-bar.js";
 import { StatusBar } from "./components/status-bar.js";
 import { PanelBar } from "./components/tab-bar.js";
+import { TooltipOverlay, useFirstLaunchTooltips } from "./components/tooltip-overlay.js";
+import { nextZoom } from "./hooks/use-keyboard-handler.js";
 import { useNavigation } from "./hooks/use-navigation.js";
 import { InputMode, Panel, usePanelFocus } from "./hooks/use-panel-focus.js";
 import { usePolledData } from "./hooks/use-polled-data.js";
+import type { ZoomLevel } from "./panels/panel-manager.js";
 import { PanelManager } from "./panels/panel-manager.js";
 import type { GitHubPRSummary, TuiDataProvider, TuiGitHubProvider } from "./provider.js";
 import { SpawnManager } from "./spawn-manager.js";
@@ -46,6 +49,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   const renderer = useRenderer();
   const nav = useNavigation();
   const panels = usePanelFocus();
+  const { showTooltips, dismissAll: dismissTooltips } = useFirstLaunchTooltips();
 
   const [contributionList, setContributionList] = useState<readonly Contribution[]>([]);
   const [rowCount, setRowCount] = useState(0);
@@ -75,6 +79,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
   const [compareMode, setCompareMode] = useState(false);
   const [compareCids, setCompareCids] = useState<readonly string[]>([]);
   const [frontierCids, setFrontierCids] = useState<readonly string[]>([]);
+
+  // Zoom level (Normal → Half → Full cycle)
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>("normal");
 
   // Last error for status bar display (auto-clears after 5s)
   const [lastError, setLastError] = useState<string | undefined>();
@@ -378,10 +385,18 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
     renderer.destroy();
   }, [provider, renderer]);
 
-  // Main keyboard handler — routes based on input mode
+  // Main keyboard handler — delegates to extracted routeKey for testability.
+  // Complex palette actions (spawn/kill/register/delegate) remain here
+  // because they need closure access to spawnManagerRef, agentProfiles, etc.
   useKeyboard((key) => {
     const input = key.name;
     const isCtrl = key.ctrl;
+
+    // Dismiss first-launch tooltips on any key press
+    if (showTooltips) {
+      dismissTooltips();
+      return;
+    }
 
     // Command palette toggle (works in all modes except help)
     if (isCtrl && input === "p") {
@@ -394,7 +409,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Escape always exits current mode
+    // Escape: exit mode → pop detail → reduce zoom
     if (input === "escape") {
       if (panels.state.mode !== InputMode.Normal) {
         panels.setMode(InputMode.Normal);
@@ -404,10 +419,14 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         nav.popDetail();
         return;
       }
+      // Reduce zoom level on Esc in normal mode
+      if (zoomLevel !== "normal") {
+        setZoomLevel("normal");
+      }
       return;
     }
 
-    // In help mode, ? toggles off (in addition to Esc above)
+    // Help mode: ? toggles off
     if (panels.state.mode === InputMode.Help) {
       if (input === "?" || (key.shift && input === "/")) {
         panels.setMode(InputMode.Normal);
@@ -415,18 +434,25 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In terminal input mode, forward keystrokes to the selected tmux session
-    // (must come BEFORE the ? handler so ? can be typed in terminal)
+    // Terminal input: forward to tmux with paste safety validation
     if (panels.state.mode === InputMode.TerminalInput) {
       if (tmux && selectedSession && input) {
-        void safeCleanup(tmux.sendKeys(selectedSession, input), "sendKeys to tmux session", {
-          silent: true,
-        });
+        // Validate paste safety before forwarding to tmux
+        void (async () => {
+          const { isPasteSafe } = await import("./utils/paste-safety.js");
+          if (!isPasteSafe(input)) {
+            showError("Blocked: input contains potentially dangerous escape sequences");
+            return;
+          }
+          void safeCleanup(tmux.sendKeys(selectedSession, input), "sendKeys to tmux session", {
+            silent: true,
+          });
+        })();
       }
       return;
     }
 
-    // In command palette mode, handle navigation and execution
+    // Command palette: nav + execute
     if (panels.state.mode === InputMode.CommandPalette) {
       const itemCount = paletteItems.length;
       if ((input === "j" || input === "down") && itemCount > 0) {
@@ -441,7 +467,6 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         const item = paletteItems[paletteIndex];
         if (item?.enabled) {
           if (item.kind === "spawn") {
-            // Use profile command > role command > $SHELL > bash
             const profileCommand = agentProfiles?.find((p) => p.role === item.id)?.command;
             const roleCommand = topology?.roles.find((r) => r.name === item.id)?.command;
             const shell = profileCommand ?? roleCommand ?? process.env.SHELL ?? "bash";
@@ -449,7 +474,6 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
           } else if (item.kind === "kill") {
             handleKill(item.id);
           } else if (item.kind === "register") {
-            // Create .grove/agents.json template if it doesn't exist
             void (async () => {
               try {
                 const { existsSync, writeFileSync, mkdirSync } = await import("node:fs");
@@ -494,7 +518,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In search input mode, build query string character by character
+    // Search input mode
     if (panels.state.mode === InputMode.SearchInput) {
       if (input === "return") {
         setSearchQuery(searchBuffer);
@@ -505,7 +529,6 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         setSearchBuffer((b) => b.slice(0, -1));
         return;
       }
-      // Append printable characters
       if (input && input.length === 1 && !isCtrl) {
         setSearchBuffer((b) => b + input);
         return;
@@ -513,13 +536,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // In message input mode, build message character by character
+    // Message input mode
     if (panels.state.mode === InputMode.MessageInput) {
       if (input === "return") {
         const buf = messageBuffer.trim();
         if (buf) {
           if (messageRecipients === "@direct") {
-            // Parse "@recipient rest of message" from buffer
             const match = buf.match(/^(@\S+)\s+(.+)/s);
             if (match) {
               void sendTuiMessage(match[1]!, match[2]!);
@@ -537,7 +559,6 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         setMessageBuffer((b) => b.slice(0, -1));
         return;
       }
-      // Append printable characters
       if (input && input.length === 1 && !isCtrl) {
         setMessageBuffer((b) => b + input);
         return;
@@ -545,13 +566,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Help overlay toggle — only in normal mode (after all mode-specific handlers)
+    // Normal mode — help toggle
     if (input === "?" || (key.shift && input === "/")) {
       panels.setMode(InputMode.Help);
       return;
     }
 
-    // Normal mode keybindings
     if (input === "q") {
       handleQuit();
       return;
@@ -575,7 +595,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Panel toggle: 5-8, 9, 0, -, =
+    // Panel toggle: 5-=, [, ], \, ;, '
     if (input === "5") {
       panels.toggle(Panel.AgentList);
       return;
@@ -639,6 +659,12 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
+    // Zoom cycle: + key
+    if (input === "+" || (key.shift && input === "=")) {
+      setZoomLevel((z) => nextZoom(z));
+      return;
+    }
+
     // Terminal input mode entry
     if (input === "i" && panels.state.focused === Panel.Terminal) {
       panels.setMode(InputMode.TerminalInput);
@@ -652,45 +678,41 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Broadcast message (enters message input mode)
+    // Messaging
     if (input === "b") {
       setMessageBuffer("");
       setMessageRecipients("@all");
       panels.setMode(InputMode.MessageInput);
       return;
     }
-
-    // Direct message (enters message input mode, user types @recipient message)
     if (input === "@") {
       setMessageBuffer("@");
-      setMessageRecipients("@direct"); // Sentinel — parsed from buffer on Enter
+      setMessageRecipients("@direct");
       panels.setMode(InputMode.MessageInput);
       return;
     }
 
-    // Approve pending question (Decisions panel)
+    // Decisions panel
     if (input === "a" && panels.state.focused === Panel.Decisions) {
       void handleApproveQuestion();
       return;
     }
-
-    // Deny pending question (Decisions panel)
     if (input === "d" && panels.state.focused === Panel.Decisions) {
       void handleDenyQuestion();
       return;
     }
 
-    // MCP/ask-user manager (opens command palette for per-agent MCP config)
+    // MCP/ask-user
     if (input === "m") {
       setPaletteIndex(0);
       panels.setMode(InputMode.CommandPalette);
       return;
     }
 
-    // Compare artifacts (Frontier panel)
+    // Compare artifacts (Frontier)
     if (input === "C" && panels.state.focused === Panel.Frontier) {
       setCompareMode((v) => {
-        if (!v) setCompareCids([]); // Clear selections when entering compare mode
+        if (!v) setCompareCids([]);
         return !v;
       });
       return;
@@ -711,12 +733,9 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         setVfsNavigateTrigger((n) => n + 1);
         return;
       }
-      // In compare mode, Enter selects/deselects frontier entries
       if (compareMode && panels.state.focused === Panel.Frontier && frontierCids.length > 0) {
         const cid = frontierCids[nav.state.cursor];
-        if (cid) {
-          handleCompareSelect(cid);
-        }
+        if (cid) handleCompareSelect(cid);
         return;
       }
       const isClaimsPanel = panels.state.focused === Panel.Claims;
@@ -739,7 +758,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       return;
     }
 
-    // Artifact panel: adopt actions in compare mode
+    // Artifact panel actions
     if (panels.state.focused === Panel.Artifact && compareMode && compareCids.length === 2) {
       if (input === "a") {
         showError(`Adopted: ${(compareCids[0] ?? "").slice(0, 16)}...`);
@@ -754,8 +773,6 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         return;
       }
     }
-
-    // Artifact panel: cycling (h/l, left/right) and diff toggle (d)
     if (panels.state.focused === Panel.Artifact) {
       if (input === "h" || input === "left") {
         setArtifactIndex((i) => Math.max(0, i - 1));
@@ -771,10 +788,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       }
     }
 
-    if (input === "r") {
-      // Force re-render by cycling a key (handled by polling)
-      return;
-    }
+    if (input === "r") return; // refresh — handled by polling
   });
 
   const handleCommandPaletteClose = useCallback(() => {
@@ -822,6 +836,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
 
   return (
     <box flexDirection="column" width="100%" height="100%">
+      <TooltipOverlay visible={showTooltips} onDismissAll={dismissTooltips} />
       <PanelBar panelState={panels.state} />
       <HelpOverlay
         visible={panels.state.mode === InputMode.Help}
@@ -875,11 +890,15 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         compareCids={compareCids}
         onCompareSelect={handleCompareSelect}
         onFrontierCidsChanged={handleFrontierCidsChanged}
+        zoomLevel={zoomLevel}
+        activeSessions={paletteSessions?.filter((s) => s.startsWith("grove-"))}
       />
       <StatusBar
         mode={panels.state.mode}
         isDetailView={nav.isDetailView}
         error={lastError}
+        focusedPanel={panels.state.focused}
+        agentCount={paletteSessions?.filter((s) => s.startsWith("grove-")).length}
         costLabel={
           sessionCosts
             ? `$${sessionCosts.totalCostUsd.toFixed(2)} | ${formatTokens(sessionCosts.totalTokens)}`

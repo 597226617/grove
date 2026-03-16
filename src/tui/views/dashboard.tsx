@@ -8,9 +8,11 @@ import React, { useCallback, useEffect } from "react";
 import type { Contribution } from "../../core/models.js";
 import { formatDuration } from "../../shared/duration.js";
 import { formatTimestamp, truncateCid } from "../../shared/format.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { DashboardData, TuiDataProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the Dashboard view. */
 export interface DashboardProps {
@@ -65,7 +67,9 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
     if (!data) {
       return (
         <box>
-          <text color="#ff0000">Failed to load dashboard{error ? `: ${error.message}` : ""}</text>
+          <text color={theme.error}>
+            Failed to load dashboard{error ? `: ${error.message}` : ""}
+          </text>
         </box>
       );
     }
@@ -93,7 +97,7 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
     return (
       <box flexDirection="column">
         <box marginBottom={1}>
-          <text color="#00cc00">{metadata.name}</text>
+          <text color={theme.success}>{metadata.name}</text>
           <text opacity={0.5}>
             {"  "}
             {metadata.backendLabel} contributions:{metadata.contributionCount} claims:
@@ -104,7 +108,10 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
         <box flexDirection="column" marginBottom={1}>
           <text>Active Claims ({activeClaims.length})</text>
           {activeClaims.length === 0 ? (
-            <text opacity={0.5}>No active claims</text>
+            <EmptyState
+              title="No active claims."
+              hint="Claims prevent duplicate work. Agents create them automatically when spawned."
+            />
           ) : (
             <Table columns={[...CLAIM_COLUMNS]} rows={claimRows} />
           )}
@@ -115,14 +122,14 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
             <text>Frontier</text>
             {frontierSummary.topByMetric.map((m) => (
               <text key={m.metric}>
-                <text color="#cccc00">{m.metric}</text>: {truncateCid(m.cid)} {m.summary} (
+                <text color={theme.review}>{m.metric}</text>: {truncateCid(m.cid)} {m.summary} (
                 {m.value.toFixed(2)})
               </text>
             ))}
             {frontierSummary.topByAdoption.map((a) => (
               <text key={a.cid}>
-                <text color="#cc00cc">adoption</text>: {truncateCid(a.cid)} {a.summary} ({a.count}{" "}
-                refs)
+                <text color={theme.adoption}>adoption</text>: {truncateCid(a.cid)} {a.summary} (
+                {a.count} refs)
               </text>
             ))}
           </box>

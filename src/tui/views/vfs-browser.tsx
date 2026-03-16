@@ -6,9 +6,11 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { FsEntry, TuiDataProvider, TuiVfsProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the VFS browser view. */
 export interface VfsBrowserProps {
@@ -113,11 +115,25 @@ export const VfsBrowserView: React.NamedExoticComponent<VfsBrowserProps> = React
 
     return (
       <box flexDirection="column">
-        <box marginBottom={1}>
-          <text color="#888888">Path: {currentPath}</text>
+        <box marginBottom={1} flexDirection="column">
+          <text color={theme.muted}>
+            Path:{" "}
+            {currentPath === "/" ? (
+              <text bold>/</text>
+            ) : (
+              <>
+                {currentPath.replace(/\/$/, "").split("/").slice(0, -1).join("/")}/
+                <text bold>{currentPath.replace(/\/$/, "").split("/").pop()}</text>
+              </>
+            )}
+          </text>
+          {rows.length > 0 ? <text color={theme.dimmed}>Enter:browse Esc:back</text> : null}
         </box>
         {rows.length === 0 ? (
-          <text opacity={0.5}>(empty directory)</text>
+          <EmptyState
+            title="Nexus virtual filesystem."
+            hint="j/k to navigate, Enter to browse, Esc to go back."
+          />
         ) : (
           <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
         )}

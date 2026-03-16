@@ -6,6 +6,7 @@
  */
 
 import React from "react";
+import { theme } from "../theme.js";
 
 /** Props for the DataStatus component. */
 export interface DataStatusProps {
@@ -23,7 +24,7 @@ export const DataStatus: React.NamedExoticComponent<DataStatusProps> = React.mem
     if (loading) {
       return (
         <box>
-          <text color="#888888"> Loading...</text>
+          <text color={theme.muted}> Loading...</text>
         </box>
       );
     }
@@ -31,8 +32,8 @@ export const DataStatus: React.NamedExoticComponent<DataStatusProps> = React.mem
     if (isStale) {
       return (
         <box>
-          <text color="#ff8800"> [stale]</text>
-          {error && <text color="#ff4444"> {error}</text>}
+          <text color={theme.stale}> [stale]</text>
+          {error && <text color={theme.error}> {error}</text>}
         </box>
       );
     }
@@ -41,7 +42,7 @@ export const DataStatus: React.NamedExoticComponent<DataStatusProps> = React.mem
     if (error) {
       return (
         <box>
-          <text color="#ff4444"> [error] {error}</text>
+          <text color={theme.error}> [error] {error}</text>
         </box>
       );
     }

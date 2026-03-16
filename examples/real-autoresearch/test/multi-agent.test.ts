@@ -295,9 +295,7 @@ describe("2. frontier ordering", () => {
     const bpbEntries = frontier.byMetric.val_bpb;
     expect(bpbEntries).toBeDefined();
     // Best is recovery (0.95), then improved (0.98), then reproduction (1.04), then baseline (1.05)
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries![0].value).toBe(0.95);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(bpbEntries![0].cid).toBe(recovery.cid);
   });
 
@@ -371,7 +369,6 @@ describe("4. outcome tracking", () => {
     expect(originalBpb).toBeDefined();
     expect(reproductionBpb).toBeDefined();
     // Within 5% of original (1.05 vs 1.04)
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     const delta = Math.abs(originalBpb! - reproductionBpb!) / originalBpb!;
     expect(delta).toBeLessThan(0.05);
   });
@@ -389,7 +386,6 @@ describe("5. Ralph restart recovery", () => {
     const best = frontier.byMetric.val_bpb?.[0];
     expect(best).toBeDefined();
     // Best should be recovery (0.95), showing the agent recovered
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above
     expect(best!.value).toBe(0.95);
   });
 

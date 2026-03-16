@@ -1,11 +1,13 @@
 /**
  * Status bar component shown at the bottom of the TUI.
  *
- * Displays available keyboard shortcuts, current input mode, and errors.
+ * Displays context-sensitive keyboard shortcuts based on the focused panel,
+ * current input mode, agent count, and session cost.
  */
 
 import React from "react";
-import type { InputMode } from "../hooks/use-panel-focus.js";
+import type { InputMode, Panel } from "../hooks/use-panel-focus.js";
+import { theme } from "../theme.js";
 
 /** Props for the StatusBar component. */
 export interface StatusBarProps {
@@ -17,6 +19,10 @@ export interface StatusBarProps {
   readonly error?: string | undefined;
   /** Session cost label (e.g. "$1.23 / 45k tokens"), shown on the right when available. */
   readonly costLabel?: string | undefined;
+  /** Currently focused panel for context-sensitive hints. */
+  readonly focusedPanel?: Panel | undefined;
+  /** Number of active agents. */
+  readonly agentCount?: number | undefined;
 }
 
 /** Mode labels for the status bar. */
@@ -29,31 +35,63 @@ const MODE_LABELS: Record<InputMode, string> = {
   help: "HELP",
 };
 
-/** Bottom status bar with keybinding hints. */
+/** Context-sensitive keybinding hints per panel. */
+function panelHints(panel: Panel | undefined, isDetailView: boolean | undefined): string {
+  if (isDetailView) return " Esc:back  j/k:scroll  r:refresh  ?:help  q:quit";
+
+  // Panel-specific hints (panel numbers match Panel constants)
+  switch (panel) {
+    case 6: // Terminal
+      return " i:input  Esc:exit  j/k:scroll  Tab:cycle  ?:help  q:quit";
+    case 3: // Frontier
+      return " C:compare  j/k:nav  Enter:detail  +/Esc:zoom  ?:help  q:quit";
+    case 7: // Artifact
+      return " h/l:cycle  d:diff  j/k:scroll  +/Esc:zoom  ?:help  q:quit";
+    case 10: // Search
+      return " /:search  j/k:nav  Enter:detail  ?:help  q:quit";
+    case 8: // VFS
+      return " j/k:nav  Enter:browse  Esc:back  ?:help  q:quit";
+    case 16: // Decisions
+      return " a:approve  d:deny  j/k:nav  ?:help  q:quit";
+    case 15: // Inbox
+      return " b:broadcast  @:direct  j/k:nav  ?:help  q:quit";
+    default:
+      return " 1-4:panel  5-]:toggle  Tab:cycle  j/k:nav  Enter:select  Ctrl+P:spawn  +/Esc:zoom  ?:help  q:quit";
+  }
+}
+
+/** Bottom status bar with context-sensitive keybinding hints. */
 export const StatusBar: React.NamedExoticComponent<StatusBarProps> = React.memo(function StatusBar({
   mode,
   isDetailView,
   error,
   costLabel,
+  focusedPanel,
+  agentCount,
 }: StatusBarProps): React.ReactNode {
   const modeLabel = MODE_LABELS[mode];
+  const hints = panelHints(focusedPanel, isDetailView);
+  const agentLabel =
+    agentCount !== undefined && agentCount > 0 ? `${String(agentCount)} agents` : undefined;
 
   return (
     <box flexDirection="column">
       {error && (
         <box>
-          <text color="#ff0000">Error: {error}</text>
+          <text color={theme.error}>Error: {error}</text>
         </box>
       )}
       <box>
-        <text color="#00cccc">[{modeLabel}]</text>
-        <text opacity={0.5}>
-          {isDetailView
-            ? " Esc:back  j/k:scroll  r:refresh  ?:help  q:quit"
-            : " 1-4:panel  5-]:toggle  Tab:cycle  j/k:nav  Enter:select  Ctrl+P:cmd  ?:help  q:quit"}
-        </text>
+        <text color={theme.focus}>[{modeLabel}]</text>
+        <text opacity={0.5}>{hints}</text>
+        {agentLabel && (
+          <text color={theme.muted}>
+            {"  "}
+            {agentLabel}
+          </text>
+        )}
         {costLabel && (
-          <text color="#888888">
+          <text color={theme.muted}>
             {"  "}
             {costLabel}
           </text>

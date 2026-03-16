@@ -4,13 +4,14 @@
  * Includes outcome annotation when available (Phase 5).
  */
 
-import React, { useCallback } from "react";
+import React, { createElement, useCallback } from "react";
 import type { OutcomeRecord } from "../../core/outcome.js";
 import { formatScore, formatTimestamp, truncateCid } from "../../shared/format.js";
 import { DataStatus } from "../components/data-status.js";
 import { OutcomeBadge } from "../components/outcome-badge.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { ContributionDetail, TuiDataProvider, TuiOutcomeProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the Detail view. */
 export interface DetailProps {
@@ -58,7 +59,7 @@ export const DetailView: React.NamedExoticComponent<DetailProps> = React.memo(fu
   if (!data) {
     return (
       <box>
-        <text color="#ff0000">Contribution not found: {cid}</text>
+        <text color={theme.error}>Contribution not found: {cid}</text>
       </box>
     );
   }
@@ -68,7 +69,7 @@ export const DetailView: React.NamedExoticComponent<DetailProps> = React.memo(fu
   return (
     <box flexDirection="column">
       <box marginBottom={1}>
-        <text color="#00cccc">{c.cid}</text>
+        <text color={theme.focus}>{c.cid}</text>
         <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
         {outcome && (
           <>
@@ -110,7 +111,7 @@ export const DetailView: React.NamedExoticComponent<DetailProps> = React.memo(fu
         <text>{c.summary}</text>
         {c.description && (
           <box marginTop={1}>
-            <text opacity={0.5}>{c.description.slice(0, 500)}</text>
+            {createElement("markdown" as string, {}, c.description.slice(0, 500))}
           </box>
         )}
       </box>

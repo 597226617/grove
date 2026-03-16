@@ -10,9 +10,11 @@ import type { Claim } from "../../core/models.js";
 import type { TmuxManager } from "../agents/tmux-manager.js";
 import { agentIdFromSession } from "../agents/tmux-manager.js";
 import { DataStatus } from "../components/data-status.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Table } from "../components/table.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { TuiDataProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 /** Props for the AgentList view. */
 export interface AgentListProps {
@@ -27,7 +29,7 @@ export interface AgentListProps {
 const COLUMNS = [
   { header: "AGENT", key: "agentId", width: 16 },
   { header: "PLATFORM", key: "platform", width: 12 },
-  { header: "STATUS", key: "status", width: 8 },
+  { header: "STATUS", key: "status", width: 12 },
   { header: "COST", key: "cost", width: 10 },
   { header: "TARGET", key: "target", width: 18 },
   { header: "SESSION", key: "session", width: 16 },
@@ -58,6 +60,23 @@ function deriveAgentStatus(
   return "running";
 }
 
+/** Map a status string to its theme symbol. */
+function statusSymbol(status: string): string {
+  switch (status) {
+    case "running":
+      return theme.agentRunning;
+    case "claimed":
+    case "stalled":
+      return theme.agentWaiting;
+    case "expired":
+      return theme.agentIdle;
+    case "error":
+      return theme.agentError;
+    default:
+      return theme.agentIdle;
+  }
+}
+
 /** Build agent rows by correlating claims with tmux sessions. */
 function buildAgentRows(
   claims: readonly Claim[],
@@ -83,7 +102,7 @@ function buildAgentRows(
       agentId,
       platform: claim.agent.platform ?? "-",
       target: claim.targetRef.length > 18 ? `${claim.targetRef.slice(0, 16)}..` : claim.targetRef,
-      status,
+      status: `${statusSymbol(status)} ${status}`,
       cost: agentCost ? `$${agentCost.costUsd.toFixed(2)}` : "-",
       session: session ?? "-",
     };
@@ -180,7 +199,10 @@ export const AgentListView: React.NamedExoticComponent<AgentListProps> = React.m
             isStale={combinedStale}
             error={combinedError?.message}
           />
-          <text opacity={0.5}>No active agents</text>
+          <EmptyState
+            title="No agents registered."
+            hint="Press r to register, or Ctrl+P to spawn."
+          />
           {!tmux && <text opacity={0.5}>tmux not available — agents require tmux</text>}
         </box>
       );

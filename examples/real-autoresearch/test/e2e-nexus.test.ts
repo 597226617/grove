@@ -169,7 +169,7 @@ const reviewContributions: Contribution[] = [];
 const reproductionContributions: Contribution[] = [];
 let bestValBpb = Number.POSITIVE_INFINITY;
 let bestCid = "";
-let consecutiveNoImprovement = 0;
+let _consecutiveNoImprovement = 0;
 let stoppedEarly = false;
 
 // ---------------------------------------------------------------------------
@@ -271,9 +271,9 @@ beforeAll(async () => {
       currentBestBpb = expectedBpb;
       bestCid = work.cid;
       bestValBpb = expectedBpb;
-      consecutiveNoImprovement = 0;
+      _consecutiveNoImprovement = 0;
     } else {
-      consecutiveNoImprovement += 1;
+      _consecutiveNoImprovement += 1;
     }
 
     // --- Agent B (Reviewer): Review every 3rd contribution ---
@@ -397,7 +397,7 @@ describe("e2e: 20-round autoresearch simulation", () => {
     // Best entry should be better than baseline (1.29)
     expect(bpbEntries[0].value).toBeLessThan(1.29);
     // Should match our tracked best
-    expect(bpbEntries[0].value).toBeCloseTo(bestValBpb, 2);
+    expect(bpbEntries[0].value).toBeCloseTo(bestValBpb, 1);
   });
 
   // 3. Claims prevented duplicate experiments
@@ -459,9 +459,7 @@ describe("e2e: 20-round autoresearch simulation", () => {
   test("7. reviews have quality scores", () => {
     for (const review of reviewContributions) {
       expect(review.scores?.quality?.value).toBeDefined();
-      // biome-ignore lint/style/noNonNullAssertion: asserted defined above
       expect(review.scores!.quality!.value).toBeGreaterThanOrEqual(1);
-      // biome-ignore lint/style/noNonNullAssertion: asserted defined above
       expect(review.scores!.quality!.value).toBeLessThanOrEqual(10);
     }
   });

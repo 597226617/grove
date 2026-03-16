@@ -6,10 +6,11 @@
  * - Missing/empty: placeholder message
  */
 
-import React, { useCallback, useMemo } from "react";
+import React, { createElement, useCallback, useMemo } from "react";
 import { DataStatus } from "../components/data-status.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { ArtifactMeta, TuiArtifactProvider, TuiDataProvider } from "../provider.js";
+import { theme } from "../theme.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -351,25 +352,47 @@ export const ArtifactPreviewView: React.NamedExoticComponent<ArtifactPreviewProp
 
     const hasDiffSupport = Boolean(parentCid && artifactProvider);
 
+    // Determine if content looks like code (for <code> primitive)
+    const isCode = artifactName
+      ? /\.(ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|rb|sh|zig|zon|css|html|json|yaml|yml|toml)$/i.test(
+          artifactName,
+        )
+      : false;
+    const isMarkdown = artifactName ? /\.md$/i.test(artifactName) : false;
+
     return (
       <box flexDirection="column">
         {/* Artifact selector header */}
         {selectorHeader && (
           <box marginBottom={0}>
-            <text color="#888888">{selectorHeader}</text>
+            <text color={theme.muted}>{selectorHeader}</text>
           </box>
         )}
         <box marginBottom={1}>
-          <text color="#00cccc">{preview.header}</text>
+          <text color={theme.focus}>{preview.header}</text>
           <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
           {hasDiffSupport && (
-            <text color={showDiff ? "#ffcc00" : "#666666"}>
+            <text color={showDiff ? theme.warning : theme.dimmed}>
               {showDiff ? "  [DIFF ON]" : "  [d]iff"}
             </text>
           )}
         </box>
-        <box>
-          <text>{diffBody ?? preview.body}</text>
+        <box flexGrow={1}>
+          {diffBody !== undefined ? (
+            <text>{diffBody}</text>
+          ) : isCode ? (
+            // Use OpenTUI <code> primitive for syntax-highlighted preview
+            createElement(
+              "code" as string,
+              { language: artifactName?.split(".").pop() ?? "text" },
+              preview.body,
+            )
+          ) : isMarkdown ? (
+            // Use OpenTUI <markdown> primitive for rendered markdown
+            createElement("markdown" as string, {}, preview.body)
+          ) : (
+            <text>{preview.body}</text>
+          )}
         </box>
       </box>
     );
