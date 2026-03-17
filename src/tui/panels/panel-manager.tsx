@@ -52,6 +52,7 @@ import { ThreadsPanelView } from "../views/threads-panel.js";
 import { VfsBrowserView } from "../views/vfs-browser.js";
 
 import {
+  getPresetPanels,
   getRowFlex,
   getRowGroups,
   isRowVisible,
@@ -106,6 +107,8 @@ export interface PanelManagerProps {
   readonly terminalBuffers?: ReadonlyMap<string, string> | undefined;
   /** Layout mode: grid (default multi-panel) or tab (single focused panel). */
   readonly layoutMode?: LayoutMode | undefined;
+  /** Preset name — used for per-preset panel visibility filtering. */
+  readonly presetName?: string | undefined;
 }
 
 /** Wraps a panel view with a titled border and focus indication. */
@@ -168,6 +171,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
     terminalScrollOffset,
     terminalBuffers,
     layoutMode,
+    presetName,
   }: PanelManagerProps): React.ReactNode {
     const isFocused = (p: Panel) => panelState.focused === p;
     const zoom = zoomLevel ?? "normal";
@@ -177,6 +181,7 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
     void pageSize;
 
     const focusedRowGroup = panelRowGroup(panelState.focused);
+    const allowedPanels = getPresetPanels(presetName);
 
     // If detail view is active, show it in the Detail panel
     const showDetail = nav.isDetailView && nav.detailCid;
@@ -454,7 +459,9 @@ export const PanelManager: React.NamedExoticComponent<PanelManagerProps> = React
         {[...getRowGroups().entries()].map(([rowGroup, panels]) => {
           if (!isRowVisible(rowGroup, focusedRowGroup, zoom)) return null;
           const visibleInRow = panels.filter(
-            (def) => def.kind === "core" || isPanelVisible(panelState, def.panel),
+            (def) =>
+              (def.kind === "core" || isPanelVisible(panelState, def.panel)) &&
+              (allowedPanels === undefined || allowedPanels.has(def.panel)),
           );
           if (visibleInRow.length === 0) return null;
           return (

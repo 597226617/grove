@@ -6,12 +6,14 @@ import { describe, expect, it } from "bun:test";
 import { initialPanelState, Panel, panelFocus, panelToggle } from "../hooks/use-panel-focus.js";
 import {
   getActivePanelsForLayout,
+  getPresetPanels,
   getRegistry,
   getRowFlex,
   getRowGroups,
   getVisiblePanelsForLayout,
   isRowVisible,
   PANEL_REGISTRY,
+  PRESET_PANELS,
   panelRowGroup,
 } from "./panel-registry.js";
 
@@ -243,5 +245,153 @@ describe("panelRowGroup", () => {
     expect(panelRowGroup(Panel.Inbox)).toBe(8);
     expect(panelRowGroup(Panel.Decisions)).toBe(8);
     expect(panelRowGroup(Panel.GitHub)).toBe(8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPresetPanels()
+// ---------------------------------------------------------------------------
+
+describe("getPresetPanels", () => {
+  it("returns correct 4 panels for review-loop", () => {
+    const panels = getPresetPanels("review-loop");
+    expect(panels).toBeDefined();
+    expect(panels!.size).toBe(4);
+    expect(panels!.has(Panel.Dag)).toBe(true);
+    expect(panels!.has(Panel.Detail)).toBe(true);
+    expect(panels!.has(Panel.Claims)).toBe(true);
+    expect(panels!.has(Panel.Terminal)).toBe(true);
+    // Should not include these
+    expect(panels!.has(Panel.Frontier)).toBe(false);
+    expect(panels!.has(Panel.Outcomes)).toBe(false);
+    expect(panels!.has(Panel.Bounties)).toBe(false);
+    expect(panels!.has(Panel.Gossip)).toBe(false);
+  });
+
+  it("returns correct 7 panels for swarm-ops", () => {
+    const panels = getPresetPanels("swarm-ops");
+    expect(panels).toBeDefined();
+    expect(panels!.size).toBe(7);
+    expect(panels!.has(Panel.Dag)).toBe(true);
+    expect(panels!.has(Panel.Detail)).toBe(true);
+    expect(panels!.has(Panel.Claims)).toBe(true);
+    expect(panels!.has(Panel.Terminal)).toBe(true);
+    expect(panels!.has(Panel.Frontier)).toBe(true);
+    expect(panels!.has(Panel.Outcomes)).toBe(true);
+    expect(panels!.has(Panel.Bounties)).toBe(true);
+    // Should not include these
+    expect(panels!.has(Panel.Gossip)).toBe(false);
+  });
+
+  it("returns correct 6 panels for federated-swarm", () => {
+    const panels = getPresetPanels("federated-swarm");
+    expect(panels).toBeDefined();
+    expect(panels!.size).toBe(6);
+    expect(panels!.has(Panel.Dag)).toBe(true);
+    expect(panels!.has(Panel.Detail)).toBe(true);
+    expect(panels!.has(Panel.Claims)).toBe(true);
+    expect(panels!.has(Panel.Terminal)).toBe(true);
+    expect(panels!.has(Panel.Frontier)).toBe(true);
+    expect(panels!.has(Panel.Gossip)).toBe(true);
+    // Should not include these
+    expect(panels!.has(Panel.Outcomes)).toBe(false);
+    expect(panels!.has(Panel.Bounties)).toBe(false);
+  });
+
+  it("returns undefined for unknown preset", () => {
+    expect(getPresetPanels("unknown-preset")).toBeUndefined();
+  });
+
+  it("returns undefined when no preset name provided", () => {
+    expect(getPresetPanels()).toBeUndefined();
+    expect(getPresetPanels(undefined)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PRESET_PANELS constant
+// ---------------------------------------------------------------------------
+
+describe("PRESET_PANELS", () => {
+  it("has entries for all three standard presets", () => {
+    expect(PRESET_PANELS["review-loop"]).toBeDefined();
+    expect(PRESET_PANELS["swarm-ops"]).toBeDefined();
+    expect(PRESET_PANELS["federated-swarm"]).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getVisiblePanelsForLayout() with allowedPanels
+// ---------------------------------------------------------------------------
+
+describe("getVisiblePanelsForLayout with allowedPanels", () => {
+  it("filters core panels by allowedPanels in grid mode", () => {
+    const state = initialPanelState();
+    const allowed = new Set([Panel.Dag, Panel.Detail, Panel.Claims, Panel.Terminal]);
+    const visible = getVisiblePanelsForLayout(state, "grid", allowed);
+    const panelIds = visible.map((d) => d.panel);
+
+    // Frontier is a core panel but not in allowed set — should be excluded
+    expect(panelIds).toContain(Panel.Dag);
+    expect(panelIds).toContain(Panel.Detail);
+    expect(panelIds).toContain(Panel.Claims);
+    expect(panelIds).not.toContain(Panel.Frontier);
+  });
+
+  it("filters operator panels by allowedPanels in grid mode", () => {
+    let state = initialPanelState();
+    state = panelToggle(state, Panel.Terminal);
+    state = panelToggle(state, Panel.Bounties);
+
+    const allowed = new Set([
+      Panel.Dag,
+      Panel.Detail,
+      Panel.Claims,
+      Panel.Terminal,
+      Panel.Frontier,
+      Panel.Outcomes,
+      Panel.Bounties,
+    ]);
+    const visible = getVisiblePanelsForLayout(state, "grid", allowed);
+    const panelIds = visible.map((d) => d.panel);
+
+    // Terminal is toggled on and in allowed set — present
+    expect(panelIds).toContain(Panel.Terminal);
+    // Bounties is toggled on and in allowed set — present
+    expect(panelIds).toContain(Panel.Bounties);
+  });
+
+  it("does not filter when allowedPanels is undefined", () => {
+    const state = initialPanelState();
+    const visible = getVisiblePanelsForLayout(state, "grid", undefined);
+    const panelIds = visible.map((d) => d.panel);
+
+    // All core panels should be present
+    expect(panelIds).toContain(Panel.Dag);
+    expect(panelIds).toContain(Panel.Detail);
+    expect(panelIds).toContain(Panel.Frontier);
+    expect(panelIds).toContain(Panel.Claims);
+  });
+
+  it("in tab mode ignores allowedPanels (shows focused panel)", () => {
+    const state = panelFocus(initialPanelState(), Panel.Frontier);
+    const allowed = new Set([Panel.Dag, Panel.Detail]); // Frontier not in allowed
+    const visible = getVisiblePanelsForLayout(state, "tab", allowed);
+
+    // Tab mode always returns the focused panel regardless of allowedPanels
+    expect(visible.length).toBe(1);
+    expect(visible[0]!.panel).toBe(Panel.Frontier);
+  });
+
+  it("review-loop preset hides Frontier in grid mode", () => {
+    const state = initialPanelState();
+    const allowed = getPresetPanels("review-loop");
+    const visible = getVisiblePanelsForLayout(state, "grid", allowed);
+    const panelIds = visible.map((d) => d.panel);
+
+    expect(panelIds).toContain(Panel.Dag);
+    expect(panelIds).toContain(Panel.Detail);
+    expect(panelIds).toContain(Panel.Claims);
+    expect(panelIds).not.toContain(Panel.Frontier);
   });
 });

@@ -34,6 +34,7 @@ import {
   type GitHubPRSummary,
   isCostProvider,
   isGitHubProvider,
+  isGoalProvider,
   type TuiDataProvider,
 } from "./provider.js";
 import { SpawnManager } from "./spawn-manager.js";
@@ -44,6 +45,8 @@ export interface AppProps {
   readonly intervalMs: number;
   readonly tmux?: import("./agents/tmux-manager.js").TmuxManager | undefined;
   readonly topology?: import("../core/topology.js").AgentTopology | undefined;
+  /** Preset name — used for per-preset panel visibility filtering. */
+  readonly presetName?: string | undefined;
 }
 
 const PAGE_SIZE = 20;
@@ -69,6 +72,7 @@ export interface TuiKeyboardState {
   readonly searchBuffer: string;
   readonly messageBuffer: string;
   readonly messageRecipients: string;
+  readonly goalBuffer: string;
   readonly compareMode: boolean;
   readonly compareCids: readonly string[];
   readonly zoomLevel: ZoomLevel;
@@ -94,6 +98,10 @@ export type TuiAction =
   | { readonly type: "MESSAGE_CLEAR" }
   | { readonly type: "BROADCAST_MODE" }
   | { readonly type: "DIRECT_MESSAGE_MODE" }
+  | { readonly type: "GOAL_INPUT_MODE" }
+  | { readonly type: "GOAL_CHAR"; readonly char: string }
+  | { readonly type: "GOAL_BACKSPACE" }
+  | { readonly type: "GOAL_SUBMIT" }
   | { readonly type: "COMPARE_TOGGLE" }
   | { readonly type: "COMPARE_SELECT"; readonly cid: string }
   | { readonly type: "COMPARE_ADOPT" }
@@ -113,6 +121,7 @@ const INITIAL_KEYBOARD_STATE: TuiKeyboardState = {
   searchBuffer: "",
   messageBuffer: "",
   messageRecipients: "",
+  goalBuffer: "",
   compareMode: false,
   compareCids: [],
   zoomLevel: "normal",
@@ -155,6 +164,14 @@ export function tuiReducer(state: TuiKeyboardState, action: TuiAction): TuiKeybo
       return { ...state, messageBuffer: "", messageRecipients: "@all" };
     case "DIRECT_MESSAGE_MODE":
       return { ...state, messageBuffer: "@", messageRecipients: "@direct" };
+    case "GOAL_INPUT_MODE":
+      return { ...state, goalBuffer: "" };
+    case "GOAL_CHAR":
+      return { ...state, goalBuffer: state.goalBuffer + action.char };
+    case "GOAL_BACKSPACE":
+      return { ...state, goalBuffer: state.goalBuffer.slice(0, -1) };
+    case "GOAL_SUBMIT":
+      return { ...state, goalBuffer: "" };
     case "COMPARE_TOGGLE":
       return {
         ...state,
@@ -194,7 +211,13 @@ export function tuiReducer(state: TuiKeyboardState, action: TuiAction): TuiKeybo
 // ---------------------------------------------------------------------------
 
 /** Root TUI application. */
-export function App({ provider, intervalMs, tmux, topology }: AppProps): React.ReactNode {
+export function App({
+  provider,
+  intervalMs,
+  tmux,
+  topology,
+  presetName,
+}: AppProps): React.ReactNode {
   const renderer = useRenderer();
   const nav = useNavigation();
   const panels = usePanelFocus();
@@ -681,6 +704,23 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       },
       onMessageChar: (char: string) => dispatch({ type: "MESSAGE_CHAR", char }),
       onMessageBackspace: () => dispatch({ type: "MESSAGE_BACKSPACE" }),
+      onGoalSubmit: () => {
+        const buf = ks.goalBuffer.trim();
+        if (buf && isGoalProvider(provider)) {
+          void (async () => {
+            try {
+              await provider.setGoal(buf, []);
+              showError(`Goal set: ${buf}`);
+            } catch (err) {
+              showError(err instanceof Error ? err.message : "Failed to set goal");
+            }
+          })();
+        }
+        dispatch({ type: "GOAL_SUBMIT" });
+        panels.setMode(InputMode.Normal);
+      },
+      onGoalChar: (char: string) => dispatch({ type: "GOAL_CHAR", char }),
+      onGoalBackspace: () => dispatch({ type: "GOAL_BACKSPACE" }),
       onBroadcastMode: () => {
         dispatch({ type: "BROADCAST_MODE" });
         panels.setMode(InputMode.MessageInput);
@@ -752,6 +792,11 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
           })();
         } else if (item.kind === "delegate") {
           void handleDelegate(item.id);
+        } else if (item.kind === "goal") {
+          panels.setMode(InputMode.GoalInput);
+          dispatch({ type: "GOAL_INPUT_MODE" });
+          dispatch({ type: "PALETTE_RESET" });
+          return;
         }
         panels.setMode(InputMode.Normal);
         dispatch({ type: "PALETTE_RESET" });
@@ -787,12 +832,14 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       ks.searchQuery,
       ks.messageBuffer,
       ks.messageRecipients,
+      ks.goalBuffer,
       ks.paletteIndex,
       frontierCids,
       agentProfiles,
       topology,
       paletteParentId,
       keybindingOverrides,
+      provider,
     ],
   );
 
@@ -832,13 +879,16 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
       <InputBar
         visible={
           panels.state.mode === InputMode.TerminalInput ||
-          panels.state.mode === InputMode.MessageInput
+          panels.state.mode === InputMode.MessageInput ||
+          panels.state.mode === InputMode.GoalInput
         }
         sessionName={selectedSession}
         messageLabel={
           panels.state.mode === InputMode.MessageInput
             ? `Message ${ks.messageRecipients}: ${ks.messageBuffer}`
-            : undefined
+            : panels.state.mode === InputMode.GoalInput
+              ? `Goal: ${ks.goalBuffer}`
+              : undefined
         }
       />
       <PanelManager
@@ -868,6 +918,7 @@ export function App({ provider, intervalMs, tmux, topology }: AppProps): React.R
         terminalScrollOffset={ks.terminalScrollOffset}
         terminalBuffers={terminalBuffers ?? undefined}
         layoutMode={ks.layoutMode}
+        presetName={presetName}
       />
       <StatusBar
         mode={panels.state.mode}

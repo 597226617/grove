@@ -32,6 +32,8 @@ export interface WelcomeProps {
   readonly groveExists: boolean;
   /** Info about the existing grove (name + preset). */
   readonly groveInfo?: { name: string; preset: string } | undefined;
+  /** Past sessions to display for resumption. */
+  readonly sessions?: readonly import("../provider.js").SessionRecord[] | undefined;
   /** Called with (presetName, groveName) after user completes the "New grove" flow. */
   readonly onSelect: (presetName: string, groveName: string) => void;
   /** Called when user picks "Resume" to start the existing grove. */
@@ -65,6 +67,7 @@ export const WelcomeScreen: React.NamedExoticComponent<WelcomeProps> = React.mem
     presets,
     groveExists,
     groveInfo,
+    sessions,
     onSelect,
     onResume,
     onConnect,
@@ -419,6 +422,33 @@ export const WelcomeScreen: React.NamedExoticComponent<WelcomeProps> = React.mem
             );
           })}
         </box>
+
+        {/* Recent sessions (shown when grove exists and has sessions) */}
+        {groveExists && sessions && sessions.length > 0 ? (
+          <box
+            flexDirection="column"
+            marginX={2}
+            marginTop={1}
+            borderStyle="single"
+            borderColor={theme.border}
+            paddingX={1}
+          >
+            <text color={theme.focus} bold>
+              Recent sessions
+            </text>
+            {sessions.slice(0, 5).map((s, i) => (
+              <text key={s.sessionId} color={theme.text}>
+                {"  "}
+                {i + 1}. {`"${s.goal ?? "untitled"}"`}
+                <text color={theme.muted}>
+                  {" "}
+                  ({s.contributionCount} contribution{s.contributionCount === 1 ? "" : "s"},{" "}
+                  {s.status})
+                </text>
+              </text>
+            ))}
+          </box>
+        ) : null}
 
         {/* Concept glossary */}
         <box

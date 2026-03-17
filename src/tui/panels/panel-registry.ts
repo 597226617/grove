@@ -12,6 +12,38 @@ import type { PanelFocusState } from "../hooks/use-panel-focus.js";
 import { isPanelVisible, PANEL_LABELS, Panel } from "../hooks/use-panel-focus.js";
 
 // ---------------------------------------------------------------------------
+// Per-preset panel visibility
+// ---------------------------------------------------------------------------
+
+/** Panels allowed per preset. Unlisted presets allow all panels. */
+export const PRESET_PANELS: Readonly<Record<string, ReadonlySet<Panel>>> = {
+  "review-loop": new Set([Panel.Dag, Panel.Detail, Panel.Claims, Panel.Terminal]),
+  "swarm-ops": new Set([
+    Panel.Dag,
+    Panel.Detail,
+    Panel.Claims,
+    Panel.Terminal,
+    Panel.Frontier,
+    Panel.Outcomes,
+    Panel.Bounties,
+  ]),
+  "federated-swarm": new Set([
+    Panel.Dag,
+    Panel.Detail,
+    Panel.Claims,
+    Panel.Terminal,
+    Panel.Frontier,
+    Panel.Gossip,
+  ]),
+};
+
+/** Get the allowed panels for a preset. Returns undefined if all panels are allowed. */
+export function getPresetPanels(presetName?: string): ReadonlySet<Panel> | undefined {
+  if (!presetName) return undefined;
+  return PRESET_PANELS[presetName];
+}
+
+// ---------------------------------------------------------------------------
 // Layout types
 // ---------------------------------------------------------------------------
 
@@ -247,6 +279,7 @@ export function getRowGroups(): Map<number, readonly PanelDef[]> {
 export function getVisiblePanelsForLayout(
   panelState: PanelFocusState,
   mode: LayoutMode,
+  allowedPanels?: ReadonlySet<Panel>,
 ): readonly PanelDef[] {
   if (mode === "tab") {
     const def = lookupPanel(panelState.focused);
@@ -254,7 +287,12 @@ export function getVisiblePanelsForLayout(
   }
 
   // Grid mode: core panels always visible, operator panels per state.
-  return PANEL_REGISTRY.filter((def) => isPanelVisible(panelState, def.panel));
+  // Also filter by allowedPanels if provided (preset-based visibility).
+  return PANEL_REGISTRY.filter(
+    (def) =>
+      isPanelVisible(panelState, def.panel) &&
+      (allowedPanels === undefined || allowedPanels.has(def.panel)),
+  );
 }
 
 /**

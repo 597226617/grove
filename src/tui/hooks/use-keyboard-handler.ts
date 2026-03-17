@@ -37,6 +37,9 @@ export interface KeyboardActions {
   readonly onMessageBackspace: () => void;
   readonly onBroadcastMode: () => void;
   readonly onDirectMessageMode: () => void;
+  readonly onGoalSubmit: () => void;
+  readonly onGoalChar: (char: string) => void;
+  readonly onGoalBackspace: () => void;
   readonly onApproveQuestion: () => void;
   readonly onDenyQuestion: () => void;
   readonly onSendKeys: (key: string) => void;
@@ -239,6 +242,23 @@ export function routeKey(key: KeyEvent, actions: KeyboardActions): boolean {
     }
     if (input && input.length === 1 && !isCtrl) {
       actions.onMessageChar(input);
+      return true;
+    }
+    return true;
+  }
+
+  // Goal input mode
+  if (mode === InputMode.GoalInput) {
+    if (input === "return") {
+      actions.onGoalSubmit();
+      return true;
+    }
+    if (input === "backspace") {
+      actions.onGoalBackspace();
+      return true;
+    }
+    if (input && input.length === 1 && !isCtrl) {
+      actions.onGoalChar(input);
       return true;
     }
     return true;

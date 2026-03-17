@@ -36,6 +36,7 @@ const MODE_LABELS: Record<InputMode, string> = {
   command_palette: "CMD",
   search_input: "SEARCH",
   message_input: "MESSAGE",
+  goal_input: "GOAL",
   help: "HELP",
 };
 
