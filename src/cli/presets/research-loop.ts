@@ -54,7 +54,7 @@ export const researchLoopPreset: PresetConfig = {
     maxLeaseSeconds: 3600,
   },
   seedContributions: [],
-  services: { server: true, mcp: false },
+  services: { server: true, mcp: true },
   backend: "local",
   features: {
     askUser: { strategy: "interactive", perAgent: true },

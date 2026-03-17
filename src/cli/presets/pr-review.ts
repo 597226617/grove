@@ -42,7 +42,7 @@ export const prReviewPreset: PresetConfig = {
     maxLeaseSeconds: 600,
   },
   seedContributions: [],
-  services: { server: true, mcp: false },
+  services: { server: true, mcp: true },
   backend: "nexus",
   features: {
     github: { autoDetectPR: true },
