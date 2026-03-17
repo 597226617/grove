@@ -24,7 +24,9 @@ import { casMetaPath, casPath } from "../nexus/vfs-paths.js";
 import type {
   ArtifactMeta,
   FsEntry,
+  GoalData,
   ProviderCapabilities,
+  SessionRecord,
   TuiArtifactProvider,
   TuiBountyProvider,
   TuiGossipProvider,
@@ -42,12 +44,11 @@ export interface NexusProviderConfig {
   readonly backendLabel?: string | undefined;
   /**
    * Optional URL of a co-located grove server.
-   * When provided, gossip peer data is fetched from the server's
-   * `/api/gossip/peers` endpoint (gossip is server-to-server, not
-   * stored in Nexus VFS).
+   * When provided, goal/session state and gossip peer data are fetched
+   * from the server's HTTP API so that all agents share the same state.
    */
   readonly serverUrl?: string | undefined;
-  /** Optional goal/session store for goal and session management. */
+  /** Optional goal/session store — only used when no serverUrl is available. */
   readonly goalSessionStore?: GoalSessionStore | undefined;
 }
 
@@ -81,6 +82,9 @@ export class NexusDataProvider
       goalSessionStore: config.goalSessionStore,
     });
 
+    // Goals/sessions are available when a co-located server provides the shared
+    // HTTP API, or as a fallback via a local SQLite store.
+    const hasGoalSession = !!config.serverUrl || !!config.goalSessionStore;
     this.capabilities = {
       outcomes: true,
       artifacts: true,
@@ -91,8 +95,8 @@ export class NexusDataProvider
       github: true,
       bounties: true,
       gossip: true,
-      goals: !!config.goalSessionStore,
-      sessions: !!config.goalSessionStore,
+      goals: hasGoalSession,
+      sessions: hasGoalSession,
     };
 
     this.bountyStore = new NexusBountyStore(config.nexusConfig);
@@ -211,6 +215,117 @@ export class NexusDataProvider
       }
     }
     return [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Goal/session — delegate to co-located server HTTP API when available
+  // so that all agents share the same state (not machine-local SQLite).
+  // ---------------------------------------------------------------------------
+
+  override async getGoal(): Promise<GoalData | undefined> {
+    if (this.serverUrl) {
+      try {
+        const resp = await fetch(`${this.serverUrl.replace(/\/+$/, "")}/api/session/goal`);
+        if (resp.ok) return (await resp.json()) as GoalData;
+        if (resp.status === 404) return undefined;
+      } catch {
+        /* server unreachable — fall through to local store */
+      }
+    }
+    return super.getGoal();
+  }
+
+  override async setGoal(goal: string, acceptance: readonly string[]): Promise<GoalData> {
+    if (this.serverUrl) {
+      const resp = await fetch(`${this.serverUrl.replace(/\/+$/, "")}/api/session/goal`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal, acceptance }),
+      });
+      if (resp.ok) return (await resp.json()) as GoalData;
+      throw new Error(`Failed to set goal: HTTP ${String(resp.status)}`);
+    }
+    return super.setGoal(goal, acceptance);
+  }
+
+  override async listSessions(query?: {
+    status?: "active" | "archived";
+  }): Promise<readonly SessionRecord[]> {
+    if (this.serverUrl) {
+      try {
+        const params = new URLSearchParams();
+        if (query?.status) params.set("status", query.status);
+        const qs = params.toString();
+        const resp = await fetch(
+          `${this.serverUrl.replace(/\/+$/, "")}/api/sessions${qs ? `?${qs}` : ""}`,
+        );
+        if (resp.ok) {
+          const body = (await resp.json()) as { sessions: readonly SessionRecord[] };
+          return body.sessions;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    return super.listSessions(query);
+  }
+
+  override async createSession(
+    input: import("./provider.js").SessionInput,
+  ): Promise<SessionRecord> {
+    if (this.serverUrl) {
+      const resp = await fetch(`${this.serverUrl.replace(/\/+$/, "")}/api/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (resp.ok) return (await resp.json()) as SessionRecord;
+      throw new Error(`Failed to create session: HTTP ${String(resp.status)}`);
+    }
+    return super.createSession(input);
+  }
+
+  override async getSession(sessionId: string): Promise<SessionRecord | undefined> {
+    if (this.serverUrl) {
+      try {
+        const resp = await fetch(
+          `${this.serverUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(sessionId)}`,
+        );
+        if (resp.ok) return (await resp.json()) as SessionRecord;
+        if (resp.status === 404) return undefined;
+      } catch {
+        /* fall through */
+      }
+    }
+    return super.getSession(sessionId);
+  }
+
+  override async archiveSession(sessionId: string): Promise<void> {
+    if (this.serverUrl) {
+      const resp = await fetch(
+        `${this.serverUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(sessionId)}/archive`,
+        { method: "PUT" },
+      );
+      if (resp.ok) return;
+      throw new Error(`Failed to archive session: HTTP ${String(resp.status)}`);
+    }
+    return super.archiveSession(sessionId);
+  }
+
+  override async addContributionToSession(sessionId: string, cid: string): Promise<void> {
+    if (this.serverUrl) {
+      const resp = await fetch(
+        `${this.serverUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(sessionId)}/contributions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cid }),
+        },
+      );
+      if (resp.ok) return;
+      throw new Error(`Failed to add contribution to session: HTTP ${String(resp.status)}`);
+    }
+    return super.addContributionToSession(sessionId, cid);
   }
 
   // ---------------------------------------------------------------------------
