@@ -447,6 +447,7 @@ export function App({
     activeGroveSessions.length > 0,
   );
 
+  const hasGoals = isGoalProvider(provider);
   const paletteItems = useMemo(
     () =>
       buildPaletteItems(
@@ -459,6 +460,7 @@ export function App({
         paletteParentId,
         gossipPeers ?? undefined,
         agentProfiles ?? undefined,
+        hasGoals,
       ),
     [
       topology,
@@ -469,6 +471,7 @@ export function App({
       paletteParentId,
       gossipPeers,
       agentProfiles,
+      hasGoals,
     ],
   );
 

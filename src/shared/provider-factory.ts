@@ -123,11 +123,23 @@ async function createNexusProvider(
     // Config read failed — skip server URL
   }
 
+  // Goal/session store — shared SQLite DB for local goal/session state.
+  let goalSessionStore:
+    | import("../local/sqlite-goal-session-store.js").GoalSessionStore
+    | undefined;
+  try {
+    const { SqliteGoalSessionStore } = await import("../local/sqlite-goal-session-store.js");
+    goalSessionStore = new SqliteGoalSessionStore(db);
+  } catch {
+    // Goal/session support unavailable
+  }
+
   return new NexusDataProvider({
     nexusConfig: { client, zoneId: "default" },
     workspaceManager,
     backendLabel: label,
     serverUrl,
+    goalSessionStore,
   });
 }
 
@@ -164,6 +176,7 @@ async function createLocalProvider(
     groveName,
     outcomeStore: stores.outcomeStore,
     bountyStore: stores.bountyStore,
+    goalSessionStore: stores.goalSessionStore,
     cas: deps.cas,
     workspace: deps.workspace,
     backendLabel: label,

@@ -87,6 +87,7 @@ const deps: ServerDeps = {
   claimStore: stores.claimStore,
   outcomeStore: stores.outcomeStore,
   bountyStore: stores.bountyStore,
+  goalSessionStore: stores.goalSessionStore,
   cas,
   frontier,
   gossip: gossipService,
