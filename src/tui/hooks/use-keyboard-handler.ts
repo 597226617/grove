@@ -37,6 +37,9 @@ export interface KeyboardActions {
   readonly onMessageBackspace: () => void;
   readonly onBroadcastMode: () => void;
   readonly onDirectMessageMode: () => void;
+  readonly onGoalSubmit: () => void;
+  readonly onGoalChar: (char: string) => void;
+  readonly onGoalBackspace: () => void;
   readonly onApproveQuestion: () => void;
   readonly onDenyQuestion: () => void;
   readonly onSendKeys: (key: string) => void;
@@ -48,6 +51,7 @@ export interface KeyboardActions {
   readonly onTerminalScrollUp: () => void;
   readonly onTerminalScrollDown: () => void;
   readonly onTerminalScrollBottom: () => void;
+  readonly onLayoutToggle: () => void;
   readonly onSelect: (index: number) => void;
   readonly rowCount: number;
   readonly pageSize: number;
@@ -243,6 +247,23 @@ export function routeKey(key: KeyEvent, actions: KeyboardActions): boolean {
     return true;
   }
 
+  // Goal input mode
+  if (mode === InputMode.GoalInput) {
+    if (input === "return") {
+      actions.onGoalSubmit();
+      return true;
+    }
+    if (input === "backspace") {
+      actions.onGoalBackspace();
+      return true;
+    }
+    if (input && input.length === 1 && !isCtrl) {
+      actions.onGoalChar(input);
+      return true;
+    }
+    return true;
+  }
+
   // Help overlay toggle
   if (input === "?" || (key.shift && input === "/")) {
     actions.panels.setMode(InputMode.Help);
@@ -337,9 +358,9 @@ export function routeKey(key: KeyEvent, actions: KeyboardActions): boolean {
     return true;
   }
 
-  // Zoom cycle: + key
+  // Layout toggle: + key (tab <-> grid)
   if (input === "+" || (key.shift && input === "=")) {
-    actions.onZoomCycle();
+    actions.onLayoutToggle();
     return true;
   }
 

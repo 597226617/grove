@@ -38,6 +38,8 @@ export interface TuiAppProps {
   readonly groveInfo?: { name: string; preset: string } | undefined;
   /** Presets for the welcome screen. */
   readonly presets?: readonly TuiPresetEntry[] | undefined;
+  /** Past sessions to display on the welcome screen for context. */
+  readonly sessions?: readonly import("./provider.js").SessionRecord[] | undefined;
   /** Callback to run init for a selected preset + grove name. Returns AppProps on success. */
   readonly onInit?: ((presetName: string, groveName: string) => Promise<AppProps>) | undefined;
   /** Callback to start services for an existing grove. Accepts a progress reporter. */
@@ -243,6 +245,7 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
       presets,
       groveExists,
       groveInfo,
+      sessions: props.sessions,
       onSelect: handleSelect,
       onResume: handleResume,
       onConnect: handleConnect,

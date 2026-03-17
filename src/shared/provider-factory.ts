@@ -123,6 +123,10 @@ async function createNexusProvider(
     // Config read failed — skip server URL
   }
 
+  // Goal/session state flows through the co-located server's HTTP API
+  // (when serverUrl is available) so that all agents share the same state.
+  // No local SQLite needed — the server owns the authoritative store.
+
   return new NexusDataProvider({
     nexusConfig: { client, zoneId: "default" },
     workspaceManager,
@@ -164,6 +168,7 @@ async function createLocalProvider(
     groveName,
     outcomeStore: stores.outcomeStore,
     bountyStore: stores.bountyStore,
+    goalSessionStore: stores.goalSessionStore,
     cas: deps.cas,
     workspace: deps.workspace,
     backendLabel: label,

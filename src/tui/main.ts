@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { RunningServices } from "../shared/service-lifecycle.js";
-import type { TuiDataProvider } from "./provider.js";
+import type { SessionRecord, TuiDataProvider } from "./provider.js";
 import {
   backendLabel,
   checkNexusHealth,
@@ -206,6 +206,7 @@ async function loadPresetList(): Promise<
 async function buildAppProps(
   effectiveGrove: string | undefined,
   opts: { intervalMs: number; url?: string | undefined; nexus?: string | undefined },
+  presetName?: string,
 ): Promise<{
   appProps: import("./app.js").AppProps;
   provider: TuiDataProvider;
@@ -268,10 +269,35 @@ async function buildAppProps(
   }
 
   return {
-    appProps: { provider, intervalMs: opts.intervalMs, tmux, topology },
+    appProps: { provider, intervalMs: opts.intervalMs, tmux, topology, presetName },
     provider,
     stopGc,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Post-startup skill update
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire-and-forget update of SKILL.md with actual server URLs.
+ *
+ * Called after services start so that AI agent skill files point at
+ * the running grove server and MCP endpoints.
+ */
+function updateSkillAfterStartup(): void {
+  const serverPort = process.env.PORT ?? "4515";
+  const mcpPort = process.env.MCP_PORT ?? "4015";
+  void import("../cli/commands/skill.js")
+    .then(({ handleSkillInstall }) =>
+      handleSkillInstall({
+        serverUrl: `http://localhost:${serverPort}`,
+        mcpUrl: `http://localhost:${mcpPort}`,
+      }),
+    )
+    .catch(() => {
+      /* skill update is best-effort */
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +335,22 @@ export async function handleTui(
       groveInfo = { name: parsed.name ?? "unnamed", preset: parsed.preset ?? "unknown" };
     } catch {
       // grove.json unreadable — treat as no grove info
+    }
+  }
+
+  // Load past sessions for the welcome screen (informational context)
+  let sessions: SessionRecord[] = [];
+  if (groveDir) {
+    try {
+      const { createSqliteStores } = await import("../local/sqlite-store.js");
+      const dbPath = join(groveDir, "grove.db");
+      if (existsSync(dbPath)) {
+        const stores = createSqliteStores(dbPath);
+        sessions = [...(await stores.goalSessionStore.listSessions())];
+        stores.close();
+      }
+    } catch {
+      // Sessions are optional context — don't block startup
     }
   }
 
@@ -363,9 +405,12 @@ export async function handleTui(
         });
       }
 
-      const result = await buildAppProps(effectiveGrove, opts);
+      const result = await buildAppProps(effectiveGrove, opts, groveInfo?.preset);
       activeProvider = result.provider;
       activeStopGc = result.stopGc;
+
+      // Post-startup: update agent skill SKILL.md (non-blocking)
+      updateSkillAfterStartup();
 
       const { App } = await import("./app.js");
       root.render(React.createElement(App, result.appProps));
@@ -402,9 +447,13 @@ export async function handleTui(
         nexusSource: serviceOpts?.nexusSource,
       });
 
-      const result = await buildAppProps(effectiveGrove, opts);
+      const result = await buildAppProps(effectiveGrove, opts, presetName);
       activeProvider = result.provider;
       activeStopGc = result.stopGc;
+
+      // Post-startup: update agent skill SKILL.md (non-blocking)
+      updateSkillAfterStartup();
+
       return result.appProps;
     };
 
@@ -421,9 +470,13 @@ export async function handleTui(
         onProgress,
       });
 
-      const result = await buildAppProps(effectiveGrove, opts);
+      const result = await buildAppProps(effectiveGrove, opts, groveInfo?.preset);
       activeProvider = result.provider;
       activeStopGc = result.stopGc;
+
+      // Post-startup: update agent skill SKILL.md (non-blocking)
+      updateSkillAfterStartup();
+
       return result.appProps;
     };
 
@@ -442,6 +495,7 @@ export async function handleTui(
         groveExists,
         groveInfo,
         presets,
+        sessions,
         onInit,
         onStart,
         onConnect,

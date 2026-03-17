@@ -27,8 +27,12 @@ function keyEvent(name: string, opts?: { ctrl?: boolean; shift?: boolean }): Key
     sequence: name,
     raw: name,
     eventType: "keypress",
-    preventDefault: () => {},
-    stopPropagation: () => {},
+    preventDefault: () => {
+      /* noop */
+    },
+    stopPropagation: () => {
+      /* noop */
+    },
   } as unknown as KeyEvent;
 }
 
@@ -105,6 +109,9 @@ function mockActions(overrides?: {
     onMessageSubmit: () => record("onMessageSubmit"),
     onMessageChar: (char) => record("onMessageChar", char),
     onMessageBackspace: () => record("onMessageBackspace"),
+    onGoalSubmit: () => record("onGoalSubmit"),
+    onGoalChar: (char) => record("onGoalChar", char),
+    onGoalBackspace: () => record("onGoalBackspace"),
     onBroadcastMode: () => record("onBroadcastMode"),
     onDirectMessageMode: () => record("onDirectMessageMode"),
     onApproveQuestion: () => record("onApproveQuestion"),
@@ -118,6 +125,7 @@ function mockActions(overrides?: {
     onTerminalScrollUp: () => record("onTerminalScrollUp"),
     onTerminalScrollDown: () => record("onTerminalScrollDown"),
     onTerminalScrollBottom: () => record("onTerminalScrollBottom"),
+    onLayoutToggle: () => record("onLayoutToggle"),
     onSelect: (index) => record("onSelect", index),
     rowCount: overrides?.rowCount ?? 10,
     pageSize: 20,
@@ -224,10 +232,10 @@ describe("routeKey — normal mode misc", () => {
     expect(log.args["panels.setMode"]).toEqual([InputMode.Help]);
   });
 
-  test("+ cycles zoom", () => {
+  test("+ toggles layout", () => {
     const { actions, log } = mockActions();
     routeKey(keyEvent("+"), actions);
-    expect(log.calls).toContain("onZoomCycle");
+    expect(log.calls).toContain("onLayoutToggle");
   });
 
   test("j/k navigate cursor", () => {

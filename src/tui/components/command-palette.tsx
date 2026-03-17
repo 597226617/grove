@@ -15,8 +15,8 @@ import { theme } from "../theme.js";
 
 /** A single actionable entry in the palette. */
 export interface PaletteItem {
-  readonly kind: "spawn" | "kill" | "register" | "delegate";
-  /** For spawn: role name. For kill: session name. For delegate: peerId. */
+  readonly kind: "spawn" | "kill" | "register" | "delegate" | "goal";
+  /** For spawn: role name. For kill: session name. For delegate: peerId. Optional for goal. */
   readonly id: string;
   readonly label: string;
   readonly enabled: boolean;
@@ -65,8 +65,20 @@ export function buildPaletteItems(
   parentAgentId?: string | undefined,
   gossipPeers?: readonly { peerId: string; address: string; freeSlots: number }[] | undefined,
   agentProfiles?: readonly LoadedProfile[] | undefined,
+  hasGoals?: boolean | undefined,
 ): readonly PaletteItem[] {
   const items: PaletteItem[] = [];
+
+  // Goal management — only when provider supports goals
+  if (hasGoals) {
+    items.push({
+      label: "Set goal",
+      detail: "Set or update the session goal for all agents",
+      kind: "goal",
+      id: "set-goal",
+      enabled: true,
+    });
+  }
 
   // Register item — always available at the top
   items.push({
