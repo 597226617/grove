@@ -53,16 +53,7 @@ export const researchLoopPreset: PresetConfig = {
     defaultLeaseSeconds: 600,
     maxLeaseSeconds: 3600,
   },
-  seedContributions: [
-    {
-      kind: "work",
-      mode: "evaluation",
-      summary: "Baseline model with initial val_bpb measurement",
-      tags: ["seed", "baseline"],
-      agentId: "researcher-seed",
-      role: "researcher",
-    },
-  ],
+  seedContributions: [],
   services: { server: true, mcp: false },
   backend: "local",
   features: {

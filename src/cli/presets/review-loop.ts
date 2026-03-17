@@ -39,24 +39,7 @@ export const reviewLoopPreset: PresetConfig = {
     defaultLeaseSeconds: 300,
     maxLeaseSeconds: 900,
   },
-  seedContributions: [
-    {
-      kind: "work",
-      mode: "exploration",
-      summary: "Initial implementation scaffold",
-      tags: ["seed", "scaffold"],
-      agentId: "coder-seed",
-      role: "coder",
-    },
-    {
-      kind: "review",
-      mode: "exploration",
-      summary: "Review: architecture looks solid, add error handling",
-      tags: ["seed", "review"],
-      agentId: "reviewer-seed",
-      role: "reviewer",
-    },
-  ],
+  seedContributions: [],
   services: { server: true, mcp: false },
   backend: "nexus",
   features: {

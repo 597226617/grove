@@ -61,16 +61,7 @@ export const swarmOpsPreset: PresetConfig = {
     heartbeatIntervalSeconds: 120,
     stallTimeoutSeconds: 300,
   },
-  seedContributions: [
-    {
-      kind: "work",
-      mode: "evaluation",
-      summary: "Project setup and initial task breakdown",
-      tags: ["seed", "setup"],
-      agentId: "coordinator-seed",
-      role: "coordinator",
-    },
-  ],
+  seedContributions: [],
   services: { server: true, mcp: true },
   backend: "nexus",
   features: {

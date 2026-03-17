@@ -32,9 +32,9 @@ const CLAIM_COLUMNS = [
 
 const CONTRIBUTION_COLUMNS = [
   { header: "CID", key: "cid", width: 22 },
-  { header: "KIND", key: "kind", width: 14 },
-  { header: "SUMMARY", key: "summary", width: 40 },
-  { header: "AGENT", key: "agent", width: 16 },
+  { header: "KIND", key: "kind", width: 10 },
+  { header: "SUMMARY", key: "summary", width: 32 },
+  { header: "AGENT", key: "agent", width: 14 },
   { header: "CREATED", key: "created", width: 12 },
 ] as const;
 
@@ -89,7 +89,7 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
     const contributionRows = recentContributions.map((c) => ({
       cid: truncateCid(c.cid),
       kind: c.kind,
-      summary: c.summary.length > 40 ? `${c.summary.slice(0, 38)}..` : c.summary,
+      summary: c.summary.length > 32 ? `${c.summary.slice(0, 30)}..` : c.summary,
       agent: c.agent.agentName ?? c.agent.agentId,
       created: formatTimestamp(c.createdAt),
     }));
@@ -109,7 +109,7 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
           {activeClaims.length === 0 ? (
             <EmptyState
               title="No active claims."
-              hint="Claims prevent duplicate work. Agents create them automatically when spawned."
+              hint="Spawn agents with Ctrl+P. Claims are created automatically to prevent duplicate work."
             />
           ) : (
             <Table columns={[...CLAIM_COLUMNS]} rows={claimRows} />
@@ -136,7 +136,14 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
 
         <box flexDirection="column">
           <text>{`Recent Contributions (${recentContributions.length})`}</text>
-          <Table columns={[...CONTRIBUTION_COLUMNS]} rows={contributionRows} cursor={cursor} />
+          {contributionRows.length === 0 ? (
+            <EmptyState
+              title="Grove dashboard. Shows active claims and recent contributions."
+              hint="Spawn agents with Ctrl+P or run grove contribute to publish work."
+            />
+          ) : (
+            <Table columns={[...CONTRIBUTION_COLUMNS]} rows={contributionRows} cursor={cursor} />
+          )}
         </box>
       </box>
     );

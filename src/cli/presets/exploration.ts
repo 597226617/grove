@@ -48,24 +48,7 @@ export const explorationPreset: PresetConfig = {
     maxActiveClaims: 6,
     maxClaimsPerAgent: 1,
   },
-  seedContributions: [
-    {
-      kind: "work",
-      mode: "exploration",
-      summary: "Initial problem statement and exploration space",
-      tags: ["seed", "problem-statement"],
-      agentId: "explorer-seed",
-      role: "explorer",
-    },
-    {
-      kind: "discussion",
-      mode: "exploration",
-      summary: "Key constraints and evaluation criteria",
-      tags: ["seed", "constraints"],
-      agentId: "critic-seed",
-      role: "critic",
-    },
-  ],
+  seedContributions: [],
   services: { server: true, mcp: false },
   backend: "nexus",
   features: {

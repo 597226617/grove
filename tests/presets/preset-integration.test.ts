@@ -210,13 +210,9 @@ describe("review-loop preset", () => {
     expect(contract.execution?.defaultLeaseSeconds).toBe(300);
     expect(contract.execution?.maxLeaseSeconds).toBe(900);
 
-    // 4. Validate seed contributions
+    // 4. Validate no seed contributions (empty seedContributions)
     const count = await countContributions(dir);
-    expect(count).toBe(2); // coder scaffold + reviewer feedback
-    const contributions = await listContributions(dir);
-    const summaries = contributions.map((c) => c.summary);
-    expect(summaries).toContain("Initial implementation scaffold");
-    expect(summaries).toContain("Review: architecture looks solid, add error handling");
+    expect(count).toBe(0);
   });
 
   test("GROVE.md topology roles have correct commands for claude agent", () => {
@@ -275,9 +271,9 @@ describe("exploration preset", () => {
     expect(contract.topology?.roles).toHaveLength(3);
     expect(contract.concurrency?.maxActiveClaims).toBe(6);
 
-    // 2 seed contributions: problem statement + constraints
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(2);
+    expect(count).toBe(0);
   });
 });
 
@@ -377,11 +373,9 @@ describe("swarm-ops preset", () => {
     expect(contract.concurrency?.maxActiveClaims).toBe(8);
     expect(contract.concurrency?.maxClaimsPerAgent).toBe(2);
 
-    // 1 seed contribution
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(1);
-    const contributions = await listContributions(dir);
-    expect(contributions[0].summary).toBe("Project setup and initial task breakdown");
+    expect(count).toBe(0);
   });
 
   test("nexus preset inference returns 'shared' for swarm-ops", () => {
@@ -477,11 +471,9 @@ describe("research-loop preset", () => {
     expect(contract.topology?.structure).toBe("graph");
     expect(contract.topology?.roles).toHaveLength(2);
 
-    // 1 seed contribution (baseline)
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(1);
-    const contributions = await listContributions(dir);
-    expect(contributions[0].summary).toBe("Baseline model with initial val_bpb measurement");
+    expect(count).toBe(0);
   });
 
   test("nexus preset inference returns 'local' for research-loop", () => {
@@ -550,9 +542,9 @@ describe("pr-review preset", () => {
     expect(contract.execution?.defaultLeaseSeconds).toBe(300);
     expect(contract.execution?.maxLeaseSeconds).toBe(600);
 
-    // 1 seed contribution
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(1);
+    expect(count).toBe(0);
   });
 });
 
@@ -969,12 +961,12 @@ describe("Cross-preset comparisons", () => {
 
   test("seed contribution counts match expected", () => {
     const expected: Record<string, number> = {
-      "review-loop": 2, // coder + reviewer
-      exploration: 2, // explorer + critic
-      "swarm-ops": 1, // coordinator
-      "research-loop": 1, // researcher baseline
-      "pr-review": 1, // reviewer
-      "federated-swarm": 0, // no seeds
+      "review-loop": 0,
+      exploration: 0,
+      "swarm-ops": 0,
+      "research-loop": 0,
+      "pr-review": 0,
+      "federated-swarm": 0,
     };
 
     const registry = getPresetRegistry();

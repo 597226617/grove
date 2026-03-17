@@ -104,8 +104,8 @@ export const DagView: React.NamedExoticComponent<DagProps> = React.memo(function
   if (dagLines.length === 0) {
     return (
       <EmptyState
-        title="No contributions yet."
-        hint="Spawn an agent (Ctrl+P) or run grove contribute to get started."
+        title="Contribution graph showing agent work."
+        hint="Spawn agents with Ctrl+P to see activity here. Each node is a contribution linked to its parents."
       />
     );
   }
@@ -148,7 +148,10 @@ export const DagView: React.NamedExoticComponent<DagProps> = React.memo(function
             <text opacity={0.5}>{line.graphPrefix}</text>
             {isNodeLine && (
               <>
-                <text color={isSelected ? theme.focus : color}> {line.label}</text>
+                <text color={isSelected ? theme.focus : color}>
+                  {" "}
+                  {line.label.length > 50 ? `${line.label.slice(0, 48)}..` : line.label}
+                </text>
                 {outcome && (
                   <>
                     <text> </text>

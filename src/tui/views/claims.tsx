@@ -102,8 +102,8 @@ export const ClaimsView: React.NamedExoticComponent<ClaimsProps> = React.memo(fu
       </box>
       {rows.length === 0 ? (
         <EmptyState
-          title="No active claims."
-          hint="Claims prevent duplicate work. Agents create them automatically when spawned."
+          title="Active work claims. Claims prevent agents from duplicating each other's work."
+          hint="Spawn agents with Ctrl+P. Each agent automatically claims work before starting."
         />
       ) : (
         <Table columns={[...COLUMNS]} rows={rows} cursor={cursor} />
