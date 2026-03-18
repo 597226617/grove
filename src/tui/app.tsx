@@ -37,6 +37,7 @@ import {
   isGoalProvider,
   type TuiDataProvider,
 } from "./provider.js";
+import { FileSessionStore } from "./session-store.js";
 import { SpawnManager } from "./spawn-manager.js";
 
 /** Props for the root App component. */
@@ -47,6 +48,8 @@ export interface AppProps {
   readonly topology?: import("../core/topology.js").AgentTopology | undefined;
   /** Preset name — used for per-preset panel visibility filtering. */
   readonly presetName?: string | undefined;
+  /** Resolved .grove directory path for session persistence. */
+  readonly groveDir?: string | undefined;
 }
 
 const PAGE_SIZE = 20;
@@ -217,6 +220,7 @@ export function App({
   tmux,
   topology,
   presetName,
+  groveDir,
 }: AppProps): React.ReactNode {
   const renderer = useRenderer();
   const nav = useNavigation();
@@ -290,8 +294,24 @@ export function App({
   // SpawnManager handles workspace/claim/heartbeat lifecycle
   const spawnManagerRef = useRef<SpawnManager | undefined>(undefined);
   if (spawnManagerRef.current === undefined) {
-    spawnManagerRef.current = new SpawnManager(provider, tmux, showError);
+    // Use the resolved groveDir from props for session persistence
+    let sessionStore: FileSessionStore | undefined;
+    if (groveDir) {
+      try {
+        sessionStore = new FileSessionStore(groveDir);
+      } catch {
+        // Session persistence is best-effort
+      }
+    }
+    spawnManagerRef.current = new SpawnManager(provider, tmux, showError, sessionStore);
   }
+
+  // Reconcile persisted sessions on startup (reattach live, clean dead)
+  useEffect(() => {
+    spawnManagerRef.current?.reconcile().catch(() => {
+      // Reconciliation is best-effort — don't block TUI startup
+    });
+  }, []);
 
   // Cleanup timers on unmount
   useEffect(() => {

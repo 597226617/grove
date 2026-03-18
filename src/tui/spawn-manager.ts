@@ -12,6 +12,7 @@ import { safeCleanup } from "../shared/safe-cleanup.js";
 import type { SpawnOptions, TmuxManager } from "./agents/tmux-manager.js";
 import { agentIdFromSession } from "./agents/tmux-manager.js";
 import type { TuiDataProvider } from "./provider.js";
+import type { PersistedSpawnRecord, SessionStore } from "./session-store.js";
 
 /** Lease duration for TUI-spawned agent claims. */
 const LEASE_DURATION_MS = 300_000; // 5 minutes
@@ -52,6 +53,7 @@ export class SpawnManager {
   private readonly heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly spawnRecords = new Map<string, SpawnRecord>();
   private readonly onError: (message: string) => void;
+  private readonly sessionStore: SessionStore | undefined;
   private prContext: PrContext | undefined;
 
   /** Overridable heartbeat interval for testing. */
@@ -61,10 +63,12 @@ export class SpawnManager {
     provider: TuiDataProvider,
     tmux: TmuxManager | undefined,
     onError: (message: string) => void,
+    sessionStore?: SessionStore,
   ) {
     this.provider = provider;
     this.tmux = tmux;
     this.onError = onError;
+    this.sessionStore = sessionStore;
   }
 
   /**
@@ -117,6 +121,8 @@ export class SpawnManager {
         intentSummary: `TUI-spawned: ${command}`,
         leaseDurationMs: LEASE_DURATION_MS,
         context: {
+          tuiSpawned: true,
+          spawnId,
           workspacePath,
           ...(parentAgentId !== undefined ? { parentAgentId, depth } : {}),
           ...context,
@@ -171,6 +177,16 @@ export class SpawnManager {
         targetRef: spawnId,
         agentId: spawnId,
       });
+
+      // Step 5: Persist spawn record to session store for crash recovery.
+      this.sessionStore?.save({
+        spawnId,
+        claimId: claim.claimId,
+        targetRef: spawnId,
+        agentId: spawnId,
+        workspacePath,
+        spawnedAt: new Date().toISOString(),
+      });
     }
 
     return {
@@ -198,6 +214,7 @@ export class SpawnManager {
     if (tracked) {
       this.stopHeartbeat(tracked.claimId);
       this.spawnRecords.delete(killedAgentId);
+      this.sessionStore?.remove(killedAgentId);
 
       if (this.provider.releaseClaim) {
         await safeCleanup(
@@ -241,6 +258,112 @@ export class SpawnManager {
   /** Get the spawn record for an agentId (for testing). */
   getSpawnRecord(agentId: string): SpawnRecord | undefined {
     return this.spawnRecords.get(agentId);
+  }
+
+  /**
+   * Reconcile persisted session state with live tmux sessions.
+   *
+   * Called on TUI startup to recover from crashes. Uses two data sources:
+   * 1. Local file store (.grove/tui-sessions.json) — fast, survives crashes
+   * 2. Claim store (SQLite/Nexus) — authoritative, survives machine migration
+   *
+   * For each persisted record:
+   * - Live tmux session → reattach (restore in-memory state + restart heartbeat)
+   * - Dead tmux session → release claim + clean workspace + remove record
+   */
+  async reconcile(): Promise<{ reattached: number; released: number }> {
+    // Collect records from local file store
+    const fileRecords = this.sessionStore?.loadAll() ?? [];
+
+    // Also query claims with tuiSpawned context as Nexus-backed fallback.
+    // This catches records that survive across machines or when the local
+    // file store is lost (e.g., different checkout, wiped .grove).
+    const claimRecords = await this.loadRecordsFromClaims();
+
+    // Merge: file records take precedence (more fields), claim records fill gaps
+    const seen = new Set<string>();
+    const allRecords: PersistedSpawnRecord[] = [];
+    for (const r of fileRecords) {
+      seen.add(r.spawnId);
+      allRecords.push(r);
+    }
+    for (const r of claimRecords) {
+      if (!seen.has(r.spawnId)) {
+        allRecords.push(r);
+      }
+    }
+
+    if (allRecords.length === 0) return { reattached: 0, released: 0 };
+
+    // Get live tmux sessions
+    const liveSessions = (await this.tmux?.listSessions()) ?? [];
+    const liveSet = new Set(liveSessions);
+
+    let reattached = 0;
+    let released = 0;
+
+    for (const record of allRecords) {
+      const tmuxName = `grove-${record.spawnId}`;
+      if (liveSet.has(tmuxName)) {
+        // Re-attach: restore in-memory state + restart heartbeat
+        this.spawnRecords.set(record.spawnId, {
+          claimId: record.claimId,
+          targetRef: record.targetRef,
+          agentId: record.agentId,
+        });
+        this.startHeartbeat(record.claimId);
+        reattached++;
+      } else {
+        // Dead session: release claim + clean workspace + remove record
+        if (this.provider.releaseClaim) {
+          await safeCleanup(
+            this.provider.releaseClaim(record.claimId),
+            `release orphaned claim ${record.claimId}`,
+            { silent: true },
+          );
+        }
+        if (this.provider.cleanWorkspace) {
+          await safeCleanup(
+            this.provider.cleanWorkspace(record.targetRef, record.agentId),
+            `clean orphaned workspace for ${record.spawnId}`,
+            { silent: true },
+          );
+        }
+        this.sessionStore?.remove(record.spawnId);
+        released++;
+      }
+    }
+
+    return { reattached, released };
+  }
+
+  /**
+   * Query active claims with `tuiSpawned: true` context and convert to
+   * PersistedSpawnRecords. This is the Nexus-backed recovery path.
+   */
+  private async loadRecordsFromClaims(): Promise<readonly PersistedSpawnRecord[]> {
+    try {
+      const claims = await this.provider.getClaims({ status: "active" });
+      const records: PersistedSpawnRecord[] = [];
+      for (const claim of claims) {
+        const ctx = claim.context as Record<string, unknown> | undefined;
+        if (ctx?.tuiSpawned === true && typeof ctx.spawnId === "string") {
+          records.push({
+            spawnId: ctx.spawnId as string,
+            claimId: claim.claimId,
+            targetRef: claim.targetRef,
+            agentId: claim.agent.agentId,
+            workspacePath:
+              typeof ctx.workspacePath === "string" ? (ctx.workspacePath as string) : "",
+            spawnedAt: claim.createdAt,
+          });
+        }
+      }
+      return records;
+    } catch {
+      // Claims query may fail (e.g., Nexus unreachable) — degrade gracefully
+      return [];
+    }
   }
 
   /** Stop all timers and clear state. */
