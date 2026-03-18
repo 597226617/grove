@@ -230,17 +230,8 @@ async function buildAppProps(
         }
         throw new Error(`Nexus at ${backend.url} is unreachable (${health})`);
       }
-      const reason =
-        health === "auth_required"
-          ? "requires authentication"
-          : health === "not_nexus"
-            ? "endpoint not found (not a Nexus server?)"
-            : health === "server_error"
-              ? "server error"
-              : "unreachable";
-      process.stderr.write(
-        `Warning: Nexus at ${backend.url} ${reason}, falling back to local mode\n`,
-      );
+      // Suppress stderr in TUI mode — the fallback is silent.
+      // The warning would corrupt the alternate screen.
       backend = { mode: "local", groveOverride: effectiveGrove, source: "default" };
     }
   }
@@ -426,6 +417,7 @@ export async function handleTui(
     const onInit = async (
       presetName: string,
       groveName: string,
+      onProgress?: (step: string) => void,
     ): Promise<import("./app.js").AppProps> => {
       const { executeInit } = await import("../cli/commands/init.js");
       await executeInit({
@@ -433,7 +425,7 @@ export async function handleTui(
         mode: "evaluation",
         seed: [],
         metric: [],
-        force: false,
+        force: true,
         agentOverrides: {},
         cwd: process.cwd(),
         preset: presetName,
@@ -445,6 +437,8 @@ export async function handleTui(
         groveDir: newGroveDir,
         build: serviceOpts?.build,
         nexusSource: serviceOpts?.nexusSource,
+        onProgress,
+        force: true,
       });
 
       const result = await buildAppProps(effectiveGrove, opts, presetName);

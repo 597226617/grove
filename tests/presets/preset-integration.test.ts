@@ -24,11 +24,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeInit, type InitOptions } from "../../src/cli/commands/init.js";
-import {
-  DEFAULT_NEXUS_URL,
-  inferNexusPreset,
-  readNexusUrl,
-} from "../../src/cli/nexus-lifecycle.js";
+import { inferNexusPreset, readNexusUrl } from "../../src/cli/nexus-lifecycle.js";
 import { getPreset, getPresetRegistry, listPresetNames } from "../../src/cli/presets/index.js";
 import { type GroveConfig, parseGroveConfig } from "../../src/core/config.js";
 import { type GroveContract, parseGroveContract } from "../../src/core/contract.js";
@@ -91,7 +87,7 @@ async function countContributions(dir: string): Promise<number> {
 }
 
 /** List contributions from SQLite DB */
-async function listContributions(dir: string) {
+async function _listContributions(dir: string) {
   const { initSqliteDb, SqliteContributionStore } = await import("../../src/local/sqlite-store.js");
   const db = initSqliteDb(join(dir, ".grove", "grove.db"));
   const store = new SqliteContributionStore(db);
@@ -159,7 +155,7 @@ describe("review-loop preset", () => {
     expect(preset).toBeDefined();
     expect(preset.mode).toBe("exploration");
     expect(preset.backend).toBe("nexus");
-    expect(preset.services).toEqual({ server: true, mcp: false });
+    expect(preset.services).toEqual({ server: true, mcp: true });
     expect(preset.topology?.structure).toBe("graph");
     expect(preset.topology?.roles).toHaveLength(2);
     expect(preset.topology?.roles.map((r) => r.name)).toEqual(["coder", "reviewer"]);
@@ -193,7 +189,7 @@ describe("review-loop preset", () => {
     expect(config.mode).toBe("nexus");
     expect(config.preset).toBe("review-loop");
     expect(config.nexusManaged).toBe(true);
-    expect(config.services).toEqual({ server: true, mcp: false });
+    expect(config.services).toEqual({ server: true, mcp: true });
     // nexusUrl should NOT be set for managed nexus (discovered at runtime)
     expect(config.nexusUrl).toBeUndefined();
 
@@ -210,19 +206,15 @@ describe("review-loop preset", () => {
     expect(contract.execution?.defaultLeaseSeconds).toBe(300);
     expect(contract.execution?.maxLeaseSeconds).toBe(900);
 
-    // 4. Validate seed contributions
+    // 4. Validate no seed contributions (empty seedContributions)
     const count = await countContributions(dir);
-    expect(count).toBe(2); // coder scaffold + reviewer feedback
-    const contributions = await listContributions(dir);
-    const summaries = contributions.map((c) => c.summary);
-    expect(summaries).toContain("Initial implementation scaffold");
-    expect(summaries).toContain("Review: architecture looks solid, add error handling");
+    expect(count).toBe(0);
   });
 
   test("GROVE.md topology roles have correct commands for claude agent", () => {
     const preset = getPreset("review-loop")!;
     for (const role of preset.topology?.roles) {
-      expect(role.command).toMatch(/^claude --role/);
+      expect(role.command).toMatch(/^claude --dangerously-skip-permissions/);
     }
   });
 });
@@ -275,9 +267,9 @@ describe("exploration preset", () => {
     expect(contract.topology?.roles).toHaveLength(3);
     expect(contract.concurrency?.maxActiveClaims).toBe(6);
 
-    // 2 seed contributions: problem statement + constraints
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(2);
+    expect(count).toBe(0);
   });
 });
 
@@ -377,11 +369,9 @@ describe("swarm-ops preset", () => {
     expect(contract.concurrency?.maxActiveClaims).toBe(8);
     expect(contract.concurrency?.maxClaimsPerAgent).toBe(2);
 
-    // 1 seed contribution
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(1);
-    const contributions = await listContributions(dir);
-    expect(contributions[0].summary).toBe("Project setup and initial task breakdown");
+    expect(count).toBe(0);
   });
 
   test("nexus preset inference returns 'shared' for swarm-ops", () => {
@@ -403,7 +393,7 @@ describe("research-loop preset", () => {
     const preset = getPreset("research-loop")!;
     expect(preset.mode).toBe("evaluation");
     expect(preset.backend).toBe("local"); // NOT nexus
-    expect(preset.services).toEqual({ server: true, mcp: false });
+    expect(preset.services).toEqual({ server: true, mcp: true });
     expect(preset.topology?.structure).toBe("graph");
     expect(preset.topology?.roles.map((r) => r.name)).toEqual(["researcher", "evaluator"]);
   });
@@ -450,7 +440,7 @@ describe("research-loop preset", () => {
     expect(config.preset).toBe("research-loop");
     expect(config.nexusManaged).toBeUndefined();
     expect(config.nexusUrl).toBeUndefined();
-    expect(config.services).toEqual({ server: true, mcp: false });
+    expect(config.services).toEqual({ server: true, mcp: true });
 
     // GROVE.md
     const contract = readGroveMd(dir);
@@ -477,11 +467,9 @@ describe("research-loop preset", () => {
     expect(contract.topology?.structure).toBe("graph");
     expect(contract.topology?.roles).toHaveLength(2);
 
-    // 1 seed contribution (baseline)
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(1);
-    const contributions = await listContributions(dir);
-    expect(contributions[0].summary).toBe("Baseline model with initial val_bpb measurement");
+    expect(count).toBe(0);
   });
 
   test("nexus preset inference returns 'local' for research-loop", () => {
@@ -540,7 +528,7 @@ describe("pr-review preset", () => {
     expect(config.mode).toBe("nexus");
     expect(config.preset).toBe("pr-review");
     expect(config.nexusManaged).toBe(true);
-    expect(config.services).toEqual({ server: true, mcp: false });
+    expect(config.services).toEqual({ server: true, mcp: true });
 
     const contract = readGroveMd(dir);
     expect(contract.contractVersion).toBe(3);
@@ -550,9 +538,9 @@ describe("pr-review preset", () => {
     expect(contract.execution?.defaultLeaseSeconds).toBe(300);
     expect(contract.execution?.maxLeaseSeconds).toBe(600);
 
-    // 1 seed contribution
+    // no seed contributions
     const count = await countContributions(dir);
-    expect(count).toBe(1);
+    expect(count).toBe(0);
   });
 });
 
@@ -657,7 +645,7 @@ describe("Topology schema validation", () => {
 // ============================================================================
 
 describe("Nexus lifecycle", () => {
-  test("inferNexusPreset returns 'shared' only for swarm-ops", () => {
+  test("inferNexusPreset returns 'shared' for all nexus-mode presets", () => {
     const presets = getPresetRegistry();
     for (const [name, preset] of Object.entries(presets)) {
       const nexusPreset = inferNexusPreset({
@@ -665,7 +653,7 @@ describe("Nexus lifecycle", () => {
         mode: preset.backend === "nexus" ? "nexus" : "local",
         preset: name,
       });
-      if (name === "swarm-ops") {
+      if (preset.backend === "nexus") {
         expect(nexusPreset).toBe("shared");
       } else {
         expect(nexusPreset).toBe("local");
@@ -673,10 +661,9 @@ describe("Nexus lifecycle", () => {
     }
   });
 
-  test("readNexusUrl returns default when nexus.yaml doesn't exist", () => {
+  test("readNexusUrl returns undefined when nexus.yaml doesn't exist", () => {
     const url = readNexusUrl("/nonexistent/path");
-    expect(url).toBe(DEFAULT_NEXUS_URL);
-    expect(url).toBe("http://localhost:2026");
+    expect(url).toBeUndefined();
   });
 
   test("readNexusUrl parses port from nexus.yaml", async () => {
@@ -696,13 +683,13 @@ zone: default
     expect(url).toBe("http://localhost:3456");
   });
 
-  test("readNexusUrl falls back to default for malformed nexus.yaml", async () => {
+  test("readNexusUrl returns undefined for malformed nexus.yaml", async () => {
     const dir = await createTempDir("nexus-yaml-malformed");
 
     writeFileSync(join(dir, "nexus.yaml"), "garbage: true\n", "utf-8");
 
     const url = readNexusUrl(dir);
-    expect(url).toBe(DEFAULT_NEXUS_URL);
+    expect(url).toBeUndefined();
   });
 
   test("all nexus-backend presets set nexusManaged when no --nexus-url given", async () => {
@@ -892,14 +879,10 @@ describe("CLI E2E smoke tests", () => {
 // ============================================================================
 
 describe("Cross-preset comparisons", () => {
-  test("only swarm-ops enables MCP service", () => {
+  test("all presets enable MCP service", () => {
     const registry = getPresetRegistry();
-    for (const [name, preset] of Object.entries(registry)) {
-      if (name === "swarm-ops") {
-        expect(preset.services.mcp).toBe(true);
-      } else {
-        expect(preset.services.mcp).toBe(false);
-      }
+    for (const [_name, preset] of Object.entries(registry)) {
+      expect(preset.services.mcp).toBe(true);
     }
   });
 
@@ -969,12 +952,12 @@ describe("Cross-preset comparisons", () => {
 
   test("seed contribution counts match expected", () => {
     const expected: Record<string, number> = {
-      "review-loop": 2, // coder + reviewer
-      exploration: 2, // explorer + critic
-      "swarm-ops": 1, // coordinator
-      "research-loop": 1, // researcher baseline
-      "pr-review": 1, // reviewer
-      "federated-swarm": 0, // no seeds
+      "review-loop": 0,
+      exploration: 0,
+      "swarm-ops": 0,
+      "research-loop": 0,
+      "pr-review": 0,
+      "federated-swarm": 0,
     };
 
     const registry = getPresetRegistry();

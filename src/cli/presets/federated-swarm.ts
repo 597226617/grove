@@ -32,7 +32,7 @@ export const federatedSwarmPreset: PresetConfig = {
     defaultLeaseSeconds: 300,
     maxLeaseSeconds: 1800,
   },
-  services: { server: true, mcp: false },
+  services: { server: true, mcp: true },
   backend: "nexus",
   features: {
     gossip: { delegateSpawning: true },

@@ -207,10 +207,9 @@ describe("E2E: review-loop", () => {
     expect(groveMd).toContain("coder");
     expect(groveMd).toContain("reviewer");
 
-    // Log should show seed contributions
+    // Log should succeed (no seed contributions expected)
     const log = await grove(dir, "log");
     expect(log.exitCode).toBe(0);
-    expect(log.stdout).toContain("Initial implementation scaffold");
 
     // Contribute work
     const contribute = await grove(
@@ -372,10 +371,9 @@ describe("E2E: research-loop (local)", () => {
     expect(groveMd).toContain("researcher");
     expect(groveMd).toContain("evaluator");
 
-    // Seed contribution exists
+    // No seed contributions (empty seedContributions)
     const log = await groveLocal(dir, "log");
     expect(log.exitCode).toBe(0);
-    expect(log.stdout).toContain("Baseline model");
 
     // Contribute as researcher
     const contribute = await groveLocal(

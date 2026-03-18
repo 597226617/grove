@@ -44,9 +44,9 @@ interface FrontierRow {
 const COLUMNS = [
   { header: "RANK", key: "rank", width: 6, align: "right" as const },
   { header: "CID", key: "cid", width: 22 },
-  { header: "METRIC", key: "metric", width: 16 },
-  { header: "VALUE", key: "value", width: 12, align: "right" as const },
-  { header: "SUMMARY", key: "summary", width: 36 },
+  { header: "METRIC", key: "metric", width: 14 },
+  { header: "VALUE", key: "value", width: 10, align: "right" as const },
+  { header: "SUMMARY", key: "summary", width: 28 },
 ] as const;
 
 /** Flatten a Frontier into ranked rows for table display. */
@@ -191,13 +191,13 @@ export const FrontierView: React.NamedExoticComponent<FrontierViewProps> = React
         cid: `${prefix}${truncateCid(r.cid)}`,
         metric: r.metric,
         value: formatValue(r.value),
-        summary: r.summary.length > 36 ? `${r.summary.slice(0, 34)}..` : r.summary,
+        summary: r.summary.length > 28 ? `${r.summary.slice(0, 26)}..` : r.summary,
       };
     });
 
     return (
       <box flexDirection="column">
-        <box marginBottom={1}>
+        <box marginBottom={1} flexDirection="row">
           <text>Frontier Rankings</text>
           {compareMode && <text color={theme.compare}> [COMPARE]</text>}
           <DataStatus loading={loading && !data} isStale={isStale} error={error?.message} />
@@ -209,7 +209,10 @@ export const FrontierView: React.NamedExoticComponent<FrontierViewProps> = React
           ) : null}
         </box>
         {tableRows.length === 0 ? (
-          <EmptyState title="Rankings appear when agents publish scored contributions." />
+          <EmptyState
+            title="Ranked leaderboard of best contributions."
+            hint="Rankings appear as agents publish scored work. Spawn agents with Ctrl+P to begin."
+          />
         ) : (
           <Table columns={[...COLUMNS]} rows={tableRows} cursor={cursor} />
         )}

@@ -41,17 +41,8 @@ export const prReviewPreset: PresetConfig = {
     defaultLeaseSeconds: 300,
     maxLeaseSeconds: 600,
   },
-  seedContributions: [
-    {
-      kind: "work",
-      mode: "exploration",
-      summary: "PR context imported — ready for review",
-      tags: ["seed", "pr-context"],
-      agentId: "reviewer-seed",
-      role: "reviewer",
-    },
-  ],
-  services: { server: true, mcp: false },
+  seedContributions: [],
+  services: { server: true, mcp: true },
   backend: "nexus",
   features: {
     github: { autoDetectPR: true },

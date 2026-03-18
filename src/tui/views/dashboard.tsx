@@ -32,9 +32,9 @@ const CLAIM_COLUMNS = [
 
 const CONTRIBUTION_COLUMNS = [
   { header: "CID", key: "cid", width: 22 },
-  { header: "KIND", key: "kind", width: 14 },
-  { header: "SUMMARY", key: "summary", width: 40 },
-  { header: "AGENT", key: "agent", width: 16 },
+  { header: "KIND", key: "kind", width: 10 },
+  { header: "SUMMARY", key: "summary", width: 32 },
+  { header: "AGENT", key: "agent", width: 14 },
   { header: "CREATED", key: "created", width: 12 },
 ] as const;
 
@@ -89,28 +89,27 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
     const contributionRows = recentContributions.map((c) => ({
       cid: truncateCid(c.cid),
       kind: c.kind,
-      summary: c.summary.length > 40 ? `${c.summary.slice(0, 38)}..` : c.summary,
+      summary: c.summary.length > 32 ? `${c.summary.slice(0, 30)}..` : c.summary,
       agent: c.agent.agentName ?? c.agent.agentId,
       created: formatTimestamp(c.createdAt),
     }));
 
     return (
       <box flexDirection="column">
-        <box marginBottom={1}>
+        <box marginBottom={1} flexDirection="row">
           <text color={theme.success}>{metadata.name}</text>
           <text opacity={0.5}>
             {"  "}
-            {metadata.backendLabel} contributions:{metadata.contributionCount} claims:
-            {metadata.activeClaimCount}
+            {`${metadata.backendLabel} contributions:${metadata.contributionCount} claims:${metadata.activeClaimCount}`}
           </text>
         </box>
 
         <box flexDirection="column" marginBottom={1}>
-          <text>Active Claims ({activeClaims.length})</text>
+          <text>{`Active Claims (${activeClaims.length})`}</text>
           {activeClaims.length === 0 ? (
             <EmptyState
               title="No active claims."
-              hint="Claims prevent duplicate work. Agents create them automatically when spawned."
+              hint="Spawn agents with Ctrl+P. Claims are created automatically to prevent duplicate work."
             />
           ) : (
             <Table columns={[...CLAIM_COLUMNS]} rows={claimRows} />
@@ -121,23 +120,30 @@ export const DashboardView: React.NamedExoticComponent<DashboardProps> = React.m
           <box flexDirection="column" marginBottom={1}>
             <text>Frontier</text>
             {frontierSummary.topByMetric.map((m) => (
-              <text key={m.metric}>
-                <text color={theme.review}>{m.metric}</text>: {truncateCid(m.cid)} {m.summary} (
-                {m.value.toFixed(2)})
-              </text>
+              <box key={m.metric} flexDirection="row">
+                <text color={theme.review}>{m.metric}</text>
+                <text>{`: ${truncateCid(m.cid)} ${m.summary} (${m.value.toFixed(2)})`}</text>
+              </box>
             ))}
             {frontierSummary.topByAdoption.map((a) => (
-              <text key={a.cid}>
-                <text color={theme.adoption}>adoption</text>: {truncateCid(a.cid)} {a.summary} (
-                {a.count} refs)
-              </text>
+              <box key={a.cid} flexDirection="row">
+                <text color={theme.adoption}>adoption</text>
+                <text>{`: ${truncateCid(a.cid)} ${a.summary} (${a.count} refs)`}</text>
+              </box>
             ))}
           </box>
         )}
 
         <box flexDirection="column">
-          <text>Recent Contributions ({recentContributions.length})</text>
-          <Table columns={[...CONTRIBUTION_COLUMNS]} rows={contributionRows} cursor={cursor} />
+          <text>{`Recent Contributions (${recentContributions.length})`}</text>
+          {contributionRows.length === 0 ? (
+            <EmptyState
+              title="Grove dashboard. Shows active claims and recent contributions."
+              hint="Spawn agents with Ctrl+P or run grove contribute to publish work."
+            />
+          ) : (
+            <Table columns={[...CONTRIBUTION_COLUMNS]} rows={contributionRows} cursor={cursor} />
+          )}
         </box>
       </box>
     );
