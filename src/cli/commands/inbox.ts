@@ -122,17 +122,23 @@ async function handleRead(args: readonly string[], groveOverride?: string): Prom
   const deps = initCliDeps(process.cwd(), groveOverride);
 
   try {
-    // Scope to current agent's inbox by default — resolve agent identity
-    // and filter to messages addressed to this agent (by @agentId or @all).
+    // Scope to current agent's inbox — match messages addressed to this
+    // agent's ID handle (@agentId), role handle (@role), or broadcast (@all).
     const agent = resolveAgent();
-    const recipient = `@${agent.agentId}`;
+    const myHandles = new Set([`@${agent.agentId}`]);
+    if (agent.role) myHandles.add(`@${agent.role}`);
+    myHandles.add("@all");
 
-    const messages = await readInbox(deps.store, {
-      recipient,
+    const allMessages = await readInbox(deps.store, {
       fromAgentId: values.from as string | undefined,
       since: values.since as string | undefined,
-      limit: values.limit !== undefined ? Number(values.limit) : undefined,
+      limit: values.limit !== undefined ? Number(values.limit) * 3 : undefined,
     });
+
+    const limit = values.limit !== undefined ? Number(values.limit) : 50;
+    const messages = allMessages
+      .filter((m) => m.recipients.some((r) => myHandles.has(r)))
+      .slice(0, limit);
 
     if (values.json) {
       outputJson(messages);
