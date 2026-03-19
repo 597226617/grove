@@ -125,22 +125,16 @@ async function handleRead(args: readonly string[], groveOverride?: string): Prom
     // Scope to current agent's inbox — match messages addressed to this
     // agent's ID handle (@agentId), role handle (@role), or broadcast (@all).
     const agent = resolveAgent();
-    const myHandles = new Set([`@${agent.agentId}`]);
-    if (agent.role) myHandles.add(`@${agent.role}`);
-    myHandles.add("@all");
+    const myHandles = [`@${agent.agentId}`];
+    if (agent.role) myHandles.push(`@${agent.role}`);
+    myHandles.push("@all");
 
-    // Fetch all messages (no limit) so recipient filtering doesn't miss
-    // older messages buried under unrelated traffic in the store.
-    const allMessages = await readInbox(deps.store, {
+    const messages = await readInbox(deps.store, {
+      recipients: myHandles,
       fromAgentId: values.from as string | undefined,
       since: values.since as string | undefined,
-      limit: 10_000,
+      limit: values.limit !== undefined ? Number(values.limit) : undefined,
     });
-
-    const limit = values.limit !== undefined ? Number(values.limit) : 50;
-    const messages = allMessages
-      .filter((m) => m.recipients.some((r) => myHandles.has(r)))
-      .slice(0, limit);
 
     if (values.json) {
       outputJson(messages);
