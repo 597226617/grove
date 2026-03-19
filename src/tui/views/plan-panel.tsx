@@ -48,7 +48,7 @@ export const PlanPanelView: React.NamedExoticComponent<PlanPanelProps> = React.m
     cursor,
   }: PlanPanelProps): React.ReactNode {
     const fetcher = useCallback(
-      () => provider.getActivity({ kind: "plan" as Contribution["kind"], limit: 1 }),
+      () => provider.getActivity({ kind: "plan" as Contribution["kind"] }),
       [provider],
     );
     const { data, loading } = usePolledData<readonly Contribution[]>(fetcher, intervalMs, active);
@@ -61,8 +61,9 @@ export const PlanPanelView: React.NamedExoticComponent<PlanPanelProps> = React.m
       );
     }
 
+    // list() returns ASC order — take the last entry for the newest plan
     const contributions = data ?? [];
-    const latest = contributions[0];
+    const latest = contributions.length > 0 ? contributions[contributions.length - 1] : undefined;
     if (!latest) {
       return (
         <box>

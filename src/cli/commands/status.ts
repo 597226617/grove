@@ -35,12 +35,12 @@ export async function runStatus(opts: { json: boolean }, deps: CliDeps): Promise
   const frontier = await deps.frontier.compute({ limit: 3 });
   const topEntries = frontier.byRecency.slice(0, 3);
 
-  // Latest plan
+  // Latest plan — list() returns ASC order, so take the last entry
   const planContributions = await deps.store.list({
     kind: ContributionKind.Plan,
-    limit: 1,
   });
-  const latestPlan = planContributions[0];
+  const latestPlan =
+    planContributions.length > 0 ? planContributions[planContributions.length - 1] : undefined;
 
   if (opts.json) {
     const planTasks = latestPlan?.context?.tasks as
