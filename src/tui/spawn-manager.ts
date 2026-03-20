@@ -198,14 +198,25 @@ export class SpawnManager {
           }
         : {};
 
-      // Compose the agent command with the session goal as initial prompt.
-      // e.g., "claude" becomes 'claude "Session goal: X. Your role (coder): Y."'
-      // This triggers Claude Code to start working immediately.
+      // Compose the agent command with auto-approve flags and session goal.
+      // claude → claude --dangerously-skip-permissions "prompt"
+      // codex  → codex --full-auto "prompt"
       let agentCommand = command;
-      if (this.sessionGoal) {
-        const roleDesc = context?.roleDescription ? String(context.roleDescription) : roleId;
-        const prompt = `Session goal: ${this.sessionGoal}. Your role (${roleId}): ${roleDesc}. Read CLAUDE.md for full instructions.`;
-        agentCommand = `${command} "${prompt.replace(/"/g, '\\"')}"`;
+      {
+        // Add auto-approve flags based on agent CLI
+        const baseCmd = command.split(/\s+/)[0] ?? command;
+        if (baseCmd === "claude") {
+          agentCommand = `${command} --dangerously-skip-permissions`;
+        } else if (baseCmd === "codex") {
+          agentCommand = `${command} --full-auto`;
+        }
+
+        // Append session goal as initial prompt
+        if (this.sessionGoal) {
+          const roleDesc = context?.roleDescription ? String(context.roleDescription) : roleId;
+          const prompt = `Session goal: ${this.sessionGoal}. Your role (${roleId}): ${roleDesc}. Read CLAUDE.md for full instructions.`;
+          agentCommand = `${agentCommand} "${prompt.replace(/"/g, '\\"')}"`;
+        }
       }
 
       const options: SpawnOptions = {
