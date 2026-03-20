@@ -212,10 +212,17 @@ export class SpawnManager {
           agentCommand = `${command} --full-auto`;
         }
 
-        // Append session goal as initial prompt
+        // Append session goal as initial prompt with explicit workflow
         if (this.sessionGoal) {
           const roleDesc = context?.roleDescription ? String(context.roleDescription) : roleId;
-          const prompt = `Session goal: ${this.sessionGoal}. Your role (${roleId}): ${roleDesc}. Read CLAUDE.md for full instructions.`;
+          let prompt: string;
+          if (roleId === "coder" || roleDesc.toLowerCase().includes("code") || roleDesc.toLowerCase().includes("implement")) {
+            prompt = `${this.sessionGoal}. You MUST: 1) Write the actual code 2) Create a new git branch 3) Commit and push 4) Create a PR with gh pr create 5) Call grove_contribute with kind=work and include the PR number in context 6) Call grove_done when finished.`;
+          } else if (roleId === "reviewer" || roleDesc.toLowerCase().includes("review")) {
+            prompt = `${this.sessionGoal}. You are the reviewer. Wait for the coder to create a PR first — check grove_log for work contributions with PR numbers. Then: 1) Read the PR diff with gh pr diff <number> 2) Review the code 3) Leave a review on GitHub with gh pr review 4) Call grove_contribute with kind=review 5) Call grove_done when finished.`;
+          } else {
+            prompt = `${this.sessionGoal}. Your role (${roleId}): ${roleDesc}. Read CLAUDE.md for instructions.`;
+          }
           agentCommand = `${agentCommand} "${prompt.replace(/"/g, '\\"')}"`;
         }
       }
