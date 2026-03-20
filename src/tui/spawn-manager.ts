@@ -196,32 +196,10 @@ export class SpawnManager {
       throw spawnErr;
     }
 
-    // Step 4: Send initial prompt (role goal + session goal).
-    // The agent receives this as its first message and starts working.
-    const sessionName = `grove-${spawnId}`;
-    const roleDesc = context?.roleDescription ? String(context.roleDescription) : `Fulfill the ${roleId} role`;
-    const roleInstr = context?.rolePrompt ? String(context.rolePrompt) : "";
-    const goalLine = this.sessionGoal ? `Session goal: ${this.sessionGoal}` : "";
-    const initialPrompt = [goalLine, `Your role (${roleId}): ${roleDesc}`, roleInstr]
-      .filter(Boolean)
-      .join(". ");
-
-    if (initialPrompt && this.tmux) {
-      // Small delay to let the agent CLI initialize before sending.
-      // Send prompt text + Enter via raw tmux command (sendKeys doesn't
-      // append Enter automatically).
-      setTimeout(() => {
-        const proc = Bun.spawn(
-          ["tmux", "send-keys", "-t", sessionName, initialPrompt, "Enter"],
-          { stdout: "pipe", stderr: "pipe" },
-        );
-        void proc.exited.catch(() => {
-          // Non-fatal — agent may not be ready yet
-        });
-      }, 5000);
-    }
-
-    // Step 5: Start heartbeat + record tracking info.
+    // Step 4: Start heartbeat + record tracking info.
+    // No initial prompt is sent — the agent reads CLAUDE.md in its workspace
+    // for role instructions and session goal. Communication happens via
+    // Nexus IPC and the grove DAG, not tmux send-keys.
     if (claim) {
       this.startHeartbeat(claim.claimId);
       this.spawnRecords.set(spawnId, {
@@ -466,27 +444,31 @@ export class SpawnManager {
   ): Promise<void> {
     const roleDescription = context?.roleDescription ?? "";
     const rolePrompt = context?.rolePrompt ?? "";
+    const goal = this.sessionGoal ?? "";
 
     const instructions = `# Grove Agent: ${roleId}
 
+${goal ? `## Session Goal\n${goal}\n` : ""}
 ## Your Role
 ${roleDescription}
 
 ${rolePrompt ? `## Instructions\n${rolePrompt}\n` : ""}
 
-## Grove MCP Tools
+## How This Works
 
-You have grove MCP tools available. Use them to participate in the session:
+You are part of a multi-agent grove session. You have grove MCP tools available:
 
 - \`grove_contribute\` — record your work (kind=work), reviews (kind=review), or questions (kind=ask_user)
-- \`grove_review\` — review another agent's contribution
-- \`grove_log\` — see recent contributions
+- \`grove_review\` — review another agent's contribution by CID
+- \`grove_log\` — see recent contributions from all agents
 - \`grove_frontier\` — see the best contributions
 - \`grove_search\` — search contributions
 
-You will receive notifications automatically when other agents contribute work relevant to your role.
-When you receive a notification, act on it according to your role.
-When you complete work, call \`grove_contribute\` to record it.
+You will receive notifications automatically via Nexus IPC when other agents
+contribute work relevant to your role. Act on notifications according to your role.
+When you complete work, call \`grove_contribute\` to record it in the DAG.
+
+Start by working on the session goal. Use \`grove_log\` to see what others have done.
 `;
 
     await writeFile(join(workspacePath, "CLAUDE.md"), instructions, "utf-8");
