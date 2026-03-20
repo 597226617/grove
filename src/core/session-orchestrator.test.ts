@@ -303,4 +303,106 @@ describe("SessionOrchestrator", () => {
     expect(runtime.spawnCalls[0]!.config.command).toBe("claude");
     bus.close();
   });
+
+  test("all agents idle triggers auto-stop", async () => {
+    const runtime = new MockRuntime();
+    const bus = new LocalEventBus();
+    const orchestrator = new SessionOrchestrator({
+      goal: "Build auth module",
+      contract: makeContract(),
+      runtime,
+      eventBus: bus,
+      projectRoot: "/tmp",
+      workspaceBaseDir: "/tmp/workspaces",
+    });
+
+    const status = await orchestrator.start();
+    expect(status.stopped).toBe(false);
+
+    // Set all agent sessions to idle
+    for (const agent of status.agents) {
+      runtime.setSessionStatus(agent.session.id, "idle");
+    }
+
+    // Trigger idle check
+    const stopped = await orchestrator.checkIdleCompletion();
+    expect(stopped).toBe(true);
+
+    const finalStatus = orchestrator.getStatus();
+    expect(finalStatus.stopped).toBe(true);
+    expect(finalStatus.stopReason).toBe("All agents idle — session complete");
+    bus.close();
+  });
+
+  test("checkIdleCompletion returns false when agents are still running", async () => {
+    const runtime = new MockRuntime();
+    const bus = new LocalEventBus();
+    const orchestrator = new SessionOrchestrator({
+      goal: "Build auth module",
+      contract: makeContract(),
+      runtime,
+      eventBus: bus,
+      projectRoot: "/tmp",
+      workspaceBaseDir: "/tmp/workspaces",
+    });
+
+    await orchestrator.start();
+
+    // Agents are still running — should not stop
+    const stopped = await orchestrator.checkIdleCompletion();
+    expect(stopped).toBe(false);
+    expect(orchestrator.getStatus().stopped).toBe(false);
+    bus.close();
+  });
+
+  test("resumeAgent spawns new session and sends reconciliation message", async () => {
+    const runtime = new MockRuntime();
+    const bus = new LocalEventBus();
+    const orchestrator = new SessionOrchestrator({
+      goal: "Build auth module",
+      contract: makeContract(),
+      runtime,
+      eventBus: bus,
+      projectRoot: "/tmp",
+      workspaceBaseDir: "/tmp/workspaces",
+    });
+
+    await orchestrator.start();
+    const initialSpawnCount = runtime.spawnCalls.length;
+    const initialSendCount = runtime.sendCalls.length;
+
+    // Resume the coder role
+    const resumed = await orchestrator.resumeAgent("coder");
+
+    expect(resumed.role).toBe("coder");
+    // Should have spawned a new session
+    expect(runtime.spawnCalls.length).toBe(initialSpawnCount + 1);
+    // Should have sent goal + reconciliation message
+    expect(runtime.sendCalls.length).toBe(initialSendCount + 1);
+    expect(runtime.sendCalls[runtime.sendCalls.length - 1]!.message).toContain(
+      "resuming role 'coder'",
+    );
+
+    // The agent list should still have 2 agents (replaced, not duplicated)
+    expect(orchestrator.getStatus().agents).toHaveLength(2);
+    bus.close();
+  });
+
+  test("resumeAgent throws for unknown role", async () => {
+    const runtime = new MockRuntime();
+    const bus = new LocalEventBus();
+    const orchestrator = new SessionOrchestrator({
+      goal: "Build auth module",
+      contract: makeContract(),
+      runtime,
+      eventBus: bus,
+      projectRoot: "/tmp",
+      workspaceBaseDir: "/tmp/workspaces",
+    });
+
+    await orchestrator.start();
+
+    await expect(orchestrator.resumeAgent("nonexistent")).rejects.toThrow("not found in topology");
+    bus.close();
+  });
 });

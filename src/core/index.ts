@@ -202,6 +202,14 @@ export type {
   AgentSessionInfo,
 } from "./session-orchestrator.js";
 export { SessionOrchestrator } from "./session-orchestrator.js";
+export {
+  extractChoices,
+  extractQuestion,
+  findPendingQuestions,
+  formatAskUser,
+  isAskUser,
+  isResponse,
+} from "./ask-user-detection.js";
 export { type SpawnOptions, type SpawnResult, spawnCommand, spawnOrThrow } from "./subprocess.js";
 export { toUtcIso } from "./time.js";
 export type {

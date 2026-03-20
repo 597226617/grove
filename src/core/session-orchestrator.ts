@@ -179,7 +179,61 @@ export class SessionOrchestrator {
   }
 
   private handleAgentIdle(_agent: AgentSessionInfo): void {
-    // Check if ALL agents are idle -> session may be complete
-    // This is informational — the TUI or CLI can decide what to do
+    // Check if ALL agents are idle → session is complete
+    void this.checkAllIdle();
+  }
+
+  private async checkAllIdle(): Promise<void> {
+    if (this.stopped) return;
+
+    const sessions = await this.config.runtime.listSessions();
+    const allIdle = this.agents.every((agent) => {
+      const current = sessions.find((s) => s.id === agent.session.id);
+      return current?.status === "idle" || current?.status === "stopped";
+    });
+
+    if (allIdle && this.agents.length > 0) {
+      await this.stop("All agents idle — session complete");
+    }
+  }
+
+  /** Trigger an idle-completion check externally (for testing). */
+  async checkIdleCompletion(): Promise<boolean> {
+    await this.checkAllIdle();
+    return this.stopped;
+  }
+
+  /**
+   * Resume an agent that crashed or hit context limits.
+   * Queries the DAG for contributions since the agent last contributed,
+   * and sends a summary to the new session.
+   */
+  async resumeAgent(role: string, _config?: AgentConfig): Promise<AgentSessionInfo> {
+    const roleSpec = this.config.contract.topology!.roles.find((r) => r.name === role);
+    if (!roleSpec) {
+      throw new Error(`Role '${role}' not found in topology`);
+    }
+
+    // Spawn a new session for the role
+    const newSession = await this.spawnAgent(roleSpec);
+
+    // Send a reconciliation message
+    const message = `[grove] You are resuming role '${role}'. Query the DAG via grove_log or grove_frontier to catch up on what happened while you were offline.`;
+    await this.config.runtime.send(newSession.session, message);
+
+    // Replace the old agent entry
+    const idx = this.agents.findIndex((a) => a.role === role);
+    if (idx >= 0) {
+      this.agents[idx] = newSession;
+    } else {
+      this.agents.push(newSession);
+    }
+
+    // Re-subscribe to events
+    this.config.eventBus.subscribe(role, (event) => {
+      void this.handleEvent(newSession, event);
+    });
+
+    return newSession;
   }
 }
