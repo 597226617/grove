@@ -140,6 +140,8 @@ const ContributionKindEnum = z.enum([
   "adoption",
   "reproduction",
   "plan",
+  "ask_user",
+  "response",
 ]);
 
 const AgentConstraintsSchema = z
@@ -158,6 +160,8 @@ const AgentConstraintsSchema = z
         adoption: ArtifactRequirementsSchema.optional(),
         reproduction: ArtifactRequirementsSchema.optional(),
         plan: ArtifactRequirementsSchema.optional(),
+        ask_user: ArtifactRequirementsSchema.optional(),
+        response: ArtifactRequirementsSchema.optional(),
       })
       .strict()
       .optional(),
@@ -169,6 +173,8 @@ const AgentConstraintsSchema = z
         adoption: RelationRequirementsSchema.optional(),
         reproduction: RelationRequirementsSchema.optional(),
         plan: RelationRequirementsSchema.optional(),
+        ask_user: RelationRequirementsSchema.optional(),
+        response: RelationRequirementsSchema.optional(),
       })
       .strict()
       .optional(),

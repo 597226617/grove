@@ -90,11 +90,19 @@ export type {
   TransferResult,
 } from "./credits.js";
 export { EnforcingClaimStore, EnforcingContributionStore } from "./enforcing-store.js";
+export type {
+  DerivedOutcome,
+  PolicyEnforcementResult,
+  PolicyViolation,
+  StopCheckResult,
+} from "./policy-enforcer.js";
+export { PolicyEnforcer } from "./policy-enforcer.js";
 export {
   ArtifactLimitError,
   ConcurrencyLimitError,
   GroveError,
   LeaseViolationError,
+  PolicyViolationError,
   RateLimitError,
   RetryExhaustedError,
 } from "./errors.js";
