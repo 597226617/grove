@@ -400,10 +400,13 @@ export class SpawnManager {
   private async writeMcpConfig(workspacePath: string): Promise<void> {
     // Resolve the .grove directory — workspaces live under .grove/workspaces/
     const groveDir = join(workspacePath, "..", "..");
+    // Resolve the project root (parent of .grove) for finding src/mcp/serve.ts
+    const projectRoot = join(groveDir, "..");
     const mcpConfig = {
       mcpServers: {
         grove: {
-          command: "grove-mcp",
+          command: "bun",
+          args: ["run", join(projectRoot, "src", "mcp", "serve.ts")],
           env: {
             GROVE_DIR: groveDir,
           },
