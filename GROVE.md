@@ -53,15 +53,17 @@ agent_topology:
   roles:
     - name: coder
       description: "Writes and iterates on code"
+      prompt: "Write the code for the session goal. Keep changes minimal — one file, under 100 lines. Create a git branch, commit, push, and create a PR with gh pr create. Then call grove_contribute(kind=work) with the PR number in context. Call grove_done when finished."
       max_instances: 1
-      command: "claude --dangerously-skip-permissions"
+      command: "claude"
       edges:
         - target: reviewer
           edge_type: delegates
     - name: reviewer
       description: "Reviews code and provides feedback"
+      prompt: "Check grove_log for work contributions with PR numbers. Read the PR diff with gh pr diff. Review the code quality. Leave a GitHub review with gh pr review. Call grove_contribute(kind=review) with your assessment. Call grove_done when finished."
       max_instances: 1
-      command: "claude --dangerously-skip-permissions"
+      command: "claude"
       edges:
         - target: coder
           edge_type: feedback
