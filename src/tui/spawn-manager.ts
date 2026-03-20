@@ -207,12 +207,18 @@ export class SpawnManager {
       .join(". ");
 
     if (initialPrompt && this.tmux) {
-      // Small delay to let the agent CLI initialize before sending
+      // Small delay to let the agent CLI initialize before sending.
+      // Send prompt text + Enter via raw tmux command (sendKeys doesn't
+      // append Enter automatically).
       setTimeout(() => {
-        this.tmux?.sendKeys(sessionName, initialPrompt).catch(() => {
+        const proc = Bun.spawn(
+          ["tmux", "send-keys", "-t", sessionName, initialPrompt, "Enter"],
+          { stdout: "pipe", stderr: "pipe" },
+        );
+        void proc.exited.catch(() => {
           // Non-fatal — agent may not be ready yet
         });
-      }, 3000);
+      }, 5000);
     }
 
     // Step 5: Start heartbeat + record tracking info.
