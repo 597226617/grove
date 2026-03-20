@@ -65,7 +65,7 @@ export function parseExportDagArgs(argv: string[]): ExportDagOptions {
     throw new Error(`Invalid depth: '${values.depth}'. Must be a positive integer.`);
   }
 
-  const limit = values.n !== undefined ? parseLimit(values.n, undefined) : undefined;
+  const limit = values.n !== undefined ? Number(values.n) : undefined;
 
   return {
     kind: values.kind,

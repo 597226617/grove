@@ -233,9 +233,11 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
       }));
     }, []);
 
-    // Screen 2 -> Screen 3: agents detected, continue
+    // Screen 2 -> Screen 3: agents detected, continue with edited prompts
+    const rolePromptsRef = useRef<Map<string, string>>(new Map());
     const handleAgentDetectContinue = useCallback(
-      (detected: Map<string, boolean>, roleMapping: Map<string, string>) => {
+      (detected: Map<string, boolean>, roleMapping: Map<string, string>, rolePrompts: Map<string, string>) => {
+        rolePromptsRef.current = rolePrompts;
         setState((s) => ({
           ...s,
           screen: "goal-input",
@@ -276,15 +278,16 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
             });
         }
 
-        // Auto-spawn all roles from topology
+        // Auto-spawn all roles from topology with user-edited prompts
         if (topology) {
-          // Set session goal so agents receive it as their initial prompt
           spawnManagerRef.current?.setSessionGoal(goal);
 
           for (const role of topology.roles) {
             const command = role.command ?? "claude";
             const context: Record<string, unknown> = {};
-            if (role.prompt) context.rolePrompt = role.prompt;
+            // Use user-edited prompt from Screen 2, fall back to GROVE.md
+            const editedPrompt = rolePromptsRef.current.get(role.name);
+            context.rolePrompt = editedPrompt ?? role.prompt ?? "";
             if (role.description) context.roleDescription = role.description;
 
             void spawnManagerRef.current?.spawn(role.name, command, undefined, 0, context).catch(() => {
