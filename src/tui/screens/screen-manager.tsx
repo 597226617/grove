@@ -12,7 +12,7 @@
 
 import { useRenderer } from "@opentui/react";
 import { useKeyboard } from "@opentui/react";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AppProps } from "../app.js";
 import { App } from "../app.js";
 import type { SessionRecord } from "../provider.js";
@@ -111,6 +111,74 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
 
     // Track session start time for duration calculation
     const sessionStartRef = useRef<number>(Date.now());
+
+    // ---------------------------------------------------------------------------
+    // Global permission prompt detection — works across ALL screens
+    // ---------------------------------------------------------------------------
+    const [pendingPermissions, setPendingPermissions] = useState<
+      Array<{ sessionName: string; agentRole: string; command: string }>
+    >([]);
+
+    const tmux = appProps.tmux;
+    useEffect(() => {
+      if (!tmux) return;
+      const timer = setInterval(async () => {
+        try {
+          const sessions = await tmux.listSessions();
+          const prompts: Array<{ sessionName: string; agentRole: string; command: string }> = [];
+          for (const sess of sessions) {
+            if (!sess.startsWith("grove-")) continue;
+            const pane = await tmux.capturePanes(sess);
+            if (pane.includes("Do you want to proceed")) {
+              const lines = pane.split("\n");
+              let cmd = "";
+              for (const line of lines) {
+                const t = line.trim();
+                if (t && !t.startsWith("Permission") && !t.startsWith("Do you") && !t.startsWith("❯") && !t.startsWith("Esc") && !t.startsWith("1.") && !t.startsWith("2.")) {
+                  cmd = t;
+                }
+              }
+              const role = sess.replace("grove-", "").replace(/-[a-z0-9]+$/i, "");
+              prompts.push({ sessionName: sess, agentRole: role, command: cmd.slice(0, 80) });
+            }
+          }
+          setPendingPermissions(prompts);
+        } catch {
+          // Non-fatal
+        }
+      }, 2000);
+      return () => clearInterval(timer);
+    }, [tmux]);
+
+    // Global y/n keybinding for permission approval — works on any screen
+    useKeyboard(
+      useCallback(
+        (key) => {
+          if (pendingPermissions.length === 0) return;
+          if (key.name === "y") {
+            const prompt = pendingPermissions[0];
+            if (prompt) {
+              const proc = Bun.spawn(
+                ["tmux", "send-keys", "-t", prompt.sessionName, "Enter"],
+                { stdout: "pipe", stderr: "pipe" },
+              );
+              void proc.exited;
+            }
+          }
+          if (key.name === "n") {
+            const prompt = pendingPermissions[0];
+            if (prompt) {
+              const proc = Bun.spawn(
+                ["tmux", "send-keys", "-t", prompt.sessionName, "Escape"],
+                { stdout: "pipe", stderr: "pipe" },
+              );
+              void proc.exited;
+            }
+          }
+        },
+        [pendingPermissions],
+      ),
+    );
 
     const handleQuit = useCallback(() => {
       spawnManagerRef.current?.destroy();
@@ -222,8 +290,42 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
     }, []);
 
     // ---------------------------------------------------------------------------
-    // Render current screen
+    // Permission bar (rendered above the current screen when prompts exist)
     // ---------------------------------------------------------------------------
+    const permissionBar =
+      pendingPermissions.length > 0 ? (
+        <box
+          flexDirection="column"
+          marginX={2}
+          borderStyle="single"
+          borderColor={theme.warning}
+          paddingX={1}
+        >
+          <text color={theme.warning} bold>
+            Permission Request ({pendingPermissions.length})
+          </text>
+          {pendingPermissions.map((p) => (
+            <box key={p.sessionName} flexDirection="row">
+              <text color={theme.focus}>{p.agentRole}</text>
+              <text color={theme.muted}> wants to run: </text>
+              <text color={theme.text}>{p.command}</text>
+            </box>
+          ))}
+          <text color={theme.dimmed}>y:approve  n:deny</text>
+        </box>
+      ) : null;
+
+    // ---------------------------------------------------------------------------
+    // Render current screen (with permission bar overlay)
+    // ---------------------------------------------------------------------------
+
+    // Wrap screen content with global permission bar
+    const wrapWithPermissions = (content: React.ReactNode): React.ReactNode => (
+      <box flexDirection="column" width="100%" height="100%">
+        {permissionBar}
+        <box flexGrow={1}>{content}</box>
+      </box>
+    );
 
     switch (state.screen) {
       case "preset-select":
@@ -255,7 +357,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
         );
 
       case "running":
-        return (
+        return wrapWithPermissions(
           <RunningView
             provider={provider}
             intervalMs={appProps.intervalMs}
@@ -266,7 +368,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
             onToggleAdvanced={handleToggleAdvanced}
             onComplete={handleComplete}
             onQuit={handleQuit}
-          />
+          />,
         );
 
       case "complete":
@@ -282,10 +384,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
         );
 
       case "advanced":
-        // Render the full boardroom App; Tab in App will need to be handled
-        // by the App component itself or by wrapping it. For now, render App
-        // with a back-button hint at the top.
-        return (
+        return wrapWithPermissions(
           <box flexDirection="column" width="100%" height="100%">
             <box paddingX={2}>
               <text color={theme.dimmed}>Ctrl+B:back to simple view</text>
@@ -296,7 +395,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
                 onBack={() => setState((s) => ({ ...s, screen: "running" }))}
               />
             </box>
-          </box>
+          </box>,
         );
 
       default:
