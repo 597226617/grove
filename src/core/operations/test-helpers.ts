@@ -73,6 +73,8 @@ export async function createTestOperationDeps(): Promise<TestOperationDeps> {
     },
     eventBus: undefined as unknown as NonNullable<OperationDeps["eventBus"]>,
     topologyRouter: undefined as unknown as NonNullable<OperationDeps["topologyRouter"]>,
+    hookRunner: undefined as unknown as NonNullable<OperationDeps["hookRunner"]>,
+    hookCwd: undefined as unknown as string,
   };
 
   return {

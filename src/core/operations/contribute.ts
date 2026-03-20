@@ -307,6 +307,22 @@ export async function contributeOperation(
       deps.topologyRouter.broadcastStop(policyResult.stopResult.reason ?? "Stop condition met");
     }
 
+    // --- Post-write: execute after_contribute hook (outside mutex scope) ---
+    if (
+      deps.hookRunner !== undefined &&
+      deps.hookCwd !== undefined &&
+      deps.contract !== undefined
+    ) {
+      if (deps.contract.hooks?.after_contribute !== undefined) {
+        const hookEntry = deps.contract.hooks.after_contribute;
+        // Fire and forget — hook failures don't block the contribution
+        // (accept-then-flag semantics).
+        deps.hookRunner.run(hookEntry, deps.hookCwd).catch(() => {
+          // Intentionally swallowed — hook failure is non-fatal
+        });
+      }
+    }
+
     return ok({
       cid: contribution.cid,
       kind: contribution.kind,

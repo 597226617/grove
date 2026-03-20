@@ -14,6 +14,7 @@ import type { FrontierCalculator } from "../frontier.js";
 import type { OutcomeStore } from "../outcome.js";
 import type { ClaimStore, ContributionStore } from "../store.js";
 import type { TopologyRouter } from "../topology-router.js";
+import type { HookRunner } from "../hooks.js";
 import type { WorkspaceManager } from "../workspace.js";
 
 /**
@@ -40,4 +41,8 @@ export interface OperationDeps {
   readonly eventBus?: EventBus | undefined;
   /** Optional topology router for routing contribution events to downstream agents. */
   readonly topologyRouter?: TopologyRouter | undefined;
+  /** Optional hook runner for executing after_contribute hooks. */
+  readonly hookRunner?: HookRunner | undefined;
+  /** Working directory for hook execution. */
+  readonly hookCwd?: string | undefined;
 }

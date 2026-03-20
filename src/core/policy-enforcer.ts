@@ -185,7 +185,22 @@ export class PolicyEnforcer {
       violations.push(v);
     }
 
-    // 5. Gate checks (evaluation mode only)
+    // 5. Structured evaluation enforcement (evaluation mode only)
+    if (contribution.mode === ContributionMode.Evaluation && contribution.kind === "work") {
+      const evalViolations = this.enforceEvaluation(contribution);
+      for (const v of evalViolations) {
+        if (strict) {
+          throw new PolicyViolationError({
+            violationType: v.type as "missing_score" | "missing_context" | "missing_artifact",
+            details: v.details,
+            message: v.message,
+          });
+        }
+        violations.push(v);
+      }
+    }
+
+    // 6. Gate checks (evaluation mode only)
     if (contribution.mode === ContributionMode.Evaluation && this.contract.gates !== undefined) {
       const gateViolations = await this.enforceGates(contribution);
       for (const v of gateViolations) {
@@ -357,6 +372,66 @@ export class PolicyEnforcer {
             requiredArtifact: requiredName,
             presentArtifacts: [...presentNames],
           },
+        });
+      }
+    }
+
+    return violations;
+  }
+
+  /** Enforce structured evaluation requirements from contract.evaluation. */
+  private enforceEvaluation(contribution: Contribution): PolicyViolation[] {
+    const evalConfig = this.contract.evaluation;
+    if (evalConfig === undefined) return [];
+
+    const violations: PolicyViolation[] = [];
+
+    // Required scores
+    if (evalConfig.requiredScores !== undefined) {
+      for (const scoreName of evalConfig.requiredScores) {
+        if (contribution.scores?.[scoreName] === undefined) {
+          violations.push({
+            type: "missing_score",
+            message: `Evaluation requires score '${scoreName}' but not provided`,
+            details: { score: scoreName, providedScores: Object.keys(contribution.scores ?? {}) },
+          });
+        }
+      }
+    }
+
+    // Required context fields
+    if (evalConfig.requiredContext !== undefined) {
+      for (const contextKey of evalConfig.requiredContext) {
+        if (contribution.context?.[contextKey] === undefined) {
+          violations.push({
+            type: "missing_context",
+            message: `Evaluation requires context field '${contextKey}' but not provided`,
+            details: { contextKey, providedContext: Object.keys(contribution.context ?? {}) },
+          });
+        }
+      }
+    }
+
+    // Reproducibility: required artifacts
+    if (evalConfig.reproducibility?.requireArtifacts !== undefined) {
+      for (const artifactName of evalConfig.reproducibility.requireArtifacts) {
+        if (contribution.artifacts[artifactName] === undefined) {
+          violations.push({
+            type: "missing_artifact",
+            message: `Reproducibility requires artifact '${artifactName}' but not provided`,
+            details: { artifact: artifactName, providedArtifacts: Object.keys(contribution.artifacts) },
+          });
+        }
+      }
+    }
+
+    // Reproducibility: require command in context
+    if (evalConfig.reproducibility?.requireCommand === true) {
+      if (contribution.context?.command === undefined) {
+        violations.push({
+          type: "missing_context",
+          message: "Reproducibility requires context.command but not provided",
+          details: { contextKey: "command" },
         });
       }
     }

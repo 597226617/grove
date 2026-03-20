@@ -1,6 +1,8 @@
 export type { AgentConfig, AgentRuntime, AgentSession } from "./agent-runtime.js";
+export { AcpxRuntime } from "./acpx-runtime.js";
 export { MockRuntime } from "./mock-runtime.js";
 export { SubprocessRuntime } from "./subprocess-runtime.js";
+export { TmuxRuntime } from "./tmux-runtime.js";
 export {
   canRetry,
   computeBackoffMs,
@@ -86,6 +88,8 @@ export type {
   RoleEdge,
   SpawningConfig,
   StopConditions,
+  EvaluationConfig,
+  ReproducibilityConfig,
   TargetMetric,
 } from "./contract.js";
 export { parseGroveContract, parseGroveContractObject } from "./contract.js";

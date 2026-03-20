@@ -264,6 +264,28 @@ const GossipSchema = z
   })
   .strict();
 
+const EvaluationSchema = z
+  .object({
+    required_scores: z.array(z.string().min(1).max(64)).max(50).optional(),
+    required_context: z.array(z.string().min(1).max(64)).max(50).optional(),
+    reproducibility: z
+      .object({
+        require_artifacts: z.array(z.string().min(1).max(256)).max(20).optional(),
+        require_command: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const HooksSchema = z
+  .object({
+    after_checkout: z.union([z.string().min(1), z.object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() }).strict()]).optional(),
+    before_contribute: z.union([z.string().min(1), z.object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() }).strict()]).optional(),
+    after_contribute: z.union([z.string().min(1), z.object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() }).strict()]).optional(),
+  })
+  .strict();
+
 const OutcomePolicySchema = z
   .object({
     auto_accept: z
@@ -301,6 +323,8 @@ const GroveContractV2Schema = z
     retry: RetrySchema.optional(),
     gossip: GossipSchema.optional(),
     outcome_policy: OutcomePolicySchema.optional(),
+    evaluation: EvaluationSchema.optional(),
+    hooks: HooksSchema.optional(),
     topology: AgentTopologySchema.optional(),
   })
   .strict();
@@ -326,6 +350,8 @@ const GroveContractV3Schema = z
     retry: RetrySchema.optional(),
     gossip: GossipSchema.optional(),
     outcome_policy: OutcomePolicySchema.optional(),
+    evaluation: EvaluationSchema.optional(),
+    hooks: HooksSchema.optional(),
     agent_topology: AgentTopologySchema.optional(),
   })
   .strict();
@@ -463,6 +489,19 @@ export interface OutcomePolicy {
   readonly requireManualReview?: boolean | undefined;
 }
 
+/** Structured evaluation requirements for benchmark workflows. */
+export interface EvaluationConfig {
+  readonly requiredScores?: readonly string[] | undefined;
+  readonly requiredContext?: readonly string[] | undefined;
+  readonly reproducibility?: ReproducibilityConfig | undefined;
+}
+
+/** Reproducibility requirements for evaluation contributions. */
+export interface ReproducibilityConfig {
+  readonly requireArtifacts?: readonly string[] | undefined;
+  readonly requireCommand?: boolean | undefined;
+}
+
 /** Gossip protocol configuration from GROVE.md contract. */
 export interface GossipContractConfig {
   readonly intervalSeconds?: number | undefined;
@@ -493,6 +532,8 @@ export interface GroveContract {
   readonly retry?: RetryConfig | undefined;
   readonly gossip?: GossipContractConfig | undefined;
   readonly outcomePolicy?: OutcomePolicy | undefined;
+  readonly evaluation?: EvaluationConfig | undefined;
+  readonly hooks?: import("./hooks.js").HooksConfig | undefined;
   readonly topology?: AgentTopology | undefined;
 }
 
@@ -560,6 +601,10 @@ function wireV2ToContract(wire: z.infer<typeof GroveContractV2Schema>): GroveCon
     ...(wire.outcome_policy !== undefined && {
       outcomePolicy: wireToOutcomePolicy(wire.outcome_policy),
     }),
+    ...(wire.evaluation !== undefined && {
+      evaluation: wireToEvaluation(wire.evaluation),
+    }),
+    ...(wire.hooks !== undefined && { hooks: wire.hooks }),
     ...(wire.topology !== undefined && {
       topology: wireToTopology(wire.topology),
     }),
@@ -590,6 +635,10 @@ function wireV3ToContract(wire: z.infer<typeof GroveContractV3Schema>): GroveCon
     ...(wire.outcome_policy !== undefined && {
       outcomePolicy: wireToOutcomePolicy(wire.outcome_policy),
     }),
+    ...(wire.evaluation !== undefined && {
+      evaluation: wireToEvaluation(wire.evaluation),
+    }),
+    ...(wire.hooks !== undefined && { hooks: wire.hooks }),
     ...(wire.agent_topology !== undefined && {
       topology: wireToTopology(wire.agent_topology),
     }),
@@ -781,6 +830,25 @@ function wireToGossip(
       failureTimeoutSeconds: wire.failure_timeout_seconds,
     }),
     ...(wire.digest_limit !== undefined && { digestLimit: wire.digest_limit }),
+  };
+}
+
+function wireToEvaluation(
+  wire: NonNullable<z.infer<typeof GroveContractV2Schema>["evaluation"]>,
+): EvaluationConfig {
+  return {
+    ...(wire.required_scores !== undefined && { requiredScores: wire.required_scores }),
+    ...(wire.required_context !== undefined && { requiredContext: wire.required_context }),
+    ...(wire.reproducibility !== undefined && {
+      reproducibility: {
+        ...(wire.reproducibility.require_artifacts !== undefined && {
+          requireArtifacts: wire.reproducibility.require_artifacts,
+        }),
+        ...(wire.reproducibility.require_command !== undefined && {
+          requireCommand: wire.reproducibility.require_command,
+        }),
+      },
+    }),
   };
 }
 

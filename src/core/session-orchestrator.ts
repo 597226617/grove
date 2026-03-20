@@ -162,7 +162,14 @@ export class SessionOrchestrator {
     event: GroveEvent,
   ): Promise<void> {
     if (event.type === "stop") {
-      // Stop event — don't forward, let the orchestrator handle it
+      // Auto-close session on stop event
+      if (!this.stopped) {
+        const reason =
+          typeof event.payload.reason === "string"
+            ? event.payload.reason
+            : "Stop condition met";
+        void this.stop(reason);
+      }
       return;
     }
 
