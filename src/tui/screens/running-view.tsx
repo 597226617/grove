@@ -19,6 +19,13 @@ import { isVfsProvider } from "../provider.js";
 import { BRAILLE_SPINNER, PLATFORM_COLORS, theme } from "../theme.js";
 import { VfsBrowserView } from "../views/vfs-browser.js";
 
+/** A pending permission prompt from an agent. */
+interface PermissionPrompt {
+  readonly sessionName: string;
+  readonly agentRole: string;
+  readonly command: string;
+}
+
 /** Props for the RunningView screen. */
 export interface RunningViewProps {
   readonly provider: TuiDataProvider;
@@ -26,6 +33,7 @@ export interface RunningViewProps {
   readonly topology?: AgentTopology | undefined;
   readonly goal?: string | undefined;
   readonly sessionId?: string | undefined;
+  readonly tmux?: import("../agents/tmux-manager.js").TmuxManager | undefined;
   readonly onToggleAdvanced: () => void;
   readonly onComplete: (reason: string) => void;
   readonly onQuit: () => void;
@@ -50,6 +58,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     intervalMs,
     topology,
     goal,
+    tmux,
     onToggleAdvanced,
     onComplete: _onComplete,
     onQuit,
@@ -58,6 +67,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const [showVfs, setShowVfs] = useState(false);
     const [confirmQuit, setConfirmQuit] = useState(false);
     const [spinnerFrame, setSpinnerFrame] = useState(0);
+    const [pendingPermissions, setPendingPermissions] = useState<PermissionPrompt[]>([]);
 
     // Braille spinner animation
     useEffect(() => {
@@ -66,6 +76,38 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       }, 80);
       return () => clearInterval(timer);
     }, []);
+
+    // Poll agent tmux panes for permission prompts
+    useEffect(() => {
+      if (!tmux) return;
+      const timer = setInterval(async () => {
+        try {
+          const sessions = await tmux.listSessions();
+          const prompts: PermissionPrompt[] = [];
+          for (const sess of sessions) {
+            if (!sess.startsWith("grove-")) continue;
+            const pane = await tmux.capturePanes(sess);
+            if (pane.includes("Do you want to proceed")) {
+              // Extract the command from the pane output
+              const lines = pane.split("\n");
+              let cmd = "";
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith("Permission") && !trimmed.startsWith("Do you") && !trimmed.startsWith("❯") && !trimmed.startsWith("Esc")) {
+                  cmd = trimmed;
+                }
+              }
+              const role = sess.replace("grove-", "").replace(/-[a-z0-9]+$/, "");
+              prompts.push({ sessionName: sess, agentRole: role, command: cmd.slice(0, 80) });
+            }
+          }
+          setPendingPermissions(prompts);
+        } catch {
+          // Polling errors are non-fatal
+        }
+      }, 2000);
+      return () => clearInterval(timer);
+    }, [tmux]);
 
     // Poll dashboard data
     const dashboardFetcher = useCallback(() => provider.getDashboard(), [provider]);
@@ -122,6 +164,33 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             setConfirmQuit(true);
             return;
           }
+          // y: approve permission prompt (send Enter to agent)
+          if (key.name === "y" && pendingPermissions.length > 0) {
+            const prompt = pendingPermissions[0];
+            if (prompt && tmux) {
+              void tmux.sendKeys(prompt.sessionName, "").then(() => {
+                // sendKeys doesn't send Enter — use raw tmux command
+                const proc = Bun.spawn(
+                  ["tmux", "send-keys", "-t", prompt.sessionName, "Enter"],
+                  { stdout: "pipe", stderr: "pipe" },
+                );
+                void proc.exited;
+              });
+            }
+            return;
+          }
+          // n: deny permission prompt (send Escape to agent)
+          if (key.name === "n" && pendingPermissions.length > 0) {
+            const prompt = pendingPermissions[0];
+            if (prompt && tmux) {
+              const proc = Bun.spawn(
+                ["tmux", "send-keys", "-t", prompt.sessionName, "Escape"],
+                { stdout: "pipe", stderr: "pipe" },
+              );
+              void proc.exited;
+            }
+            return;
+          }
           // j/k: scroll feed
           if (key.name === "j" || key.name === "down") {
             setCursor((c) => Math.min(c + 1, Math.max(0, feed.length - 1)));
@@ -132,7 +201,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             return;
           }
         },
-        [showVfs, confirmQuit, feed.length, onToggleAdvanced, onQuit],
+        [showVfs, confirmQuit, feed.length, onToggleAdvanced, onQuit, pendingPermissions, tmux],
       ),
     );
 
@@ -280,6 +349,29 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             })
           )}
         </box>
+
+        {/* Permission prompts from agents */}
+        {pendingPermissions.length > 0 ? (
+          <box
+            flexDirection="column"
+            marginX={2}
+            borderStyle="single"
+            borderColor={theme.warning}
+            paddingX={1}
+          >
+            <text color={theme.warning} bold>
+              Permission Request ({pendingPermissions.length})
+            </text>
+            {pendingPermissions.map((p) => (
+              <box key={p.sessionName} flexDirection="row">
+                <text color={theme.focus}>{p.agentRole}</text>
+                <text color={theme.muted}> wants to run: </text>
+                <text color={theme.text}>{p.command}</text>
+              </box>
+            ))}
+            <text color={theme.dimmed}>y:approve  n:deny</text>
+          </box>
+        ) : null}
 
         {/* Quit confirmation */}
         {confirmQuit ? (

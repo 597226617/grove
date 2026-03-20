@@ -261,6 +261,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
             topology={topology}
             goal={state.goal}
             sessionId={state.sessionId}
+            tmux={appProps.tmux}
             onToggleAdvanced={handleToggleAdvanced}
             onComplete={handleComplete}
             onQuit={handleQuit}
