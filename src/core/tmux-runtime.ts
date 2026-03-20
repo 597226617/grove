@@ -128,7 +128,7 @@ export class TmuxRuntime implements AgentRuntime {
 
   async listSessions(): Promise<readonly AgentSession[]> {
     try {
-      const output = execSync("tmux list-sessions -F #{session_name}", {
+      const output = execSync("tmux list-sessions -F '#{session_name}'", {
         encoding: "utf-8",
         stdio: "pipe",
       });
