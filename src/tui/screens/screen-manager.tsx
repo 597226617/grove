@@ -106,6 +106,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
           // errors shown in RunningView via provider polling
         },
         sessionStore,
+        appProps.groveDir,
       );
     }
 

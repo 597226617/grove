@@ -7,8 +7,10 @@
  * On tmux failure: roll back claim + workspace.
  */
 
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { AgentIdentity, Claim } from "../core/models.js";
 import { safeCleanup } from "../shared/safe-cleanup.js";
@@ -59,6 +61,7 @@ export class SpawnManager {
   private readonly sessionStore: SessionStore | undefined;
   private prContext: PrContext | undefined;
   private sessionGoal: string | undefined;
+  private groveDir: string | undefined;
 
   /** Overridable heartbeat interval for testing. */
   heartbeatIntervalMs: number = HEARTBEAT_INTERVAL_MS;
@@ -68,11 +71,13 @@ export class SpawnManager {
     tmux: TmuxManager | undefined,
     onError: (message: string) => void,
     sessionStore?: SessionStore,
+    groveDir?: string,
   ) {
     this.provider = provider;
     this.tmux = tmux;
     this.onError = onError;
     this.sessionStore = sessionStore;
+    this.groveDir = groveDir;
   }
 
   /**
@@ -116,12 +121,36 @@ export class SpawnManager {
       ...(roleId !== spawnId ? { role: roleId } : {}),
     };
 
-    // Step 1: Checkout isolated workspace.
+    // Step 1: Create git worktree for the agent.
+    // Uses a real git worktree so the agent has actual source code,
+    // can edit files, commit, push, and create PRs.
     let workspacePath: string;
-    if (this.provider.checkoutWorkspace) {
-      workspacePath = await this.provider.checkoutWorkspace(spawnId, agent);
-    } else {
-      throw new Error("Provider does not support workspace checkout");
+    {
+      // Find the project root (parent of .grove/)
+      const groveDir = this.groveDir;
+      const projectRoot = groveDir ? resolve(groveDir, "..") : process.cwd();
+      const baseDir = groveDir
+        ? join(groveDir, "workspaces")
+        : join(projectRoot, ".grove", "workspaces");
+      const branch = `grove/session/${spawnId}`;
+      workspacePath = join(baseDir, spawnId);
+
+      try {
+        if (!existsSync(baseDir)) {
+          await mkdir(baseDir, { recursive: true });
+        }
+        execSync(
+          `git worktree add "${workspacePath}" -b "${branch}" HEAD`,
+          { cwd: projectRoot, encoding: "utf-8", stdio: "pipe" },
+        );
+      } catch {
+        // Fallback to provider's bare workspace if git worktree fails
+        if (this.provider.checkoutWorkspace) {
+          workspacePath = await this.provider.checkoutWorkspace(spawnId, agent);
+        } else {
+          throw new Error("Failed to create git worktree and no fallback available");
+        }
+      }
     }
 
     // Step 2: Create claim.
@@ -481,6 +510,12 @@ When you complete work, call \`grove_contribute\` to record it in the DAG.
 When you have no more work to do, call \`grove_done\` to signal completion.
 
 Start by working on the session goal. Use \`grove_log\` to see what others have done.
+
+You are in a git worktree with the full project source code. You can:
+- Edit files, run tests, commit, and push
+- Create branches and PRs via \`gh pr create\`
+- When you finish your work, commit + push + create a PR, then call \`grove_contribute\` to record it
+- Call \`grove_done\` when you have no more work to do
 `;
 
     await writeFile(join(workspacePath, "CLAUDE.md"), instructions, "utf-8");
