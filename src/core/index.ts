@@ -192,6 +192,12 @@ export type {
   ExpireStaleOptions,
 } from "./store.js";
 export { ExpiryReason } from "./store.js";
+export type {
+  SessionConfig,
+  SessionStatus,
+  AgentSessionInfo,
+} from "./session-orchestrator.js";
+export { SessionOrchestrator } from "./session-orchestrator.js";
 export { type SpawnOptions, type SpawnResult, spawnCommand, spawnOrThrow } from "./subprocess.js";
 export { toUtcIso } from "./time.js";
 export type {
@@ -202,3 +208,27 @@ export type {
   WorkspaceQuery,
 } from "./workspace.js";
 export { WorkspaceStatus } from "./workspace.js";
+export type {
+  WorkspaceConstraints,
+  WorkspaceValidationResult,
+  WorkspaceViolation,
+} from "./workspace-validator.js";
+export { validateWorkspaceMutations } from "./workspace-validator.js";
+export type {
+  ProvisionedWorkspace,
+  SessionWorkspaces,
+  WorkspaceProvisionError,
+  WorkspaceProvisionOptions,
+} from "./workspace-provisioner.js";
+export {
+  cleanupSessionWorkspaces,
+  provisionSessionWorkspaces,
+  provisionWorkspace,
+} from "./workspace-provisioner.js";
+export type {
+  CreateSessionInput,
+  Session,
+  SessionStore,
+} from "./session-manager.js";
+export { SessionManager } from "./session-manager.js";
+export { InMemorySessionStore } from "./in-memory-session-store.js";

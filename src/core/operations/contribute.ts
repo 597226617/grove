@@ -292,6 +292,21 @@ export async function contributeOperation(
       await enforcer.persistOutcome(contribution.cid, policyResult.derivedOutcome);
     }
 
+    // --- Post-write: route events via topology (outside mutex scope) ---
+    if (deps.topologyRouter !== undefined && contribution.agent.role !== undefined) {
+      deps.topologyRouter.route(contribution.agent.role, {
+        cid: contribution.cid,
+        kind: contribution.kind,
+        summary: contribution.summary,
+        agentId: contribution.agent.agentId,
+      });
+    }
+
+    // If stop condition met, broadcast stop to all agents
+    if (policyResult?.stopResult?.stopped && deps.topologyRouter !== undefined) {
+      deps.topologyRouter.broadcastStop(policyResult.stopResult.reason ?? "Stop condition met");
+    }
+
     return ok({
       cid: contribution.cid,
       kind: contribution.kind,
