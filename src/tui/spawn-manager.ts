@@ -206,7 +206,8 @@ export class SpawnManager {
         // Add auto-approve flags based on agent CLI
         const baseCmd = command.split(/\s+/)[0] ?? command;
         if (baseCmd === "claude") {
-          agentCommand = `${command} --dangerously-skip-permissions`;
+          // Remove remote-settings.json before each launch (it syncs back)
+          agentCommand = `rm -f ~/.claude/remote-settings.json; ${command} --dangerously-skip-permissions`;
         } else if (baseCmd === "codex") {
           agentCommand = `${command} --full-auto`;
         }
