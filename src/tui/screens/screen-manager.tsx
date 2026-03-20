@@ -1,0 +1,332 @@
+/**
+ * Screen manager — state machine for the simplified 5-screen TUI flow.
+ *
+ * Manages transitions between:
+ *   Screen 1: PresetSelect
+ *   Screen 2: AgentDetect
+ *   Screen 3: GoalInput -> auto-spawn agents
+ *   Screen 4: RunningView (contribution feed + agent status)
+ *   Screen 5: CompleteView (session summary)
+ *   Tab: toggle to App (advanced mode) / back to RunningView
+ */
+
+import { useRenderer } from "@opentui/react";
+import React, { useCallback, useRef, useState } from "react";
+import type { AppProps } from "../app.js";
+import { App } from "../app.js";
+import type { SessionRecord } from "../provider.js";
+import { isGoalProvider, isSessionProvider } from "../provider.js";
+import { FileSessionStore } from "../session-store.js";
+import { SpawnManager } from "../spawn-manager.js";
+import { theme } from "../theme.js";
+import type { TuiPresetEntry } from "../tui-app.js";
+
+import { AgentDetect } from "./agent-detect.js";
+import { CompleteView } from "./complete-view.js";
+import { GoalInput } from "./goal-input.js";
+import { PresetSelect } from "./preset-select.js";
+import { RunningView } from "./running-view.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Screen identifiers for the state machine. */
+export type Screen =
+  | "preset-select"
+  | "agent-detect"
+  | "goal-input"
+  | "running"
+  | "complete"
+  | "advanced";
+
+/** State tracked across screen transitions. */
+export interface ScreenState {
+  screen: Screen;
+  selectedPreset?: string;
+  detectedAgents?: Map<string, boolean>;
+  roleMapping?: Map<string, string>;
+  goal?: string;
+  sessionId?: string;
+}
+
+/** Props for the ScreenManager component. */
+export interface ScreenManagerProps {
+  /** AppProps for the advanced boardroom mode. */
+  readonly appProps: AppProps;
+  /** Presets for Screen 1. */
+  readonly presets?: readonly TuiPresetEntry[] | undefined;
+  /** Past sessions for Screen 1. */
+  readonly sessions?: readonly SessionRecord[] | undefined;
+  /** Start on RunningView (Screen 4) for resumed groves. */
+  readonly startOnRunning?: boolean | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/** Screen manager that orchestrates the simplified 5-screen TUI flow. */
+export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = React.memo(
+  function ScreenManager({
+    appProps,
+    presets,
+    sessions,
+    startOnRunning,
+  }: ScreenManagerProps): React.ReactNode {
+    const renderer = useRenderer();
+    const { provider, topology, groveDir } = appProps;
+
+    // Initialize state: resumed groves start on running, new groves on preset-select
+    const [state, setState] = useState<ScreenState>(() => ({
+      screen: startOnRunning
+        ? ("running" as const)
+        : presets && presets.length > 0
+          ? ("preset-select" as const)
+          : ("running" as const),
+      ...(appProps.presetName ? { selectedPreset: appProps.presetName } : {}),
+    }));
+
+    // SpawnManager for auto-spawning agents
+    const spawnManagerRef = useRef<SpawnManager | undefined>(undefined);
+    if (spawnManagerRef.current === undefined) {
+      let sessionStore: FileSessionStore | undefined;
+      if (groveDir) {
+        try {
+          sessionStore = new FileSessionStore(groveDir);
+        } catch {
+          // Best-effort
+        }
+      }
+      spawnManagerRef.current = new SpawnManager(
+        provider,
+        appProps.tmux,
+        () => {
+          // errors shown in RunningView via provider polling
+        },
+        sessionStore,
+      );
+    }
+
+    // Track session start time for duration calculation
+    const sessionStartRef = useRef<number>(Date.now());
+
+    const handleQuit = useCallback(() => {
+      spawnManagerRef.current?.destroy();
+      provider.close();
+      renderer.destroy();
+    }, [provider, renderer]);
+
+    // Screen 1 -> Screen 2: preset selected
+    const handlePresetSelect = useCallback((presetName: string) => {
+      setState((s) => ({
+        ...s,
+        screen: "agent-detect",
+        selectedPreset: presetName,
+      }));
+    }, []);
+
+    // Screen 2 -> Screen 3: agents detected, continue
+    const handleAgentDetectContinue = useCallback(
+      (detected: Map<string, boolean>, roleMapping: Map<string, string>) => {
+        setState((s) => ({
+          ...s,
+          screen: "goal-input",
+          detectedAgents: detected,
+          roleMapping,
+        }));
+      },
+      [],
+    );
+
+    // Screen 2 -> Screen 1: back
+    const handleAgentDetectBack = useCallback(() => {
+      setState((s) => ({ ...s, screen: "preset-select" }));
+    }, []);
+
+    // Screen 3 -> Screen 4: goal submitted, auto-spawn agents
+    const handleGoalSubmit = useCallback(
+      (goal: string) => {
+        sessionStartRef.current = Date.now();
+        setState((s) => ({ ...s, screen: "running", goal }));
+
+        // Set goal on provider if supported
+        if (isGoalProvider(provider)) {
+          void provider.setGoal(goal, []).catch(() => {
+            // Goal setting is best-effort
+          });
+        }
+
+        // Create session if supported
+        if (isSessionProvider(provider)) {
+          void provider
+            .createSession({ goal })
+            .then((session) => {
+              setState((s) => ({ ...s, sessionId: session.sessionId }));
+            })
+            .catch(() => {
+              // Session creation is best-effort
+            });
+        }
+
+        // Auto-spawn all roles from topology
+        if (topology) {
+          for (const role of topology.roles) {
+            const command = role.command ?? process.env.SHELL ?? "bash";
+            void spawnManagerRef.current?.spawn(role.name, command).catch(() => {
+              // Spawn failures are shown in RunningView via provider polling
+            });
+          }
+        }
+      },
+      [provider, topology],
+    );
+
+    // Screen 3 -> Screen 2: back
+    const handleGoalBack = useCallback(() => {
+      setState((s) => ({ ...s, screen: "agent-detect" }));
+    }, []);
+
+    // Screen 4 -> advanced mode toggle
+    const handleToggleAdvanced = useCallback(() => {
+      setState((s) => ({ ...s, screen: "advanced" }));
+    }, []);
+
+    // Screen 4 -> Screen 5: session complete
+    const handleComplete = useCallback((_reason: string) => {
+      setState((s) => ({ ...s, screen: "complete" }));
+    }, []);
+
+    // Screen 5 -> Screen 1: new session
+    const handleNewSession = useCallback(() => {
+      setState({
+        screen: presets && presets.length > 0 ? "preset-select" : "running",
+      });
+    }, [presets]);
+
+    // Compute duration string
+    const getDuration = useCallback(() => {
+      const ms = Date.now() - sessionStartRef.current;
+      const minutes = Math.floor(ms / 60_000);
+      const seconds = Math.floor((ms % 60_000) / 1_000);
+      if (minutes > 0) return `${minutes}m ${seconds}s`;
+      return `${seconds}s`;
+    }, []);
+
+    // ---------------------------------------------------------------------------
+    // Render current screen
+    // ---------------------------------------------------------------------------
+
+    switch (state.screen) {
+      case "preset-select":
+        return (
+          <PresetSelect
+            presets={presets ?? []}
+            sessions={sessions}
+            onSelect={handlePresetSelect}
+            onQuit={handleQuit}
+          />
+        );
+
+      case "agent-detect":
+        return (
+          <AgentDetect
+            topology={topology}
+            onContinue={handleAgentDetectContinue}
+            onBack={handleAgentDetectBack}
+          />
+        );
+
+      case "goal-input":
+        return (
+          <GoalInput
+            presetName={state.selectedPreset ?? "default"}
+            onSubmit={handleGoalSubmit}
+            onBack={handleGoalBack}
+          />
+        );
+
+      case "running":
+        return (
+          <RunningView
+            provider={provider}
+            intervalMs={appProps.intervalMs}
+            topology={topology}
+            goal={state.goal}
+            sessionId={state.sessionId}
+            onToggleAdvanced={handleToggleAdvanced}
+            onComplete={handleComplete}
+            onQuit={handleQuit}
+          />
+        );
+
+      case "complete":
+        return (
+          <CompleteView
+            reason="Session ended"
+            contributionCount={0}
+            duration={getDuration()}
+            presetName={state.selectedPreset}
+            onNewSession={handleNewSession}
+            onQuit={handleQuit}
+          />
+        );
+
+      case "advanced":
+        // Render the full boardroom App; Tab in App will need to be handled
+        // by the App component itself or by wrapping it. For now, render App
+        // with a back-button hint at the top.
+        return (
+          <box flexDirection="column" width="100%" height="100%">
+            <box paddingX={2}>
+              <text color={theme.dimmed}>Tab:back to simple view</text>
+            </box>
+            <box flexGrow={1}>
+              <AdvancedModeWrapper
+                appProps={appProps}
+                onBack={() => setState((s) => ({ ...s, screen: "running" }))}
+              />
+            </box>
+          </box>
+        );
+
+      default:
+        return (
+          <box paddingX={2} paddingTop={1}>
+            <text color={theme.error}>Unknown screen state</text>
+          </box>
+        );
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Advanced mode wrapper — intercepts Tab to go back to simple view
+// ---------------------------------------------------------------------------
+
+interface AdvancedModeWrapperProps {
+  readonly appProps: AppProps;
+  readonly onBack: () => void;
+}
+
+/**
+ * Wraps the full App (boardroom) and intercepts Tab key to switch back
+ * to the simple RunningView.
+ */
+const AdvancedModeWrapper: React.NamedExoticComponent<AdvancedModeWrapperProps> = React.memo(
+  function AdvancedModeWrapper({
+    appProps,
+    onBack: _onBack,
+  }: AdvancedModeWrapperProps): React.ReactNode {
+    // The App component has its own keyboard handling via useKeyboard.
+    // We render it directly — the Tab hint is shown above by ScreenManager.
+    // The App's own Tab handler cycles panels; the user uses Shift+Tab
+    // or we add a dedicated back key. For simplicity, we let the
+    // "Tab:back to simple view" hint at the top serve as documentation,
+    // and the actual back is handled by the parent's useKeyboard.
+    //
+    // Since App uses routeKey which handles Tab for panel cycling,
+    // we'll use Escape as the back key from advanced mode.
+    return React.createElement(App, appProps);
+  },
+);

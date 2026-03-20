@@ -7,13 +7,14 @@
  * - Connect to a remote Nexus
  *
  * After the user picks an action, services start inside the TUI with
- * progress feedback, then transitions to the full boardroom App.
+ * progress feedback, then transitions to the simplified 5-screen flow
+ * (ScreenManager) or the full boardroom App (advanced mode via Tab).
  */
 
 import { useKeyboard, useRenderer } from "@opentui/react";
 import React, { useCallback, useRef, useState } from "react";
-import { App } from "./app.js";
 import type { AppProps } from "./app.js";
+import { ScreenManager } from "./screens/screen-manager.js";
 import { theme } from "./theme.js";
 import { InitProgressView } from "./views/init-progress.js";
 import { WelcomeScreen } from "./views/welcome.js";
@@ -90,6 +91,8 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
   const [initError, setInitError] = useState<string | undefined>();
   const [startingSteps, setStartingSteps] = useState<string[]>([]);
   const [startingDone, setStartingDone] = useState(false);
+  /** Tracks whether we reached boardroom via Resume (start on RunningView). */
+  const isResumedRef = useRef(false);
 
   /** Handle quit from the setup screen. */
   const handleQuit = useCallback(() => {
@@ -151,6 +154,7 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
     setInitError(undefined);
     setStartingDone(false);
     setStartingSteps(["Starting services..."]);
+    isResumedRef.current = true;
 
     void (async () => {
       try {
@@ -180,6 +184,7 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
       setInitError(undefined);
       setStartingDone(false);
       setStartingSteps([`Connecting to ${nexusUrl}...`]);
+      isResumedRef.current = true;
 
       void (async () => {
         try {
@@ -231,7 +236,15 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
   // ---------------------------------------------------------------------------
 
   if (mode === "boardroom" && appProps) {
-    return React.createElement(App, appProps);
+    // Resumed groves start on RunningView (Screen 4); new groves start on
+    // PresetSelect (Screen 1) — but for resumed groves that already went
+    // through welcome, we skip directly to RunningView.
+    return React.createElement(ScreenManager, {
+      appProps,
+      presets,
+      sessions: props.sessions,
+      startOnRunning: isResumedRef.current,
+    });
   }
 
   if (mode === "initializing") {
