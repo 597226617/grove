@@ -68,6 +68,10 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const [confirmQuit, setConfirmQuit] = useState(false);
     const [spinnerFrame, setSpinnerFrame] = useState(0);
     const [pendingPermissions, setPendingPermissions] = useState<PermissionPrompt[]>([]);
+    // Agent output streaming
+    const [agentOutputs, setAgentOutputs] = useState<Map<string, string[]>>(new Map());
+    const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+    const AGENT_OUTPUT_LINES = 8;
 
     // Braille spinner animation
     useEffect(() => {
@@ -76,6 +80,28 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       }, 80);
       return () => clearInterval(timer);
     }, []);
+
+    // Poll agent tmux panes for live output
+    useEffect(() => {
+      if (!tmux) return;
+      const timer = setInterval(async () => {
+        try {
+          const sessions = await tmux.listSessions();
+          const outputs = new Map<string, string[]>();
+          for (const sess of sessions) {
+            if (!sess.startsWith("grove-")) continue;
+            const pane = await tmux.capturePanes(sess);
+            const lines = pane.split("\n").filter((l) => l.trim().length > 0);
+            const role = sess.replace("grove-", "").replace(/-[a-z0-9]+$/i, "");
+            outputs.set(role, lines.slice(-AGENT_OUTPUT_LINES));
+          }
+          setAgentOutputs(outputs);
+        } catch {
+          // Non-fatal
+        }
+      }, 2000);
+      return () => clearInterval(timer);
+    }, [tmux]);
 
     // Poll agent tmux panes for permission prompts
     useEffect(() => {
@@ -191,6 +217,20 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             }
             return;
           }
+          // 1-9: toggle agent output expand/collapse
+          if (key.name && key.name >= "1" && key.name <= "9") {
+            const idx = Number(key.name) - 1;
+            const roleName = (topology?.roles ?? [])[idx]?.name;
+            if (roleName) {
+              setExpandedAgents((prev) => {
+                const next = new Set(prev);
+                if (next.has(roleName)) next.delete(roleName);
+                else next.add(roleName);
+                return next;
+              });
+            }
+            return;
+          }
           // j/k: scroll feed
           if (key.name === "j" || key.name === "down") {
             setCursor((c) => Math.min(c + 1, Math.max(0, feed.length - 1)));
@@ -201,16 +241,19 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             return;
           }
         },
-        [showVfs, confirmQuit, feed.length, onToggleAdvanced, onQuit, pendingPermissions, tmux],
+        [showVfs, confirmQuit, feed.length, onToggleAdvanced, onQuit, pendingPermissions, tmux, topology],
       ),
     );
 
-    // Agent status line
-    const agentStatusLine = (topology?.roles ?? []).map((role) => {
+    // Agent status with expandable output
+    const agentSections = (topology?.roles ?? []).map((role, idx) => {
       const activeClaim = dashboard?.activeClaims.find(
         (c) => c.agent.role === role.name || c.agent.agentId.startsWith(role.name),
       );
       const platformColor = PLATFORM_COLORS[role.platform ?? "claude-code"] ?? theme.text;
+      const expanded = expandedAgents.has(role.name);
+      const output = agentOutputs.get(role.name);
+      const lastLine = output && output.length > 0 ? output[output.length - 1] ?? "" : "";
 
       let icon: string;
       let color: string;
@@ -223,9 +266,22 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       }
 
       return (
-        <box key={role.name} flexDirection="row" marginRight={2}>
-          <text color={color}>{icon} </text>
-          <text color={platformColor}>{role.name}</text>
+        <box key={role.name} flexDirection="column">
+          <box flexDirection="row">
+            <text color={color}>{icon} </text>
+            <text color={platformColor} bold>{role.name}</text>
+            <text color={theme.dimmed}> [{idx + 1}] </text>
+            {!expanded && lastLine ? (
+              <text color={theme.muted}>{lastLine.slice(0, 80)}</text>
+            ) : null}
+          </box>
+          {expanded && output ? (
+            <box flexDirection="column" marginLeft={4} marginBottom={1}>
+              {output.map((line, i) => (
+                <text key={i} color={theme.muted}>{line.slice(0, 120)}</text>
+              ))}
+            </box>
+          ) : null}
         </box>
       );
     });
@@ -287,13 +343,13 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
 
     return (
       <box flexDirection="column" width="100%" height="100%">
-        {/* Agent status line */}
-        <box flexDirection="row" paddingX={2} paddingTop={1}>
+        {/* Agent status with live output */}
+        <box flexDirection="column" paddingX={2} paddingTop={1}>
           <text color={theme.focus} bold>
-            Agents{" "}
+            Agents
           </text>
-          {agentStatusLine.length > 0 ? (
-            agentStatusLine
+          {agentSections.length > 0 ? (
+            agentSections
           ) : (
             <text color={theme.dimmed}>No roles defined</text>
           )}
@@ -387,7 +443,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             {" "}
             {contribCount}c | {claimCount} active
           </text>
-          <text color={theme.dimmed}> Tab:advanced Ctrl+F:browser j/k:scroll q:quit</text>
+          <text color={theme.dimmed}> 1-2:expand/collapse agents Tab:advanced Ctrl+F:browser j/k:scroll q:quit</text>
         </box>
       </box>
     );
