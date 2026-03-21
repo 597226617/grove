@@ -33,6 +33,10 @@ try {
     throw new Error("Not inside a grove. Run 'grove init' to create one, or set GROVE_DIR.");
   }
 
+  const nexusUrl = process.env.GROVE_NEXUS_URL;
+  const nexusApiKey = process.env.NEXUS_API_KEY;
+
+  // Always create local runtime for workspace, contract, frontier, CAS
   const runtime = createLocalRuntime({
     groveDir,
     frontierCacheTtlMs: 5_000,
@@ -40,33 +44,41 @@ try {
     parseContract: true,
   });
 
-  // Note: creditsService is intentionally omitted. InMemoryCreditsService is
-  // not durable — balances and reservations are lost on restart. Bounties still
-  // work (persisted in SQLite) but credit enforcement is skipped until a
-  // persistent CreditsService (e.g., NexusPay) is configured.
   if (!runtime.workspace) {
     throw new Error("Workspace manager failed to initialize");
   }
-  // Wire EventBus + TopologyRouter for IPC when topology exists.
-  // In Nexus mode, uses NexusEventBus (VFS-backed); in local mode, uses LocalEventBus.
+
+  // When Nexus URL is set, use Nexus stores for contributions + claims
+  // so all data flows through Nexus VFS (not just local SQLite)
+  let contributionStore = runtime.contributionStore as import("../core/store.js").ContributionStore;
+  let claimStore = runtime.claimStore as import("../core/store.js").ClaimStore;
+  let nexusClient: import("../nexus/nexus-http-client.js").NexusHttpClient | undefined;
+  const zoneId = process.env.GROVE_ZONE_ID ?? "default";
+
+  if (nexusUrl) {
+    const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
+    const { NexusContributionStore } = await import("../nexus/nexus-contribution-store.js");
+    const { NexusClaimStore } = await import("../nexus/nexus-claim-store.js");
+
+    nexusClient = new NexusHttpClient({
+      url: nexusUrl,
+      ...(nexusApiKey ? { apiKey: nexusApiKey } : {}),
+    });
+
+    contributionStore = new NexusContributionStore({ client: nexusClient, zoneId });
+    claimStore = new NexusClaimStore({ client: nexusClient, zoneId });
+    process.stderr.write(`grove-mcp: using Nexus stores at ${nexusUrl} (zone: ${zoneId})\n`);
+  }
+
+  // Wire EventBus + TopologyRouter for IPC when topology exists
   let eventBus: import("../core/event-bus.js").EventBus | undefined;
   let topologyRouter: TopologyRouter | undefined;
 
   if (runtime.contract?.topology) {
-    const nexusUrl = process.env.GROVE_NEXUS_URL;
-    if (nexusUrl) {
-      // Nexus mode — use VFS-backed EventBus for cross-process IPC
+    if (nexusClient) {
       const { NexusEventBus } = await import("../nexus/nexus-event-bus.js");
-      const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
-      const apiKey = process.env.NEXUS_API_KEY;
-      const nexusClient = new NexusHttpClient({
-        url: nexusUrl,
-        ...(apiKey ? { apiKey } : {}),
-      });
-      const zoneId = process.env.GROVE_ZONE_ID ?? "default";
       eventBus = new NexusEventBus(nexusClient, zoneId);
     } else {
-      // Local mode — use in-process EventBus (same process only)
       const { LocalEventBus } = await import("../core/local-event-bus.js");
       eventBus = new LocalEventBus();
     }
@@ -74,8 +86,8 @@ try {
   }
 
   deps = {
-    contributionStore: runtime.contributionStore,
-    claimStore: runtime.claimStore,
+    contributionStore,
+    claimStore,
     bountyStore: runtime.bountyStore,
     cas: runtime.cas,
     frontier: runtime.frontier,
@@ -88,6 +100,7 @@ try {
   };
   close = () => {
     eventBus?.close();
+    nexusClient?.close();
     runtime.close();
   };
 } catch (error) {
