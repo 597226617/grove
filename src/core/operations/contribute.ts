@@ -263,16 +263,20 @@ export async function contributeOperation(
         deps.contributionStore,
         deps.outcomeStore,
       );
-      // Strict enforcement only when the contract has explicit metrics AND
-      // doesn't explicitly opt out via requireManualReview. This prevents
-      // the enforcer from blocking CLI contributions in presets that define
-      // metrics but don't intend strict write-time rejection.
-      const hasExplicitEnforcement =
+      // Strict enforcement for structural constraints (required artifacts,
+      // relations, context) — these apply in ALL modes. Gate checks
+      // (metric_improves etc) are only strict in evaluation mode.
+      const hasStructuralConstraints =
+        deps.contract.agentConstraints?.requiredArtifacts !== undefined ||
+        deps.contract.agentConstraints?.requiredRelations !== undefined ||
+        deps.contract.evaluation?.requiredContext !== undefined;
+      const hasGateEnforcement =
         deps.contract.gates !== undefined && deps.contract.gates.length > 0;
       const isStrict =
-        hasExplicitEnforcement &&
-        deps.contract.mode === CM.Evaluation &&
-        deps.contract.outcomePolicy?.requireManualReview !== true;
+        hasStructuralConstraints ||
+        (hasGateEnforcement &&
+          deps.contract.mode === CM.Evaluation &&
+          deps.contract.outcomePolicy?.requireManualReview !== true);
       policyResult = await enforcer.enforce(contribution, isStrict);
 
       // In strict mode, PolicyViolationError is thrown by enforce() and
