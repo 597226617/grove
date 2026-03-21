@@ -73,6 +73,9 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
     const AGENT_OUTPUT_LINES = 8;
 
+    /** Strip ANSI escape codes from terminal output. */
+    const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+
     // Braille spinner animation
     useEffect(() => {
       const timer = setInterval(() => {
@@ -93,7 +96,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             const pane = await tmux.capturePanes(sess);
             const lines = pane.split("\n").filter((l) => l.trim().length > 0);
             const role = sess.replace("grove-", "").replace(/-[a-z0-9]+$/i, "");
-            outputs.set(role, lines.slice(-AGENT_OUTPUT_LINES));
+            outputs.set(role, lines.slice(-AGENT_OUTPUT_LINES).map(stripAnsi));
           }
           setAgentOutputs(outputs);
         } catch {
