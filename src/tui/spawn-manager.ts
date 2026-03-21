@@ -303,17 +303,23 @@ export class SpawnManager {
   }
 
   /**
-   * Kill a tmux session and clean up all associated state.
+   * Kill an agent session and clean up all associated state.
    *
    * Uses local spawn records so cleanup works even if the claim's
    * lease has expired (no longer returned by active claim queries).
    */
   async kill(sessionName: string): Promise<void> {
-    // Step 1: Kill tmux session
-    await this.tmux?.kill(sessionName);
+    // Step 1: Kill agent session via runtime or tmux
+    const killedAgentId = agentIdFromSession(sessionName);
+    const agentSession = killedAgentId ? this.agentSessions.get(killedAgentId) : undefined;
+    if (agentSession && this.agentRuntime) {
+      await this.agentRuntime.close(agentSession);
+      this.agentSessions.delete(killedAgentId!);
+    } else {
+      await this.tmux?.kill(sessionName);
+    }
 
     // Step 2: Look up from local records
-    const killedAgentId = agentIdFromSession(sessionName);
     if (!killedAgentId) return;
 
     const tracked = this.spawnRecords.get(killedAgentId);
@@ -401,9 +407,15 @@ export class SpawnManager {
 
     if (allRecords.length === 0) return { reattached: 0, released: 0 };
 
-    // Get live tmux sessions
-    const liveSessions = (await this.tmux?.listSessions()) ?? [];
-    const liveSet = new Set(liveSessions);
+    // Get live agent sessions from runtime or tmux
+    let liveSet: Set<string>;
+    if (this.agentRuntime) {
+      const sessions = await this.agentRuntime.listSessions();
+      liveSet = new Set(sessions.map((s) => s.id));
+    } else {
+      const liveSessions = (await this.tmux?.listSessions()) ?? [];
+      liveSet = new Set(liveSessions);
+    }
 
     let reattached = 0;
     let released = 0;
