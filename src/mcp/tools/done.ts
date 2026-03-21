@@ -46,7 +46,7 @@ export function registerDoneTools(server: McpServer, deps: McpDeps): void {
     async (args) => {
       const result = await contributeOperation(
         {
-          kind: "work",
+          kind: "discussion",
           summary: `[DONE] ${args.summary}`,
           context: {
             done: true,
