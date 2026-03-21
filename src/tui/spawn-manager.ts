@@ -471,14 +471,23 @@ export class SpawnManager {
     const groveDir = join(workspacePath, "..", "..");
     // Resolve the project root (parent of .grove) for finding src/mcp/serve.ts
     const projectRoot = join(groveDir, "..");
+    // Pass Nexus URL to MCP server for IPC event routing
+    const mcpEnv: Record<string, string> = {
+      GROVE_DIR: groveDir,
+    };
+    if (process.env.GROVE_NEXUS_URL) {
+      mcpEnv.GROVE_NEXUS_URL = process.env.GROVE_NEXUS_URL;
+    }
+    if (process.env.NEXUS_API_KEY) {
+      mcpEnv.NEXUS_API_KEY = process.env.NEXUS_API_KEY;
+    }
+
     const mcpConfig = {
       mcpServers: {
         grove: {
           command: "bun",
           args: ["run", join(projectRoot, "src", "mcp", "serve.ts")],
-          env: {
-            GROVE_DIR: groveDir,
-          },
+          env: mcpEnv,
         },
       },
     };

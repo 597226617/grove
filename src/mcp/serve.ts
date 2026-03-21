@@ -14,6 +14,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { findGroveDir } from "../cli/context.js";
+import { TopologyRouter } from "../core/topology-router.js";
 import { createLocalRuntime } from "../local/runtime.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpServer } from "./server.js";
@@ -46,6 +47,32 @@ try {
   if (!runtime.workspace) {
     throw new Error("Workspace manager failed to initialize");
   }
+  // Wire EventBus + TopologyRouter for IPC when topology exists.
+  // In Nexus mode, uses NexusEventBus (VFS-backed); in local mode, uses LocalEventBus.
+  let eventBus: import("../core/event-bus.js").EventBus | undefined;
+  let topologyRouter: TopologyRouter | undefined;
+
+  if (runtime.contract?.topology) {
+    const nexusUrl = process.env.GROVE_NEXUS_URL;
+    if (nexusUrl) {
+      // Nexus mode — use VFS-backed EventBus for cross-process IPC
+      const { NexusEventBus } = await import("../nexus/nexus-event-bus.js");
+      const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
+      const apiKey = process.env.NEXUS_API_KEY;
+      const nexusClient = new NexusHttpClient({
+        url: nexusUrl,
+        ...(apiKey ? { apiKey } : {}),
+      });
+      const zoneId = process.env.GROVE_ZONE_ID ?? "default";
+      eventBus = new NexusEventBus(nexusClient, zoneId);
+    } else {
+      // Local mode — use in-process EventBus (same process only)
+      const { LocalEventBus } = await import("../core/local-event-bus.js");
+      eventBus = new LocalEventBus();
+    }
+    topologyRouter = new TopologyRouter(runtime.contract.topology, eventBus);
+  }
+
   deps = {
     contributionStore: runtime.contributionStore,
     claimStore: runtime.claimStore,
@@ -56,8 +83,13 @@ try {
     contract: runtime.contract,
     onContributionWrite: runtime.onContributionWrite,
     workspaceBoundary: runtime.groveRoot,
+    ...(eventBus ? { eventBus } : {}),
+    ...(topologyRouter ? { topologyRouter } : {}),
   };
-  close = () => runtime.close();
+  close = () => {
+    eventBus?.close();
+    runtime.close();
+  };
 } catch (error) {
   // Write to stderr (stdout is reserved for MCP JSON-RPC)
   const message = error instanceof Error ? error.message : String(error);
