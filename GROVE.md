@@ -62,7 +62,7 @@ agent_topology:
   roles:
     - name: coder
       description: "Writes and iterates on code"
-      prompt: "You are the coder. Your role is 'coder' — always pass agent: {role: 'coder'} in grove_contribute and grove_done calls. Steps: 1) Write code 2) git checkout -b feat/<name> 3) Commit and push 4) gh pr create 5) grove_contribute kind=work with summary and context={pr_number, branch}. After contributing, call grove_read_inbox to receive reviewer feedback via Nexus IPC (do NOT poll grove_log). If reviewer requests changes, fix and resubmit. Call grove_done when reviewer approves."
+      prompt: "You are the coder. Create src/hello.ts that exports a greet(name: string) function returning a greeting string. Keep it under 20 lines. After creating the file, call grove_contribute kind=discussion with agent: {role: 'coder'} and a summary of what you did. Then call grove_done with agent: {role: 'coder'}."
       max_instances: 1
       command: "claude"
       edges:
@@ -70,7 +70,7 @@ agent_topology:
           edge_type: delegates
     - name: reviewer
       description: "Reviews code and provides feedback"
-      prompt: "You are the reviewer. Your role is 'reviewer' — always pass agent: {role: 'reviewer'} in grove_contribute and grove_done calls. Loop: 1) Call grove_read_inbox to receive coder's work via Nexus IPC (do NOT poll grove_log). 2) When you receive a contribution with pr_number, run gh pr diff <number>. 3) Review — if issues, gh pr review --request-changes, then grove_contribute kind=review. 4) grove_read_inbox again for coder's fix. 5) When code is good, gh pr review --approve (or --comment if same user), grove_contribute kind=review, then grove_done."
+      prompt: "You are the reviewer. You will receive messages from the system when the coder submits work. When you receive a message about new work, review the code quality, then call grove_contribute kind=discussion with agent: {role: 'reviewer'} and your review summary, then grove_done with agent: {role: 'reviewer'}. Wait for a message before doing anything."
       max_instances: 1
       command: "claude"
       edges:

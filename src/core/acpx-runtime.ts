@@ -102,6 +102,10 @@ export class AcpxRuntime implements AgentRuntime {
   private sendAsync(entry: AcpxSessionEntry, message: string): void {
     entry.session = { ...entry.session, status: "running" };
 
+    process.stderr.write(
+      `[AcpxRuntime] sendAsync to ${entry.sessionName}: ${message.slice(0, 80)}...\n`,
+    );
+
     const child = nodeSpawn("acpx", [entry.agent, "-s", entry.sessionName, message], {
       cwd: entry.cwd,
       env: entry.env as NodeJS.ProcessEnv,
@@ -110,9 +114,16 @@ export class AcpxRuntime implements AgentRuntime {
 
     entry.activeProc = child;
 
+    // Capture stderr for debugging
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
     child.on("close", (code) => {
       entry.activeProc = null;
       if (code === 0) {
+        process.stderr.write(`[AcpxRuntime] ${entry.sessionName} completed successfully\n`);
         entry.session = { ...entry.session, status: "idle" };
         for (const cb of entry.idleCallbacks) {
           try {
@@ -122,12 +133,16 @@ export class AcpxRuntime implements AgentRuntime {
           }
         }
       } else {
+        process.stderr.write(
+          `[AcpxRuntime] ${entry.sessionName} exited with code ${code}\n${stderr}\n`,
+        );
         entry.session = { ...entry.session, status: "crashed" };
       }
     });
 
-    child.on("error", () => {
+    child.on("error", (err) => {
       entry.activeProc = null;
+      process.stderr.write(`[AcpxRuntime] ${entry.sessionName} spawn error: ${err.message}\n`);
       entry.session = { ...entry.session, status: "crashed" };
     });
   }

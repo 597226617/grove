@@ -484,11 +484,13 @@ export class SpawnManager {
   ): Promise<void> {
     const roleDescription = context?.roleDescription ?? "";
     const rolePrompt = context?.rolePrompt ?? "";
-    const goal = this.sessionGoal ?? "";
+    const goal = this.sessionGoal || rolePrompt || "Follow your role instructions below.";
 
     const instructions = `# Grove Agent: ${roleId}
 
-${goal ? `## Session Goal\n${goal}\n` : ""}
+## Session Goal
+${goal}
+
 ## Your Role: ${roleId}
 ${roleDescription}
 
