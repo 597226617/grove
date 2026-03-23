@@ -226,6 +226,7 @@ export function App({
   presetName,
   groveDir,
   agentRuntime,
+  eventBus,
 }: AppProps): React.ReactNode {
   const renderer = useRenderer();
   const nav = useNavigation();
@@ -316,6 +317,19 @@ export function App({
       groveDir,
       agentRuntime,
     );
+
+    // Wire NexusWsBridge for push-based IPC in boardroom mode
+    if (agentRuntime && topology && eventBus) {
+      void import("./nexus-ws-bridge.js")
+        .then(({ NexusWsBridge }) => {
+          const bridge = new NexusWsBridge({ topology, runtime: agentRuntime, eventBus });
+          bridge.connect();
+          spawnManagerRef.current?.setWsBridge(bridge);
+        })
+        .catch(() => {
+          /* best-effort */
+        });
+    }
   }
 
   // Reconcile persisted sessions on startup (reattach live, clean dead)
