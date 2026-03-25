@@ -50,6 +50,10 @@ export interface AppProps {
   readonly presetName?: string | undefined;
   /** Resolved .grove directory path for session persistence. */
   readonly groveDir?: string | undefined;
+  /** EventBus for event-driven data updates (Nexus mode). */
+  readonly eventBus?: import("../core/event-bus.js").EventBus | undefined;
+  /** AgentRuntime for spawning agents (acpx preferred over tmux). */
+  readonly agentRuntime?: import("../core/agent-runtime.js").AgentRuntime | undefined;
 }
 
 const PAGE_SIZE = 20;
@@ -221,6 +225,7 @@ export function App({
   topology,
   presetName,
   groveDir,
+  agentRuntime,
 }: AppProps): React.ReactNode {
   const renderer = useRenderer();
   const nav = useNavigation();
@@ -303,7 +308,34 @@ export function App({
         // Session persistence is best-effort
       }
     }
-    spawnManagerRef.current = new SpawnManager(provider, tmux, showError, sessionStore);
+    spawnManagerRef.current = new SpawnManager(
+      provider,
+      tmux,
+      showError,
+      sessionStore,
+      groveDir,
+      agentRuntime,
+    );
+
+    // Wire NexusWsBridge for IPC — polls Nexus inbox API, pushes to agents
+    const nexusUrl = process.env.GROVE_NEXUS_URL;
+    const apiKey = process.env.NEXUS_API_KEY;
+    if (agentRuntime && topology && nexusUrl && apiKey) {
+      void import("./nexus-ws-bridge.js")
+        .then(({ NexusWsBridge }) => {
+          const bridge = new NexusWsBridge({
+            topology,
+            runtime: agentRuntime,
+            nexusUrl,
+            apiKey,
+          });
+          bridge.connect();
+          spawnManagerRef.current?.setWsBridge(bridge);
+        })
+        .catch(() => {
+          /* best-effort */
+        });
+    }
   }
 
   // Reconcile persisted sessions on startup (reattach live, clean dead)
@@ -649,6 +681,7 @@ export function App({
       const context: Record<string, unknown> = {};
       if (role?.prompt) context.rolePrompt = role.prompt;
       if (role?.description) context.roleDescription = role.description;
+      if (topology) context.topology = topology;
 
       spawnManagerRef.current
         ?.spawn(agentId, command, parentAgentId, depth, context)
@@ -746,6 +779,10 @@ export function App({
               showError(err instanceof Error ? err.message : "Failed to set goal");
             }
           })();
+        }
+        // Also set on SpawnManager so agents receive the goal in CLAUDE.md + command args
+        if (buf) {
+          spawnManagerRef.current?.setSessionGoal(buf);
         }
         dispatch({ type: "GOAL_SUBMIT" });
         panels.setMode(InputMode.Normal);

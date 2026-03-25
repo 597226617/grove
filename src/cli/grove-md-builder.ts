@@ -121,7 +121,9 @@ function renderGates(gates: readonly GateEntry[] | undefined): string {
   const lines = ["gates:"];
   for (const gate of gates) {
     const entries = Object.entries(gate);
-    const [firstKey, firstVal] = entries[0]!;
+    const entry = entries[0];
+    if (!entry) continue;
+    const [firstKey, firstVal] = entry;
     lines.push(`  - ${firstKey}: ${formatYamlValue(firstVal)}`);
     for (const [k, v] of entries.slice(1)) {
       lines.push(`    ${k}: ${formatYamlValue(v)}`);
@@ -314,7 +316,7 @@ export function defaultGroveMdConfig(options: {
 }): GroveMdConfig {
   const metrics: MetricEntry[] = (options.metric ?? []).map((m) => {
     const [name, direction] = m.split(":");
-    return { name: name!, direction: direction as "minimize" | "maximize" };
+    return { name: name ?? m, direction: direction as "minimize" | "maximize" };
   });
 
   return {

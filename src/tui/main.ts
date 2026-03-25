@@ -252,6 +252,15 @@ async function buildAppProps(
     tmux = available ? mgr : undefined;
   }
 
+  // Create AcpxRuntime for agent spawning (preferred over tmux)
+  let agentRuntime: import("../core/agent-runtime.js").AgentRuntime | undefined;
+  {
+    const { AcpxRuntime } = await import("../core/acpx-runtime.js");
+    const runtime = new AcpxRuntime({ agent: "codex" });
+    const available = await runtime.isAvailable();
+    agentRuntime = available ? runtime : undefined;
+  }
+
   // Start workspace GC for modes that have lifecycle support
   const stopCallbacks: Array<() => void> = [];
   if (provider.cleanWorkspace) {
@@ -317,8 +326,34 @@ async function buildAppProps(
         }
       : undefined;
 
+  // Create EventBus for Nexus mode — enables event-driven data instead of polling
+  let eventBus: import("../core/event-bus.js").EventBus | undefined;
+  if (backend.mode === "nexus") {
+    const nexusUrl = process.env.GROVE_NEXUS_URL ?? (backend as { url?: string }).url;
+    const apiKey = process.env.NEXUS_API_KEY;
+    if (nexusUrl) {
+      const { NexusEventBus } = await import("../nexus/nexus-event-bus.js");
+      const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
+      const nexusClient = new NexusHttpClient({
+        url: nexusUrl,
+        ...(apiKey ? { apiKey } : {}),
+      });
+      eventBus = new NexusEventBus(nexusClient, "default");
+      stopCallbacks.push(() => eventBus?.close());
+    }
+  }
+
   return {
-    appProps: { provider, intervalMs: opts.intervalMs, tmux, topology, presetName, groveDir },
+    appProps: {
+      provider,
+      intervalMs: opts.intervalMs,
+      tmux,
+      topology,
+      presetName,
+      groveDir,
+      eventBus,
+      agentRuntime,
+    },
     provider,
     stopGc,
   };
@@ -413,7 +448,7 @@ export async function handleTui(
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
-    useAlternateScreen: true,
+    useAlternateScreen: !process.env.GROVE_NO_ALT_SCREEN,
   });
 
   const root = createRoot(renderer);
@@ -441,10 +476,8 @@ export async function handleTui(
   process.on("SIGTERM", onSignal);
 
   try {
-    // Direct connection mode: --url or --nexus flags bypass the setup screen
-    // and go straight to the boardroom (preserves existing CLI contract)
-    if (opts.url || opts.nexus) {
-      // Start services if grove exists (same as Resume, but automatic)
+    // --url flag: legacy direct boardroom mode (no interactive screens)
+    if (opts.url && !opts.nexus) {
       if (groveDir) {
         const { startServices } = await import("../shared/service-lifecycle.js");
         runningServices = await startServices({
@@ -453,21 +486,20 @@ export async function handleTui(
           nexusSource: serviceOpts?.nexusSource,
         });
       }
-
       const result = await buildAppProps(effectiveGrove, opts, groveInfo?.preset);
       activeProvider = result.provider;
       activeStopGc = result.stopGc;
-
-      // Post-startup: update agent skill SKILL.md (non-blocking)
       updateSkillAfterStartup();
-
       const { App } = await import("./app.js");
       root.render(React.createElement(App, result.appProps));
-
       renderer.start();
       await renderer.idle();
       return;
     }
+
+    // --nexus flag: Nexus is the default backend. Go through interactive
+    // ScreenManager flow (goal → prompts → run) with Nexus pre-configured.
+    // Falls through to the TuiApp below which handles the full flow.
 
     const presets = await loadPresetList();
 
@@ -551,6 +583,7 @@ export async function handleTui(
         onInit,
         onStart,
         onConnect,
+        autoConnectNexus: opts.nexus,
       }),
     );
 

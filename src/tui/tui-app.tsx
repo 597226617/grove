@@ -7,13 +7,17 @@
  * - Connect to a remote Nexus
  *
  * After the user picks an action, services start inside the TUI with
- * progress feedback, then transitions to the full boardroom App.
+ * progress feedback, then transitions to the simplified 5-screen flow
+ * (ScreenManager) or the full boardroom App (advanced mode via Tab).
  */
 
 import { useKeyboard, useRenderer } from "@opentui/react";
 import React, { useCallback, useRef, useState } from "react";
 import type { AppProps } from "./app.js";
+import { ScreenManager } from "./screens/screen-manager.js";
 import { theme } from "./theme.js";
+import { InitProgressView } from "./views/init-progress.js";
+import { WelcomeScreen } from "./views/welcome.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +56,8 @@ export interface TuiAppProps {
   readonly onStart?: ((onProgress?: (step: string) => void) => Promise<AppProps>) | undefined;
   /** Callback to connect to a remote Nexus URL. Returns AppProps on success. */
   readonly onConnect?: ((nexusUrl: string) => Promise<AppProps>) | undefined;
+  /** If set, auto-connect to this Nexus URL on mount (skip welcome screen). */
+  readonly autoConnectNexus?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,10 +81,10 @@ const INIT_STEPS = [
 export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(function TuiApp(
   props: TuiAppProps,
 ): React.ReactNode {
-  const { groveExists, groveInfo, presets, onInit, onStart, onConnect } = props;
+  const { groveExists, groveInfo, presets, onInit, onStart, onConnect, autoConnectNexus } = props;
   const renderer = useRenderer();
 
-  const [mode, setMode] = useState<TuiMode>("setup");
+  const [mode, setMode] = useState<TuiMode>(autoConnectNexus ? "starting" : "setup");
   const [appProps, setAppProps] = useState<AppProps | undefined>();
   const [initPreset, setInitPreset] = useState<string>("");
   const [initSteps, setInitSteps] = useState<readonly { label: string; done: boolean }[]>(
@@ -87,6 +93,32 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
   const [initError, setInitError] = useState<string | undefined>();
   const [startingSteps, setStartingSteps] = useState<string[]>([]);
   const [startingDone, setStartingDone] = useState(false);
+  /** Tracks whether we reached boardroom via Resume (start on RunningView). */
+  const isResumedRef = useRef(false);
+  const autoConnectTriggered = useRef(false);
+
+  // Auto-connect to Nexus when --nexus flag is passed
+  React.useEffect(() => {
+    if (autoConnectNexus && onConnect && !autoConnectTriggered.current) {
+      autoConnectTriggered.current = true;
+      setStartingSteps([`Connecting to ${autoConnectNexus}...`]);
+      // Don't set isResumed — we want the full interactive flow (goal → prompts → run)
+
+      void (async () => {
+        try {
+          const result = await onConnect(autoConnectNexus);
+          setStartingDone(true);
+          await new Promise<void>((resolve) => setTimeout(resolve, 300));
+          setAppProps(result);
+          setMode("boardroom");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setInitError(message);
+          setMode("setup"); // Fall back to setup on failure
+        }
+      })();
+    }
+  }, [autoConnectNexus, onConnect]);
 
   /** Handle quit from the setup screen. */
   const handleQuit = useCallback(() => {
@@ -148,6 +180,7 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
     setInitError(undefined);
     setStartingDone(false);
     setStartingSteps(["Starting services..."]);
+    isResumedRef.current = true;
 
     void (async () => {
       try {
@@ -177,6 +210,7 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
       setInitError(undefined);
       setStartingDone(false);
       setStartingSteps([`Connecting to ${nexusUrl}...`]);
+      isResumedRef.current = true;
 
       void (async () => {
         try {
@@ -228,14 +262,18 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
   // ---------------------------------------------------------------------------
 
   if (mode === "boardroom" && appProps) {
-    // Lazy import App to avoid circular deps — rendered via React.createElement
-    const { App } = require("./app.js") as typeof import("./app.js");
-    return React.createElement(App, appProps);
+    // Resumed groves start on RunningView (Screen 4); new groves start on
+    // PresetSelect (Screen 1) — but for resumed groves that already went
+    // through welcome, we skip directly to RunningView.
+    return React.createElement(ScreenManager, {
+      appProps,
+      presets,
+      sessions: props.sessions,
+      startOnRunning: isResumedRef.current,
+    });
   }
 
   if (mode === "initializing") {
-    const { InitProgressView } =
-      require("./views/init-progress.js") as typeof import("./views/init-progress.js");
     return React.createElement(InitProgressView, {
       presetName: initPreset,
       steps: initSteps,
@@ -244,8 +282,6 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
   }
 
   if (mode === "starting") {
-    const { InitProgressView } =
-      require("./views/init-progress.js") as typeof import("./views/init-progress.js");
     const steps = startingSteps.map((label, i) => ({
       label,
       done: startingDone || i < startingSteps.length - 1,
@@ -264,7 +300,6 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
 
   // Setup mode — always shown first
   if (presets && presets.length > 0) {
-    const { WelcomeScreen } = require("./views/welcome.js") as typeof import("./views/welcome.js");
     return React.createElement(WelcomeScreen, {
       presets,
       groveExists,

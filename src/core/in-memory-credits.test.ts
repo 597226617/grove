@@ -21,7 +21,9 @@ runCreditsServiceTests(async () => {
     seedBalance: async (agentId: string, amount: number) => {
       service.seed(agentId, amount);
     },
-    cleanup: async () => {},
+    cleanup: async () => {
+      /* expected */
+    },
   };
 });
 

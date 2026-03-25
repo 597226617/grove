@@ -321,6 +321,15 @@ function buildCommands(groveOverride: string | undefined): readonly Command[] {
       },
     },
     {
+      name: "session",
+      description: "Manage agent sessions (start, list, status, stop)",
+      needsStore: false,
+      handler: async (args) => {
+        const { executeSession } = await import("./commands/session.js");
+        await executeSession(args);
+      },
+    },
+    {
       name: "tui",
       description: "Operator TUI dashboard",
       needsStore: false,

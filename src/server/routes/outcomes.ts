@@ -131,8 +131,8 @@ outcomes.post("/:cid", zValidator("param", cidParamSchema), async (c) => {
                 const urlMatch = prData.url.match(/github\.com\/([^/]+)\/([^/]+)\//);
                 if (urlMatch) {
                   await postCheckRun({
-                    owner: urlMatch[1]!,
-                    repo: urlMatch[2]!,
+                    owner: urlMatch[1] ?? "",
+                    repo: urlMatch[2] ?? "",
                     headSha: prData.headRefOid,
                     name: `grove/${contribution.agent.role ?? "agent"}`,
                     conclusion: outcomeStatus === "accepted" ? "success" : "failure",

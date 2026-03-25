@@ -129,10 +129,11 @@ export function registerIngestTools(server: McpServer, deps: McpDeps): void {
         }
 
         // content is defined (TypeScript narrows here)
+        const definedContent = content as string;
         const data =
           encoding === "base64"
-            ? Uint8Array.from(atob(content!), (c) => c.charCodeAt(0))
-            : new TextEncoder().encode(content!);
+            ? Uint8Array.from(atob(definedContent), (c) => c.charCodeAt(0))
+            : new TextEncoder().encode(definedContent);
 
         const hash = await deps.cas.put(data, putOptions);
         return successResult({ hash });
