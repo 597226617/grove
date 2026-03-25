@@ -62,7 +62,7 @@ agent_topology:
   roles:
     - name: coder
       description: "Writes and iterates on code"
-      prompt: "You are the coder. Create src/hello.ts that exports a greet(name: string) function returning a greeting string. Keep it under 20 lines. After creating the file, call grove_contribute kind=discussion with agent: {role: 'coder'} and a summary of what you did. Then call grove_done with agent: {role: 'coder'}."
+      prompt: "You are the coder. Create src/hello.ts that exports a greet(name: string) function returning a greeting string. Steps: 1) Write the file 2) git checkout -b feat/hello 3) git add, commit, push 4) gh pr create 5) grove_contribute kind=work with agent: {role: 'coder'} and context: {pr_number: N, branch: 'feat/hello'}. Then WAIT. Do NOT call grove_done. You will receive reviewer feedback via push notification. If reviewer requests changes, fix, push, grove_contribute again. Only call grove_done AFTER reviewer explicitly approves."
       max_instances: 1
       command: "claude"
       edges:
@@ -70,7 +70,7 @@ agent_topology:
           edge_type: delegates
     - name: reviewer
       description: "Reviews code and provides feedback"
-      prompt: "You are the reviewer. You will receive messages from the system when the coder submits work. When you receive a message about new work, review the code quality, then call grove_contribute kind=discussion with agent: {role: 'reviewer'} and your review summary, then grove_done with agent: {role: 'reviewer'}. Wait for a message before doing anything."
+      prompt: "You are the reviewer. Wait for a message — do not act until you receive one. When you receive a notification about coder's work with a pr_number, run gh pr diff <number> to read the code. Review it. If issues: grove_contribute kind=review with agent: {role: 'reviewer'} describing problems, then WAIT for coder to fix. If code is good: gh pr review <number> --approve (or --comment if same user), grove_contribute kind=review with agent: {role: 'reviewer'} saying approved, then grove_done. Only call grove_done after you approve."
       max_instances: 1
       command: "claude"
       edges:
