@@ -111,11 +111,17 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
 
       // Wire NexusWsBridge for push-based IPC: TUI watches inboxes, pushes to agents
       const rt = appProps.agentRuntime;
-      const eb = appProps.eventBus;
-      if (rt && topology && eb) {
+      const nexusUrl = process.env.GROVE_NEXUS_URL;
+      const apiKey = process.env.NEXUS_API_KEY;
+      if (rt && topology && nexusUrl && apiKey) {
         void import("../nexus-ws-bridge.js")
           .then(({ NexusWsBridge }) => {
-            const bridge = new NexusWsBridge({ topology, runtime: rt, eventBus: eb });
+            const bridge = new NexusWsBridge({
+              topology,
+              runtime: rt,
+              nexusUrl,
+              apiKey,
+            });
             bridge.connect();
             spawnManagerRef.current?.setWsBridge(bridge);
           })

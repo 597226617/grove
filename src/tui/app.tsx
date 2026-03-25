@@ -226,7 +226,6 @@ export function App({
   presetName,
   groveDir,
   agentRuntime,
-  eventBus,
 }: AppProps): React.ReactNode {
   const renderer = useRenderer();
   const nav = useNavigation();
@@ -318,11 +317,18 @@ export function App({
       agentRuntime,
     );
 
-    // Wire NexusWsBridge for push-based IPC in boardroom mode
-    if (agentRuntime && topology && eventBus) {
+    // Wire NexusWsBridge for IPC — polls Nexus inbox API, pushes to agents
+    const nexusUrl = process.env.GROVE_NEXUS_URL;
+    const apiKey = process.env.NEXUS_API_KEY;
+    if (agentRuntime && topology && nexusUrl && apiKey) {
       void import("./nexus-ws-bridge.js")
         .then(({ NexusWsBridge }) => {
-          const bridge = new NexusWsBridge({ topology, runtime: agentRuntime, eventBus });
+          const bridge = new NexusWsBridge({
+            topology,
+            runtime: agentRuntime,
+            nexusUrl,
+            apiKey,
+          });
           bridge.connect();
           spawnManagerRef.current?.setWsBridge(bridge);
         })

@@ -11,28 +11,47 @@
  */
 
 import type { EventBus, EventHandler, GroveEvent } from "../core/event-bus.js";
-import type { NexusClient, ListEntry } from "./client.js";
+import type { NexusClient } from "./client.js";
 
 const AGENTS_ROOT = "/agents";
 
 /** Nexus VFS-backed event bus for cross-process agent communication. */
 export class NexusEventBus implements EventBus {
   private readonly client: NexusClient;
-  private readonly zoneId: string;
+
   private readonly handlers = new Map<string, EventHandler[]>();
   private pollers = new Map<string, ReturnType<typeof setInterval>>();
 
-  constructor(client: NexusClient, zoneId: string) {
+  constructor(client: NexusClient, _zoneId: string) {
     this.client = client;
-    this.zoneId = zoneId;
   }
 
   publish(event: GroveEvent): void {
-    // Write event to target agent's inbox in Nexus VFS
+    // Send via Nexus IPC API — triggers SSE push to subscribers
+    const nexusUrl = (this.client as { baseUrl?: string }).baseUrl ?? process.env.GROVE_NEXUS_URL;
+    const apiKey = process.env.NEXUS_API_KEY;
+
+    if (nexusUrl && apiKey) {
+      void fetch(`${nexusUrl}/api/v2/ipc/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          sender: event.sourceRole,
+          recipient: event.targetRole,
+          type: "event",
+          payload: event.payload,
+        }),
+      }).catch(() => {
+        /* best-effort */
+      });
+    }
+
+    // Also write to VFS inbox as backup (triggers SSE via write observer)
     const inboxPath = `${AGENTS_ROOT}/${event.targetRole}/inbox/${Date.now()}-${event.type}.json`;
     const data = new TextEncoder().encode(JSON.stringify(event));
-
-    // Fire and forget — inbox writes are best-effort
     void this.client.write(inboxPath, data).catch(() => {
       // Non-fatal — event delivery is best-effort
     });

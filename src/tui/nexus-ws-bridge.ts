@@ -1,97 +1,177 @@
 /**
- * Nexus IPC bridge — watches Nexus VFS inboxes and pushes to agents.
+ * Nexus SSE bridge — real-time push via Nexus Server-Sent Events.
  *
- * The TUI process subscribes to each role's inbox via NexusEventBus.
- * When a contribution event arrives (routed by TopologyRouter on contribute),
- * the bridge calls runtime.send() to push the notification into the
- * agent's acpx session. Agents never poll — the TUI does it for them.
+ * Connects to GET /api/v2/events/stream with path_pattern filter on
+ * contribution paths. When a new contribution is written, reads it,
+ * resolves topology edges, and pushes to target agent via runtime.send().
  *
- * This is a transitional approach until Nexus WebSocket/webhook push works.
- * The polling happens in ONE place (TUI), not in each agent.
+ * No polling. Pure push from Nexus.
  */
 
 import type { AgentRuntime, AgentSession } from "../core/agent-runtime.js";
-import type { EventBus, GroveEvent } from "../core/event-bus.js";
 import type { AgentTopology } from "../core/topology.js";
 
 export interface NexusWsBridgeOptions {
   topology: AgentTopology;
   runtime: AgentRuntime;
-  eventBus: EventBus;
+  nexusUrl: string;
+  apiKey: string;
 }
 
-/**
- * Bridges Nexus EventBus events to agent sessions via AgentRuntime.
- *
- * For each role in the topology, subscribes to that role's inbox.
- * When an event arrives, formats a notification and sends it to
- * the agent session via runtime.send().
- */
+interface SseEvent {
+  type: string;
+  path: string;
+  zone_id: string;
+}
+
 export class NexusWsBridge {
   private readonly opts: NexusWsBridgeOptions;
   private readonly sessions = new Map<string, AgentSession>();
-  private readonly handlers = new Map<string, (event: GroveEvent) => void>();
+  private abortController: AbortController | null = null;
+  private closed = false;
 
   constructor(opts: NexusWsBridgeOptions) {
     this.opts = opts;
   }
 
-  /** Register an agent session for a role and start listening for events. */
   registerSession(role: string, session: AgentSession): void {
     this.sessions.set(role, session);
-
-    // Subscribe to this role's inbox if not already
-    if (!this.handlers.has(role)) {
-      const handler = (event: GroveEvent) => {
-        this.handleEvent(role, event);
-      };
-      this.handlers.set(role, handler);
-      this.opts.eventBus.subscribe(role, handler);
-    }
   }
 
   unregisterSession(role: string): void {
     this.sessions.delete(role);
-    const handler = this.handlers.get(role);
-    if (handler) {
-      this.opts.eventBus.unsubscribe(role, handler);
-      this.handlers.delete(role);
-    }
   }
 
-  /** No async setup needed — EventBus subscription is immediate. */
+  /** Connect to Nexus SSE stream and start listening for contribution events. */
   connect(): void {
-    // EventBus subscriptions happen in registerSession
+    if (this.closed) return;
+    void this.startSseLoop();
   }
 
   close(): void {
-    for (const [role, handler] of this.handlers) {
-      this.opts.eventBus.unsubscribe(role, handler);
-    }
-    this.handlers.clear();
+    this.closed = true;
+    this.abortController?.abort();
     this.sessions.clear();
   }
 
-  private handleEvent(targetRole: string, event: GroveEvent): void {
-    const session = this.sessions.get(targetRole);
-    if (!session) return;
+  private async startSseLoop(): Promise<void> {
+    while (!this.closed) {
+      try {
+        await this.connectSse();
+      } catch {
+        // Reconnect after delay
+      }
+      if (!this.closed) {
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
+  }
 
-    // Format notification from the event payload
-    const source = event.sourceRole ?? "system";
-    const payload = event.payload as Record<string, unknown> | undefined;
-    const summary = (payload?.summary as string) ?? "";
-    const kind = (payload?.kind as string) ?? event.type;
+  private async connectSse(): Promise<void> {
+    this.abortController = new AbortController();
+    const url = `${this.opts.nexusUrl}/api/v2/events/stream?event_types=write&path_pattern=/agents/*/inbox/*`;
 
-    const isDone =
-      summary.startsWith("[DONE]") ||
-      (payload?.context as Record<string, unknown> | undefined)?.done === true;
-
-    const notification = isDone
-      ? `[Nexus IPC] ${source} signaled DONE: ${summary}`
-      : `[Nexus IPC] New ${kind} from ${source}: ${summary}`;
-
-    void this.opts.runtime.send(session, notification).catch(() => {
-      // Agent may have exited — non-fatal
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.opts.apiKey}`,
+        Accept: "text/event-stream",
+      },
+      signal: this.abortController.signal,
     });
+
+    if (!resp.ok || !resp.body) return;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (!this.closed) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      let eventData: string | null = null;
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          eventData = line.slice(6);
+        } else if (line === "" && eventData) {
+          this.handleEvent(eventData);
+          eventData = null;
+        }
+      }
+    }
+  }
+
+  private handleEvent(raw: string): void {
+    try {
+      const event = JSON.parse(raw) as SseEvent;
+      if (event.type !== "write") return;
+
+      // Extract role from path: /agents/{role}/inbox/...
+      const match = event.path.match(/^\/agents\/([^/]+)\/inbox\//);
+      if (!match) return;
+
+      const targetRole = match[1] ?? "";
+      const session = this.sessions.get(targetRole);
+      if (!session || !targetRole) return;
+
+      // Read the message content and push to agent
+      void this.readAndPush(event.path, targetRole, session);
+    } catch {
+      // Skip malformed events
+    }
+  }
+
+  private async readAndPush(
+    path: string,
+    targetRole: string,
+    session: AgentSession,
+  ): Promise<void> {
+    try {
+      // Read the inbox message via VFS
+      const resp = await fetch(`${this.opts.nexusUrl}/api/nfs/sys_read`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.opts.apiKey}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "sys_read",
+          params: { path },
+          id: 1,
+        }),
+      });
+      if (!resp.ok) return;
+
+      const result = (await resp.json()) as {
+        result?: { data?: string };
+      };
+      if (!result.result?.data) return;
+
+      // Decode message (base64 encoded)
+      const raw = Buffer.from(result.result.data, "base64").toString();
+      const msg = JSON.parse(raw) as {
+        sender?: string;
+        payload?: Record<string, unknown>;
+      };
+
+      const sender = msg.sender ?? "system";
+      const summary =
+        (msg.payload?.summary as string) ?? JSON.stringify(msg.payload ?? {}).slice(0, 100);
+      const notification = `[Nexus IPC] ${sender}: ${summary}`;
+
+      process.stderr.write(
+        `[NexusWsBridge] pushing to ${targetRole}: ${notification.slice(0, 80)}\n`,
+      );
+      void this.opts.runtime.send(session, notification).catch(() => {
+        /* non-fatal */
+      });
+    } catch {
+      // Non-fatal
+    }
   }
 }

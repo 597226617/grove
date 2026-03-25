@@ -252,6 +252,18 @@ export class SpawnManager {
       throw spawnErr;
     }
 
+    // Step 3b: Provision IPC inbox in Nexus for this role.
+    const nexusUrl = process.env.GROVE_NEXUS_URL;
+    const nexusKey = process.env.NEXUS_API_KEY;
+    if (nexusUrl && nexusKey) {
+      void fetch(`${nexusUrl}/api/v2/ipc/provision/${encodeURIComponent(roleId)}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${nexusKey}` },
+      }).catch(() => {
+        /* best-effort */
+      });
+    }
+
     // Step 4: Record spawn + register for IPC push.
     // No claims, no heartbeats — agents create claims themselves via grove_claim
     // when they need swarm coordination.
