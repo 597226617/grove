@@ -56,6 +56,8 @@ export interface TuiAppProps {
   readonly onStart?: ((onProgress?: (step: string) => void) => Promise<AppProps>) | undefined;
   /** Callback to connect to a remote Nexus URL. Returns AppProps on success. */
   readonly onConnect?: ((nexusUrl: string) => Promise<AppProps>) | undefined;
+  /** If set, auto-connect to this Nexus URL on mount (skip welcome screen). */
+  readonly autoConnectNexus?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,10 +81,10 @@ const INIT_STEPS = [
 export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(function TuiApp(
   props: TuiAppProps,
 ): React.ReactNode {
-  const { groveExists, groveInfo, presets, onInit, onStart, onConnect } = props;
+  const { groveExists, groveInfo, presets, onInit, onStart, onConnect, autoConnectNexus } = props;
   const renderer = useRenderer();
 
-  const [mode, setMode] = useState<TuiMode>("setup");
+  const [mode, setMode] = useState<TuiMode>(autoConnectNexus ? "starting" : "setup");
   const [appProps, setAppProps] = useState<AppProps | undefined>();
   const [initPreset, setInitPreset] = useState<string>("");
   const [initSteps, setInitSteps] = useState<readonly { label: string; done: boolean }[]>(
@@ -93,6 +95,30 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
   const [startingDone, setStartingDone] = useState(false);
   /** Tracks whether we reached boardroom via Resume (start on RunningView). */
   const isResumedRef = useRef(false);
+  const autoConnectTriggered = useRef(false);
+
+  // Auto-connect to Nexus when --nexus flag is passed
+  React.useEffect(() => {
+    if (autoConnectNexus && onConnect && !autoConnectTriggered.current) {
+      autoConnectTriggered.current = true;
+      setStartingSteps([`Connecting to ${autoConnectNexus}...`]);
+      isResumedRef.current = true;
+
+      void (async () => {
+        try {
+          const result = await onConnect(autoConnectNexus);
+          setStartingDone(true);
+          await new Promise<void>((resolve) => setTimeout(resolve, 300));
+          setAppProps(result);
+          setMode("boardroom");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setInitError(message);
+          setMode("setup"); // Fall back to setup on failure
+        }
+      })();
+    }
+  }, [autoConnectNexus, onConnect]);
 
   /** Handle quit from the setup screen. */
   const handleQuit = useCallback(() => {

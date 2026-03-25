@@ -476,10 +476,8 @@ export async function handleTui(
   process.on("SIGTERM", onSignal);
 
   try {
-    // Direct connection mode: --url or --nexus flags bypass the setup screen
-    // and go straight to the boardroom (preserves existing CLI contract)
-    if (opts.url || opts.nexus) {
-      // Start services if grove exists (same as Resume, but automatic)
+    // --url flag: legacy direct boardroom mode (no interactive screens)
+    if (opts.url && !opts.nexus) {
       if (groveDir) {
         const { startServices } = await import("../shared/service-lifecycle.js");
         runningServices = await startServices({
@@ -488,21 +486,20 @@ export async function handleTui(
           nexusSource: serviceOpts?.nexusSource,
         });
       }
-
       const result = await buildAppProps(effectiveGrove, opts, groveInfo?.preset);
       activeProvider = result.provider;
       activeStopGc = result.stopGc;
-
-      // Post-startup: update agent skill SKILL.md (non-blocking)
       updateSkillAfterStartup();
-
       const { App } = await import("./app.js");
       root.render(React.createElement(App, result.appProps));
-
       renderer.start();
       await renderer.idle();
       return;
     }
+
+    // --nexus flag: Nexus is the default backend. Go through interactive
+    // ScreenManager flow (goal → prompts → run) with Nexus pre-configured.
+    // Falls through to the TuiApp below which handles the full flow.
 
     const presets = await loadPresetList();
 
@@ -586,6 +583,7 @@ export async function handleTui(
         onInit,
         onStart,
         onConnect,
+        autoConnectNexus: opts.nexus,
       }),
     );
 
