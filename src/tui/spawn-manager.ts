@@ -522,21 +522,16 @@ You are the **${roleId}** agent. Always pass \`agent: { role: "${roleId}" }\` in
 
 You will receive push notifications from the system when other agents produce work relevant to you. These arrive as messages in your session — you do NOT need to poll or check for them. Just work on the session goal, and when a notification arrives, act on it.
 
-## MCP Tools
+## MCP Tools (use sparingly)
 
 - \`grove_contribute\` — record your work (always include agent: { role: "${roleId}" })
-- \`grove_done\` — signal you are finished (always include agent: { role: "${roleId}" })
-- \`grove_log\` — see recent contributions (use once at start to see context, then rely on push)
-- \`grove_frontier\` — see the best contributions
+- \`grove_done\` — signal session complete (only after approval from other agents)
+
+Do NOT call grove_log, grove_search, grove_frontier, grove_checkout, grove_goal, or grove_read_inbox. You receive everything you need via push notifications.
 
 ## Workflow
 
-1. Start working on the session goal immediately
-2. When done, call grove_contribute to record your work
-3. You will be notified when other agents respond — act on their feedback
-4. When you have no more work, call grove_done
-
-You are in a git worktree. You can edit files, commit, push, and create PRs.
+Follow the Instructions section above exactly. You are in a git worktree with full source code. You can edit files, commit, push, create PRs, and use gh CLI.
 `;
 
     await writeFile(join(workspacePath, "CLAUDE.md"), instructions, "utf-8");
