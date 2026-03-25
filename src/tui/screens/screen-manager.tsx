@@ -81,9 +81,11 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
     const [state, setState] = useState<ScreenState>(() => ({
       screen: startOnRunning
         ? ("running" as const)
-        : presets && presets.length > 0
-          ? ("preset-select" as const)
-          : ("running" as const),
+        : topology
+          ? ("goal-input" as const) // Has topology → skip preset, go to goal
+          : presets && presets.length > 0
+            ? ("preset-select" as const)
+            : ("running" as const),
       ...(appProps.presetName ? { selectedPreset: appProps.presetName } : {}),
     }));
 

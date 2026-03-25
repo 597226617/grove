@@ -102,7 +102,7 @@ export const TuiApp: React.NamedExoticComponent<TuiAppProps> = React.memo(functi
     if (autoConnectNexus && onConnect && !autoConnectTriggered.current) {
       autoConnectTriggered.current = true;
       setStartingSteps([`Connecting to ${autoConnectNexus}...`]);
-      isResumedRef.current = true;
+      // Don't set isResumed — we want the full interactive flow (goal → prompts → run)
 
       void (async () => {
         try {
