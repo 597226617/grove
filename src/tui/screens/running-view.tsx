@@ -78,8 +78,14 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const AGENT_OUTPUT_LINES = 8;
 
     /** Strip ANSI escape codes from terminal output. */
-    const stripAnsi = (s: string): string =>
-      s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional ANSI escape stripping
+    const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional ANSI escape stripping
+    const ANSI_OSC_RE = /\x1b\][^\x07]*\x07/g;
+    const stripAnsi = React.useCallback(
+      (s: string): string => s.replace(ANSI_RE, "").replace(ANSI_OSC_RE, ""),
+      [],
+    );
 
     // Braille spinner animation
     useEffect(() => {
@@ -317,6 +323,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
           {expanded && output ? (
             <box flexDirection="column" marginLeft={4} marginBottom={1}>
               {output.map((line, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable list
                 <text key={i} color={theme.muted}>
                   {line.slice(0, 120)}
                 </text>

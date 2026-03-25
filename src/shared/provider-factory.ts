@@ -23,8 +23,12 @@ export function createStubContributionStore(identity?: string): ContributionStor
     storeIdentity: identity,
     get: async () => undefined,
     getMany: async () => new Map(),
-    put: async () => {},
-    putMany: async () => {},
+    put: async () => {
+      /* expected */
+    },
+    putMany: async () => {
+      /* expected */
+    },
     list: async () => [],
     ancestors: async () => [],
     children: async () => [],
@@ -38,7 +42,9 @@ export function createStubContributionStore(identity?: string): ContributionStor
     relatedTo: async () => [],
     findExisting: async () => [],
     replyCounts: async () => new Map(),
-    close: () => {},
+    close: () => {
+      /* expected */
+    },
   };
 }
 

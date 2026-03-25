@@ -83,7 +83,9 @@ export class InMemoryContentStore implements ContentStore {
     };
   }
 
-  close(): void {}
+  close(): void {
+    /* expected */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +254,9 @@ export class InMemoryClaimStore implements ClaimStore {
     return [];
   }
 
-  close(): void {}
+  close(): void {
+    /* expected */
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,9 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<void> {
     const idx = this.sessions.findIndex((s) => s.id === id);
     if (idx === -1) return;
-    this.sessions[idx] = { ...this.sessions[idx]!, ...updates };
+    const existing = this.sessions[idx];
+    if (!existing) return;
+    this.sessions[idx] = { ...existing, ...updates };
   }
 
   async list(presetName?: string): Promise<readonly Session[]> {

@@ -177,7 +177,7 @@ export const CommandPalette: React.NamedExoticComponent<CommandPaletteProps> = R
     sessions,
     parentAgentId,
     gossipPeers,
-    activeSpawnCounts,
+    activeSpawnCounts: _activeSpawnCounts,
     items: externalItems,
   }: CommandPaletteProps): React.ReactNode {
     const hasSpawnRuntime = tmux !== undefined || onSpawn !== undefined;

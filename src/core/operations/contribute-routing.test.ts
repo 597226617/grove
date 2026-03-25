@@ -75,7 +75,9 @@ function makeStore(items: Contribution[] = []): ContributionStore {
     incomingSources: async () => [],
     replyCounts: async () => new Map(),
     hotThreads: async () => [],
-    close: () => {},
+    close: () => {
+      /* expected */
+    },
   };
 }
 

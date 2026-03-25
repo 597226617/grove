@@ -132,12 +132,13 @@ export async function provisionSessionWorkspaces(
   const errors: WorkspaceProvisionError[] = [];
 
   for (let i = 0; i < results.length; i++) {
-    const result = results[i]!;
+    const result = results[i];
+    if (!result) continue;
     if (result.status === "fulfilled") {
       workspaces.push(result.value);
     } else {
       errors.push({
-        role: roles[i]!,
+        role: roles[i] ?? `role-${i}`,
         message: result.reason instanceof Error ? result.reason.message : String(result.reason),
       });
     }

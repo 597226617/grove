@@ -71,13 +71,19 @@ afterEach(() => {
   for (const p of dbPaths) {
     try {
       unlinkSync(p);
-    } catch {}
+    } catch {
+      /* expected */
+    }
     try {
       unlinkSync(`${p}-wal`);
-    } catch {}
+    } catch {
+      /* expected */
+    }
     try {
       unlinkSync(`${p}-shm`);
-    } catch {}
+    } catch {
+      /* expected */
+    }
   }
   dbPaths.length = 0;
 });

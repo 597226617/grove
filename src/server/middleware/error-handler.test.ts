@@ -148,7 +148,9 @@ describe("error handler", () => {
   it("maps unknown errors to 500 without leaking details", async () => {
     // Suppress console.error to prevent Bun test runner exit code 1
     const origError = console.error;
-    console.error = () => {};
+    console.error = () => {
+      /* expected */
+    };
     try {
       const app = appThatThrows(new Error("secret internal detail"));
 
