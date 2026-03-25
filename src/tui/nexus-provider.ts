@@ -262,13 +262,17 @@ export class NexusDataProvider
       result = await super.createSession(input);
     }
     // Also persist to Nexus VFS for cross-session visibility
-    void this.nexusSessionStore.create({
-      id: result.sessionId,
-      goal: input.goal ?? "",
-      presetName: "review-loop",
-      createdAt: new Date().toISOString(),
-      status: "running",
-    }).catch(() => { /* best-effort */ });
+    void this.nexusSessionStore
+      .create({
+        id: result.sessionId,
+        goal: input.goal ?? "",
+        presetName: "review-loop",
+        createdAt: new Date().toISOString(),
+        status: "running",
+      })
+      .catch(() => {
+        /* best-effort */
+      });
     return result;
   }
 

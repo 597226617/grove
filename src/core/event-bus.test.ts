@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { LocalEventBus } from "./local-event-bus.js";
-import { TopologyRouter } from "./topology-router.js";
-import type { AgentTopology } from "./topology.js";
 import type { GroveEvent } from "./event-bus.js";
+import { LocalEventBus } from "./local-event-bus.js";
+import type { AgentTopology } from "./topology.js";
+import { TopologyRouter } from "./topology-router.js";
 
 // --- LocalEventBus tests ---
 

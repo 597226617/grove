@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentConfig } from "./agent-runtime.js";
 import { AcpxRuntime } from "./acpx-runtime.js";
+import type { AgentConfig } from "./agent-runtime.js";
 
 const config: AgentConfig = {
   role: "coder",
@@ -38,9 +38,7 @@ describe("AcpxRuntime", () => {
     const skip = await rt.isAvailable();
     if (skip) return; // acpx is actually installed, skip this test
 
-    await expect(rt.spawn("coder", config)).rejects.toThrow(
-      "acpx is not installed",
-    );
+    await expect(rt.spawn("coder", config)).rejects.toThrow("acpx is not installed");
   });
 
   test("listSessions returns empty array when unavailable", async () => {
@@ -69,10 +67,7 @@ describe("AcpxRuntime", () => {
   test("send does nothing for unknown session", async () => {
     const rt = new AcpxRuntime();
     // Should not throw when session doesn't exist (no-op)
-    await rt.send(
-      { id: "nonexistent", role: "test", status: "running" },
-      "hello",
-    );
+    await rt.send({ id: "nonexistent", role: "test", status: "running" }, "hello");
   });
 
   test("constructor accepts agent option", () => {

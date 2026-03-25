@@ -98,7 +98,9 @@ function makeStore(contributions: Contribution[] = []): ContributionStore {
     incomingSources: async () => [],
     replyCounts: async () => new Map(),
     hotThreads: async () => [],
-    close: () => {},
+    close: () => {
+      /* noop */
+    },
   };
 }
 
@@ -144,9 +146,7 @@ describe("PolicyEnforcer: score requirements", () => {
     const enforcer = new PolicyEnforcer(contract, store);
     const contribution = makeContribution({ kind: "work", mode: "evaluation" });
 
-    await expect(enforcer.enforce(contribution, true)).rejects.toBeInstanceOf(
-      PolicyViolationError,
-    );
+    await expect(enforcer.enforce(contribution, true)).rejects.toBeInstanceOf(PolicyViolationError);
   });
 
   test("provided score → no violation", async () => {
@@ -283,7 +283,7 @@ describe("PolicyEnforcer: gate checks", () => {
     const contribution = makeContribution({
       kind: "work",
       mode: "evaluation",
-      scores: { val_bpb: score(1.20) },
+      scores: { val_bpb: score(1.2) },
     });
 
     const result = await enforcer.enforce(contribution, false);
@@ -419,9 +419,7 @@ describe("PolicyEnforcer: role-kind constraints", () => {
     const enforcer = new PolicyEnforcer(contract, store);
     const contribution = makeContribution({ kind: "work", mode: "evaluation" });
 
-    await expect(enforcer.enforce(contribution, true)).rejects.toBeInstanceOf(
-      PolicyViolationError,
-    );
+    await expect(enforcer.enforce(contribution, true)).rejects.toBeInstanceOf(PolicyViolationError);
   });
 
   test("no allowedKinds → all kinds allowed", async () => {
@@ -599,7 +597,7 @@ describe("PolicyEnforcer: outcome derivation", () => {
     const contribution = makeContribution({
       kind: "work",
       mode: "evaluation",
-      scores: { val_bpb: score(1.20) },
+      scores: { val_bpb: score(1.2) },
     });
 
     const result = await enforcer.enforce(contribution, false);

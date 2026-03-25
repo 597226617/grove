@@ -269,7 +269,7 @@ describe("SpawnManager", () => {
     expect(provider.cleanedWorkspaces.size).toBe(1);
 
     // No heartbeat timer was started
-    for (const claim of allClaims) {
+    for (const _claim of allClaims) {
       expect(false).toBe(false);
     }
 
@@ -316,8 +316,8 @@ describe("SpawnManager", () => {
     const errors: string[] = [];
     manager = new SpawnManager(provider, tmux, (msg) => errors.push(msg));
 
-    const result1 = await manager.spawn("agent-a", "bash");
-    const result2 = await manager.spawn("agent-b", "bash");
+    const _result1 = await manager.spawn("agent-a", "bash");
+    const _result2 = await manager.spawn("agent-b", "bash");
 
     expect(false).toBe(true);
     expect(false).toBe(true);

@@ -11,10 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  validateWorkspaceMutations,
-  type WorkspaceConstraints,
-} from "./workspace-validator.js";
+import { validateWorkspaceMutations, type WorkspaceConstraints } from "./workspace-validator.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -264,11 +261,7 @@ describe("validateWorkspaceMutations", () => {
     stageFile(dir, "src/allowed.ts");
     stageFile(dir, "GROVE.md");
 
-    const result = validateWorkspaceMutations(
-      dir,
-      { immutablePaths: ["GROVE.md"] },
-      true,
-    );
+    const result = validateWorkspaceMutations(dir, { immutablePaths: ["GROVE.md"] }, true);
 
     expect(result.valid).toBe(false);
     expect(result.violations).toHaveLength(1);
@@ -294,11 +287,7 @@ describe("validateWorkspaceMutations", () => {
     writeFile(dir, ".grove/config.yaml", "modified");
     stageFile(dir, ".grove/config.yaml");
 
-    const result = validateWorkspaceMutations(
-      dir,
-      { immutablePaths: [".grove/"] },
-      false,
-    );
+    const result = validateWorkspaceMutations(dir, { immutablePaths: [".grove/"] }, false);
 
     expect(result.valid).toBe(false);
     expect(result.stashed).toBe(false);

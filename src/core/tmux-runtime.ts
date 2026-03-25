@@ -162,10 +162,10 @@ export class TmuxRuntime implements AgentRuntime {
     if (!entry) return;
 
     try {
-      const output = execSync(
-        `tmux capture-pane -p -t ${shellEscape(sessionId)}`,
-        { encoding: "utf-8", stdio: "pipe" },
-      );
+      const output = execSync(`tmux capture-pane -p -t ${shellEscape(sessionId)}`, {
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
 
       if (output === entry.lastOutput && entry.lastOutput !== "") {
         // Output hasn't changed — fire idle callbacks

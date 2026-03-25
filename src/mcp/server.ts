@@ -16,6 +16,7 @@ import type { McpDeps } from "./deps.js";
 import { registerBountyTools } from "./tools/bounties.js";
 import { registerClaimTools } from "./tools/claims.js";
 import { registerContributionTools } from "./tools/contributions.js";
+import { registerDoneTools } from "./tools/done.js";
 import { registerGoalTools } from "./tools/goal.js";
 import { registerIngestTools } from "./tools/ingest.js";
 import { registerMessagingTools } from "./tools/messaging.js";
@@ -23,7 +24,6 @@ import { registerOutcomeTools } from "./tools/outcomes.js";
 import { registerPlanTools } from "./tools/plans.js";
 import { registerQueryTools } from "./tools/queries.js";
 import { registerSessionTools } from "./tools/session.js";
-import { registerDoneTools } from "./tools/done.js";
 import { registerStopTools } from "./tools/stop.js";
 import { registerWorkspaceTools } from "./tools/workspace.js";
 

@@ -11,10 +11,10 @@ import type { GroveContract } from "../contract.js";
 import type { CreditsService } from "../credits.js";
 import type { EventBus } from "../event-bus.js";
 import type { FrontierCalculator } from "../frontier.js";
+import type { HookRunner } from "../hooks.js";
 import type { OutcomeStore } from "../outcome.js";
 import type { ClaimStore, ContributionStore } from "../store.js";
 import type { TopologyRouter } from "../topology-router.js";
-import type { HookRunner } from "../hooks.js";
 import type { WorkspaceManager } from "../workspace.js";
 
 /**

@@ -30,7 +30,7 @@ health.get("/", async (c) => {
   }
   try {
     // CAS: attempt a get on a nonexistent key — should return null, not throw
-    await cas.get("blake3:" + "0".repeat(64));
+    await cas.get(`blake3:${"0".repeat(64)}`);
     checks.cas = "ok";
   } catch {
     checks.cas = "error";

@@ -22,9 +22,9 @@
  *   linear, never recursive.
  */
 
-import type { GroveContract, Gate, MetricDefinition, OutcomePolicy } from "./contract.js";
+import type { Gate, GroveContract, MetricDefinition } from "./contract.js";
 import { PolicyViolationError } from "./errors.js";
-import type { Contribution, ContributionKind, Score } from "./models.js";
+import type { Contribution } from "./models.js";
 import { ContributionMode } from "./models.js";
 import type { OutcomeRecord, OutcomeStore } from "./outcome.js";
 import { OutcomeStatus } from "./outcome.js";
@@ -419,7 +419,10 @@ export class PolicyEnforcer {
           violations.push({
             type: "missing_artifact",
             message: `Reproducibility requires artifact '${artifactName}' but not provided`,
-            details: { artifact: artifactName, providedArtifacts: Object.keys(contribution.artifacts) },
+            details: {
+              artifact: artifactName,
+              providedArtifacts: Object.keys(contribution.artifacts),
+            },
           });
         }
       }
@@ -502,9 +505,7 @@ export class PolicyEnforcer {
     }
 
     const isMinimize = metricDef.direction === "minimize";
-    const improves = isMinimize
-      ? score.value < currentBest.value
-      : score.value > currentBest.value;
+    const improves = isMinimize ? score.value < currentBest.value : score.value > currentBest.value;
 
     if (!improves) {
       return {
@@ -696,9 +697,7 @@ export class PolicyEnforcer {
   // ---------------------------------------------------------------------------
 
   /** Evaluate stop conditions using targeted queries instead of loading all contributions. */
-  private async evaluateStopConditions(
-    _contribution: Contribution,
-  ): Promise<StopCheckResult> {
+  private async evaluateStopConditions(_contribution: Contribution): Promise<StopCheckResult> {
     const stop = this.contract.stopConditions;
     if (stop === undefined) return { stopped: false };
 
@@ -716,9 +715,7 @@ export class PolicyEnforcer {
         // Get first contribution timestamp via a limited query
         const oldest = await this.contributionStore.list({ limit: 1 });
         if (oldest.length > 0 && oldest[0] !== undefined) {
-          const elapsed = Math.floor(
-            (Date.now() - Date.parse(oldest[0].createdAt)) / 1000,
-          );
+          const elapsed = Math.floor((Date.now() - Date.parse(oldest[0].createdAt)) / 1000);
           if (elapsed >= stop.budget.maxWallClockSeconds) {
             return {
               stopped: true,
@@ -752,9 +749,7 @@ export class PolicyEnforcer {
 
     // Max rounds without improvement
     if (stop.maxRoundsWithoutImprovement !== undefined) {
-      const result = await this.checkMaxRoundsWithoutImprovement(
-        stop.maxRoundsWithoutImprovement,
-      );
+      const result = await this.checkMaxRoundsWithoutImprovement(stop.maxRoundsWithoutImprovement);
       if (result.stopped) return result;
     }
 
@@ -762,9 +757,7 @@ export class PolicyEnforcer {
   }
 
   /** Check if the best score for any metric is stale (not in the last N contributions). */
-  private async checkMaxRoundsWithoutImprovement(
-    maxRounds: number,
-  ): Promise<StopCheckResult> {
+  private async checkMaxRoundsWithoutImprovement(maxRounds: number): Promise<StopCheckResult> {
     const metrics = this.contract.metrics;
     if (metrics === undefined) return { stopped: false };
 

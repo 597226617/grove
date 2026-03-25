@@ -1,8 +1,13 @@
-export type { AgentConfig, AgentRuntime, AgentSession } from "./agent-runtime.js";
 export { AcpxRuntime } from "./acpx-runtime.js";
-export { MockRuntime } from "./mock-runtime.js";
-export { SubprocessRuntime } from "./subprocess-runtime.js";
-export { TmuxRuntime } from "./tmux-runtime.js";
+export type { AgentConfig, AgentRuntime, AgentSession } from "./agent-runtime.js";
+export {
+  extractChoices,
+  extractQuestion,
+  findPendingQuestions,
+  formatAskUser,
+  isAskUser,
+  isResponse,
+} from "./ask-user-detection.js";
 export {
   canRetry,
   computeBackoffMs,
@@ -64,9 +69,6 @@ export {
   MAX_GOSSIP_OFFERED_PEERS,
   MAX_MERGED_FRONTIER_ENTRIES,
 } from "./constants.js";
-export type { EventBus, EventHandler, GroveEvent } from "./event-bus.js";
-export { LocalEventBus } from "./local-event-bus.js";
-export { TopologyRouter } from "./topology-router.js";
 export type {
   AgentConstraints,
   AgentRole,
@@ -76,6 +78,7 @@ export type {
   ConcurrencyConfig,
   DeliberationLimit,
   EdgeType,
+  EvaluationConfig,
   ExecutionConfig,
   Gate,
   GateType,
@@ -84,12 +87,11 @@ export type {
   MetricDefinition,
   QuorumReviewScore,
   RateLimitsConfig,
+  ReproducibilityConfig,
   RetryConfig,
   RoleEdge,
   SpawningConfig,
   StopConditions,
-  EvaluationConfig,
-  ReproducibilityConfig,
   TargetMetric,
 } from "./contract.js";
 export { parseGroveContract, parseGroveContractObject } from "./contract.js";
@@ -100,13 +102,6 @@ export type {
   TransferResult,
 } from "./credits.js";
 export { EnforcingClaimStore, EnforcingContributionStore } from "./enforcing-store.js";
-export type {
-  DerivedOutcome,
-  PolicyEnforcementResult,
-  PolicyViolation,
-  StopCheckResult,
-} from "./policy-enforcer.js";
-export { PolicyEnforcer } from "./policy-enforcer.js";
 export {
   ArtifactLimitError,
   ConcurrencyLimitError,
@@ -116,6 +111,7 @@ export {
   RateLimitError,
   RetryExhaustedError,
 } from "./errors.js";
+export type { EventBus, EventHandler, GroveEvent } from "./event-bus.js";
 export type {
   Frontier,
   FrontierCalculator,
@@ -135,6 +131,7 @@ export {
 } from "./hooks.js";
 export type { FailureConfig } from "./in-memory-credits.js";
 export { InMemoryCreditsService } from "./in-memory-credits.js";
+export { InMemorySessionStore } from "./in-memory-session-store.js";
 export type { StopConditionResult, StopEvaluationResult } from "./lifecycle.js";
 export {
   deriveLifecycleState,
@@ -142,6 +139,7 @@ export {
   evaluateStopConditions,
   LifecycleState,
 } from "./lifecycle.js";
+export { LocalEventBus } from "./local-event-bus.js";
 export {
   CID_PATTERN,
   ContextSchema,
@@ -154,6 +152,7 @@ export {
   toManifest,
   verifyCid,
 } from "./manifest.js";
+export { MockRuntime } from "./mock-runtime.js";
 export {
   type AgentIdentity,
   type Artifact,
@@ -181,12 +180,31 @@ export {
   validateWorkspaceKey,
 } from "./path-safety.js";
 export type {
+  DerivedOutcome,
+  PolicyEnforcementResult,
+  PolicyViolation,
+  StopCheckResult,
+} from "./policy-enforcer.js";
+export { PolicyEnforcer } from "./policy-enforcer.js";
+export type {
   ReconcileResult,
   Reconciler,
   ReconcilerConfig,
   StartupReconcileResult,
 } from "./reconciler.js";
 export { DefaultReconciler } from "./reconciler.js";
+export type {
+  CreateSessionInput,
+  Session,
+  SessionStore,
+} from "./session-manager.js";
+export { SessionManager } from "./session-manager.js";
+export type {
+  AgentSessionInfo,
+  SessionConfig,
+  SessionStatus,
+} from "./session-orchestrator.js";
+export { SessionOrchestrator } from "./session-orchestrator.js";
 export type {
   ActiveClaimFilter,
   ClaimStore,
@@ -196,22 +214,11 @@ export type {
   ExpireStaleOptions,
 } from "./store.js";
 export { ExpiryReason } from "./store.js";
-export type {
-  SessionConfig,
-  SessionStatus,
-  AgentSessionInfo,
-} from "./session-orchestrator.js";
-export { SessionOrchestrator } from "./session-orchestrator.js";
-export {
-  extractChoices,
-  extractQuestion,
-  findPendingQuestions,
-  formatAskUser,
-  isAskUser,
-  isResponse,
-} from "./ask-user-detection.js";
 export { type SpawnOptions, type SpawnResult, spawnCommand, spawnOrThrow } from "./subprocess.js";
+export { SubprocessRuntime } from "./subprocess-runtime.js";
 export { toUtcIso } from "./time.js";
+export { TmuxRuntime } from "./tmux-runtime.js";
+export { TopologyRouter } from "./topology-router.js";
 export type {
   CheckoutOptions,
   StaleOptions,
@@ -220,12 +227,6 @@ export type {
   WorkspaceQuery,
 } from "./workspace.js";
 export { WorkspaceStatus } from "./workspace.js";
-export type {
-  WorkspaceConstraints,
-  WorkspaceValidationResult,
-  WorkspaceViolation,
-} from "./workspace-validator.js";
-export { validateWorkspaceMutations } from "./workspace-validator.js";
 export type {
   ProvisionedWorkspace,
   SessionWorkspaces,
@@ -238,9 +239,8 @@ export {
   provisionWorkspace,
 } from "./workspace-provisioner.js";
 export type {
-  CreateSessionInput,
-  Session,
-  SessionStore,
-} from "./session-manager.js";
-export { SessionManager } from "./session-manager.js";
-export { InMemorySessionStore } from "./in-memory-session-store.js";
+  WorkspaceConstraints,
+  WorkspaceValidationResult,
+  WorkspaceViolation,
+} from "./workspace-validator.js";
+export { validateWorkspaceMutations } from "./workspace-validator.js";

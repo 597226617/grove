@@ -11,9 +11,9 @@
 
 import { useKeyboard } from "@opentui/react";
 import React, { useCallback, useEffect, useState } from "react";
+import type { EventBus } from "../../core/event-bus.js";
 import type { Contribution } from "../../core/models.js";
 import type { AgentTopology } from "../../core/topology.js";
-import type { EventBus } from "../../core/event-bus.js";
 import { useEventDrivenData } from "../hooks/use-event-driven-data.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { DashboardData, TuiDataProvider } from "../provider.js";
@@ -78,7 +78,8 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const AGENT_OUTPUT_LINES = 8;
 
     /** Strip ANSI escape codes from terminal output. */
-    const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+    const stripAnsi = (s: string): string =>
+      s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 
     // Braille spinner animation
     useEffect(() => {
@@ -108,7 +109,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
         }
       }, 2000);
       return () => clearInterval(timer);
-    }, [tmux]);
+    }, [tmux, stripAnsi]);
 
     // Poll agent tmux panes for permission prompts
     useEffect(() => {
@@ -126,7 +127,13 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
               let cmd = "";
               for (const line of lines) {
                 const trimmed = line.trim();
-                if (trimmed && !trimmed.startsWith("Permission") && !trimmed.startsWith("Do you") && !trimmed.startsWith("❯") && !trimmed.startsWith("Esc")) {
+                if (
+                  trimmed &&
+                  !trimmed.startsWith("Permission") &&
+                  !trimmed.startsWith("Do you") &&
+                  !trimmed.startsWith("❯") &&
+                  !trimmed.startsWith("Esc")
+                ) {
                   cmd = trimmed;
                 }
               }
@@ -150,10 +157,24 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     );
 
     // Use event-driven when EventBus is available (Nexus mode), polling otherwise
-    const dashboardEvent = useEventDrivenData<DashboardData>(dashboardFetcher, eventBus, "system", true);
-    const contributionsEvent = useEventDrivenData<readonly Contribution[]>(contributionsFetcher, eventBus, "system", true);
+    const dashboardEvent = useEventDrivenData<DashboardData>(
+      dashboardFetcher,
+      eventBus,
+      "system",
+      true,
+    );
+    const contributionsEvent = useEventDrivenData<readonly Contribution[]>(
+      contributionsFetcher,
+      eventBus,
+      "system",
+      true,
+    );
     const dashboardPoll = usePolledData<DashboardData>(dashboardFetcher, intervalMs, !eventBus);
-    const contributionsPoll = usePolledData<readonly Contribution[]>(contributionsFetcher, intervalMs, !eventBus);
+    const contributionsPoll = usePolledData<readonly Contribution[]>(
+      contributionsFetcher,
+      intervalMs,
+      !eventBus,
+    );
 
     const dashboard = eventBus ? dashboardEvent.data : dashboardPoll.data;
     const contributions = eventBus ? contributionsEvent.data : contributionsPoll.data;
@@ -248,7 +269,16 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             return;
           }
         },
-        [showVfs, confirmQuit, feed.length, onToggleAdvanced, onQuit, pendingPermissions, tmux, topology],
+        [
+          showVfs,
+          confirmQuit,
+          feed.length,
+          onToggleAdvanced,
+          onQuit,
+          pendingPermissions,
+          tmux,
+          topology,
+        ],
       ),
     );
 
@@ -260,7 +290,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       const platformColor = PLATFORM_COLORS[role.platform ?? "claude-code"] ?? theme.text;
       const expanded = expandedAgents.has(role.name);
       const output = agentOutputs.get(role.name);
-      const lastLine = output && output.length > 0 ? output[output.length - 1] ?? "" : "";
+      const lastLine = output && output.length > 0 ? (output[output.length - 1] ?? "") : "";
 
       let icon: string;
       let color: string;
@@ -276,7 +306,9 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
         <box key={role.name} flexDirection="column">
           <box flexDirection="row">
             <text color={color}>{icon} </text>
-            <text color={platformColor} bold>{role.name}</text>
+            <text color={platformColor} bold>
+              {role.name}
+            </text>
             <text color={theme.dimmed}> [{idx + 1}] </text>
             {!expanded && lastLine ? (
               <text color={theme.muted}>{lastLine.slice(0, 80)}</text>
@@ -285,7 +317,9 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
           {expanded && output ? (
             <box flexDirection="column" marginLeft={4} marginBottom={1}>
               {output.map((line, i) => (
-                <text key={i} color={theme.muted}>{line.slice(0, 120)}</text>
+                <text key={i} color={theme.muted}>
+                  {line.slice(0, 120)}
+                </text>
               ))}
             </box>
           ) : null}
@@ -432,7 +466,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
                 <text color={theme.text}>{p.command}</text>
               </box>
             ))}
-            <text color={theme.dimmed}>y:approve  n:deny</text>
+            <text color={theme.dimmed}>y:approve n:deny</text>
           </box>
         ) : null}
 
@@ -450,7 +484,10 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             {" "}
             {contribCount}c | {claimCount} active
           </text>
-          <text color={theme.dimmed}> 1-2:expand/collapse agents Tab:advanced Ctrl+F:browser j/k:scroll q:quit</text>
+          <text color={theme.dimmed}>
+            {" "}
+            1-2:expand/collapse agents Tab:advanced Ctrl+F:browser j/k:scroll q:quit
+          </text>
         </box>
       </box>
     );

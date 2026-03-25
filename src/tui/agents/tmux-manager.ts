@@ -88,10 +88,13 @@ export class ShellTmuxManager implements TmuxManager {
 
   async listSessions(): Promise<readonly string[]> {
     try {
-      const proc = Bun.spawn(["tmux", "-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      const proc = Bun.spawn(
+        ["tmux", "-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"],
+        {
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
       const output = await new Response(proc.stdout).text();
       await proc.exited;
       if (proc.exitCode !== 0) return [];
@@ -105,7 +108,9 @@ export class ShellTmuxManager implements TmuxManager {
     const sessionName = tmuxSessionName(options.agentId);
     const proc = Bun.spawn(
       [
-        "tmux", "-L", TMUX_SOCKET,
+        "tmux",
+        "-L",
+        TMUX_SOCKET,
         "new-session",
         "-d",
         "-s",
@@ -137,10 +142,13 @@ export class ShellTmuxManager implements TmuxManager {
   }
 
   async capturePanes(sessionName: string): Promise<string> {
-    const proc = Bun.spawn(["tmux", "-L", TMUX_SOCKET, "capture-pane", "-p", "-e", "-t", sessionName], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const proc = Bun.spawn(
+      ["tmux", "-L", TMUX_SOCKET, "capture-pane", "-p", "-e", "-t", sessionName],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const output = await new Response(proc.stdout).text();
     await proc.exited;
     return output;

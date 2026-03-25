@@ -70,7 +70,8 @@ export class SessionOrchestrator {
 
   /** Start the session: spawn all agents and send goals. */
   async start(): Promise<SessionStatus> {
-    const topology = this.config.contract.topology!;
+    const topology = this.config.contract.topology;
+    if (!topology) throw new Error("Contract must define a topology");
 
     // Spawn all agents in parallel with timeout
     const SPAWN_TIMEOUT_MS = 30_000;
@@ -261,7 +262,7 @@ export class SessionOrchestrator {
    * and sends a summary to the new session.
    */
   async resumeAgent(role: string, _config?: AgentConfig): Promise<AgentSessionInfo> {
-    const roleSpec = this.config.contract.topology!.roles.find((r) => r.name === role);
+    const roleSpec = this.config.contract.topology?.roles.find((r) => r.name === role);
     if (!roleSpec) {
       throw new Error(`Role '${role}' not found in topology`);
     }

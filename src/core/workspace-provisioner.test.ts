@@ -113,12 +113,7 @@ describe("WorkspaceProvisioner", () => {
     const roles = ["architect", "coder", "reviewer"];
     const sessionId = "parallel-session-01";
 
-    const session = await provisionSessionWorkspaces(
-      roles,
-      sessionId,
-      baseDir,
-      repoDir,
-    );
+    const session = await provisionSessionWorkspaces(roles, sessionId, baseDir, repoDir);
 
     expect(session.sessionId).toBe(sessionId);
     expect(session.workspaces).toHaveLength(3);

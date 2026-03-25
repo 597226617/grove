@@ -433,10 +433,7 @@ export async function ensureNexusRunning(
   // Fast path: check if Nexus is already healthy before doing anything.
   // This avoids the slow nexus up + health-check cycle when restarting the TUI.
   const existingUrl =
-    config.nexusUrl ??
-    readNexusUrl(projectRoot) ??
-    process.env.GROVE_NEXUS_URL ??
-    undefined;
+    config.nexusUrl ?? readNexusUrl(projectRoot) ?? process.env.GROVE_NEXUS_URL ?? undefined;
   if (existingUrl && !upOpts?.force) {
     try {
       const res = await fetch(`${existingUrl}/health`, { signal: AbortSignal.timeout(3000) });

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { MockRuntime } from "./mock-runtime.js";
-import { LocalEventBus } from "./local-event-bus.js";
-import { SessionOrchestrator } from "./session-orchestrator.js";
 import type { GroveContract } from "./contract.js";
+import { LocalEventBus } from "./local-event-bus.js";
+import { MockRuntime } from "./mock-runtime.js";
+import { SessionOrchestrator } from "./session-orchestrator.js";
 
 function makeContract(overrides?: Partial<GroveContract>): GroveContract {
   return {
@@ -47,10 +47,7 @@ describe("SessionOrchestrator", () => {
     expect(status.started).toBe(true);
     expect(status.agents).toHaveLength(2);
     expect(runtime.spawnCalls).toHaveLength(2);
-    expect(status.agents.map((a) => a.role).sort()).toEqual([
-      "coder",
-      "reviewer",
-    ]);
+    expect(status.agents.map((a) => a.role).sort()).toEqual(["coder", "reviewer"]);
     bus.close();
   });
 
@@ -241,9 +238,7 @@ describe("SessionOrchestrator", () => {
     await orchestrator.start();
 
     // The prompt should be preferred over description
-    expect(runtime.sendCalls[0]!.message).toContain(
-      "Write high-quality documentation",
-    );
+    expect(runtime.sendCalls[0]!.message).toContain("Write high-quality documentation");
     expect(runtime.sendCalls[0]!.message).not.toContain("A writer agent");
     bus.close();
   });

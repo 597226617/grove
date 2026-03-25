@@ -22,7 +22,6 @@ import type { Contribution, ContributionKind, ContributionMode } from "../../cor
 import { RelationType } from "../../core/models.js";
 import type { CliDeps, Writer } from "../context.js";
 import { outputJson } from "../format.js";
-import { parseLimit } from "../utils/parse-helpers.js";
 
 const DEFAULT_DEPTH = 10;
 
@@ -158,7 +157,7 @@ export async function runExportDag(
 
   // Output
   if (options.output !== undefined) {
-    writeFileSync(options.output, JSON.stringify(result, null, 2) + "\n", "utf-8");
+    writeFileSync(options.output, `${JSON.stringify(result, null, 2)}\n`, "utf-8");
     writer(`Exported ${result.length} contribution(s) to ${options.output}`);
   } else {
     outputJson(result);

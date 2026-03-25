@@ -62,11 +62,8 @@ export interface WorkspaceProvisionError {
  * branch named `grove/<sessionId>/<role>`. Optionally writes an `.mcp.json`
  * config file into the worktree root.
  */
-export function provisionWorkspace(
-  options: WorkspaceProvisionOptions,
-): ProvisionedWorkspace {
-  const { role, sessionId, baseDir, repoRoot, mcpConfig, baseBranch } =
-    options;
+export function provisionWorkspace(options: WorkspaceProvisionOptions): ProvisionedWorkspace {
+  const { role, sessionId, baseDir, repoRoot, mcpConfig, baseBranch } = options;
 
   const worktreePath = join(baseDir, `${role}-${sessionId.slice(0, 8)}`);
   const branch = `grove/${sessionId}/${role}`;
@@ -86,10 +83,7 @@ export function provisionWorkspace(
 
   // Write .mcp.json if provided
   if (mcpConfig !== undefined) {
-    writeFileSync(
-      join(worktreePath, ".mcp.json"),
-      JSON.stringify(mcpConfig, null, 2),
-    );
+    writeFileSync(join(worktreePath, ".mcp.json"), JSON.stringify(mcpConfig, null, 2));
   }
 
   return { role, path: worktreePath, branch, sessionId };
@@ -144,10 +138,7 @@ export async function provisionSessionWorkspaces(
     } else {
       errors.push({
         role: roles[i]!,
-        message:
-          result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason),
+        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
       });
     }
   }

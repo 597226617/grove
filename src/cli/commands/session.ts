@@ -26,12 +26,6 @@ import { outputJson, outputJsonError } from "../format.js";
 // Types
 // ---------------------------------------------------------------------------
 
-interface SessionStartOptions {
-  readonly goal: string;
-  readonly groveDir: string;
-  readonly runtime?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Subcommand dispatch
 // ---------------------------------------------------------------------------
@@ -155,7 +149,7 @@ async function sessionStart(args: readonly string[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function sessionList(_args: readonly string[]): Promise<void> {
-  const { existsSync, readFileSync } = await import("node:fs");
+  const { existsSync } = await import("node:fs");
   const { join } = await import("node:path");
   const { resolveGroveDir } = await import("../utils/grove-dir.js");
 

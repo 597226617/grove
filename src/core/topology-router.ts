@@ -1,5 +1,5 @@
-import type { AgentTopology } from "./topology.js";
 import type { EventBus, GroveEvent } from "./event-bus.js";
+import type { AgentTopology } from "./topology.js";
 
 /**
  * Routes contribution events through topology edges.

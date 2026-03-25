@@ -129,7 +129,10 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
             setCursor((c) => Math.max(c - 1, 0));
             return;
           }
-          if (key.name === "e" || (key.name === "return" && roles.length > 0 && cursor < roles.length)) {
+          if (
+            key.name === "e" ||
+            (key.name === "return" && roles.length > 0 && cursor < roles.length)
+          ) {
             // Edit the selected role's prompt
             const roleName = roles[cursor]?.name;
             if (roleName) {
@@ -147,7 +150,18 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
             return;
           }
         },
-        [scanning, detected, roleMapping, rolePrompts, onContinue, onBack, editing, editBuffer, cursor, roles],
+        [
+          scanning,
+          detected,
+          roleMapping,
+          rolePrompts,
+          onContinue,
+          onBack,
+          editing,
+          editBuffer,
+          cursor,
+          roles,
+        ],
       ),
     );
 
@@ -182,9 +196,7 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
               <box key={agent.cli} flexDirection="row">
                 <text color={color}> {icon} </text>
                 <text color={platformColor}>{agent.label.padEnd(16)}</text>
-                <text color={theme.muted}>
-                  {found ? "found" : scanning ? "..." : "not found"}
-                </text>
+                <text color={theme.muted}>{found ? "found" : scanning ? "..." : "not found"}</text>
               </box>
             );
           })}
@@ -239,7 +251,9 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
                   ) : (
                     <box marginLeft={4}>
                       <text color={theme.dimmed}>
-                        {prompt ? prompt.slice(0, 80) + (prompt.length > 80 ? "..." : "") : "(no prompt)"}
+                        {prompt
+                          ? prompt.slice(0, 80) + (prompt.length > 80 ? "..." : "")
+                          : "(no prompt)"}
                       </text>
                     </box>
                   )}

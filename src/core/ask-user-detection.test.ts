@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Contribution } from "./models.js";
 import {
   extractChoices,
   extractQuestion,
@@ -8,6 +7,7 @@ import {
   isAskUser,
   isResponse,
 } from "./ask-user-detection.js";
+import type { Contribution } from "./models.js";
 
 function makeContribution(overrides: Partial<Contribution>): Contribution {
   return {

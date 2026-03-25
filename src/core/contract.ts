@@ -280,9 +280,30 @@ const EvaluationSchema = z
 
 const HooksSchema = z
   .object({
-    after_checkout: z.union([z.string().min(1), z.object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() }).strict()]).optional(),
-    before_contribute: z.union([z.string().min(1), z.object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() }).strict()]).optional(),
-    after_contribute: z.union([z.string().min(1), z.object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() }).strict()]).optional(),
+    after_checkout: z
+      .union([
+        z.string().min(1),
+        z
+          .object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() })
+          .strict(),
+      ])
+      .optional(),
+    before_contribute: z
+      .union([
+        z.string().min(1),
+        z
+          .object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() })
+          .strict(),
+      ])
+      .optional(),
+    after_contribute: z
+      .union([
+        z.string().min(1),
+        z
+          .object({ cmd: z.string().min(1), timeout: z.number().int().positive().optional() })
+          .strict(),
+      ])
+      .optional(),
   })
   .strict();
 
