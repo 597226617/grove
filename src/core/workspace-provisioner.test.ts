@@ -22,9 +22,11 @@ describe("WorkspaceProvisioner", () => {
   let baseDir: string;
 
   beforeEach(() => {
-    // Create a real git repo with an initial commit
+    // Create a real git repo with an initial commit (set identity for CI)
     repoDir = mkdtempSync(join(tmpdir(), "grove-wp-test-"));
     execSync("git init", { cwd: repoDir, stdio: "pipe" });
+    execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: "pipe" });
+    execSync('git config user.name "Test"', { cwd: repoDir, stdio: "pipe" });
     execSync("git commit --allow-empty -m 'init'", {
       cwd: repoDir,
       stdio: "pipe",

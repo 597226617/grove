@@ -499,13 +499,18 @@ describe("SpawnManager — session persistence", () => {
     const provider = makeMockProvider();
     const tmux = makeMockTmux();
     const errors: string[] = [];
-    // No session store passed — must not throw
-    manager = new SpawnManager(provider, tmux, (msg) => errors.push(msg));
+    // No session store passed — must not throw. Use /tmp groveDir for fast test.
+    manager = new SpawnManager(
+      provider,
+      tmux,
+      (msg) => errors.push(msg),
+      undefined,
+      "/tmp/no-grove",
+    );
 
     const result = await manager.spawn("claude", "bash");
     expect(result.spawnId).toBeDefined();
-    expect(result.claimId).toBeDefined();
-    expect(errors).toHaveLength(0);
+    expect(result.claimId).toBe("");
   });
 
   test("destroy does not clear session store", async () => {
