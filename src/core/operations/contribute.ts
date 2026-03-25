@@ -8,15 +8,18 @@
  */
 
 import { createContribution } from "../manifest.js";
-import type {
-  ContributionInput,
-  ContributionKind,
-  ContributionMode,
-  JsonValue,
-  Relation,
-  Score,
+import {
+  ContributionKind as CK,
+  ContributionMode as CM,
+  type Contribution,
+  type ContributionInput,
+  type ContributionKind,
+  type ContributionMode,
+  type JsonValue,
+  type Relation,
+  RelationType,
+  type Score,
 } from "../models.js";
-import { ContributionKind as CK, ContributionMode as CM, RelationType } from "../models.js";
 import type { PolicyEnforcementResult } from "../policy-enforcer.js";
 import { PolicyEnforcer } from "../policy-enforcer.js";
 import type { ContributionStore } from "../store.js";
@@ -232,40 +235,24 @@ export async function contributeOperation(
 
     const contribution = createContribution(contributionInput);
 
-    // --- Policy enforcement (fast path: validate before write) ---
-    //
-    // Serialization model (Issue 14):
-    //
-    // The PolicyEnforcer.enforce() call runs BEFORE deps.contributionStore.put(),
-    // which means enforce() and put() are NOT atomic — there is a TOCTOU window
-    // between the gate check and the write. Two concurrent contributions could
-    // both pass the gate check against the same stale frontier.
-    //
-    // Why this is acceptable for the current architecture:
-    // - Single-process deployment: one SQLite file, one Node.js process.
-    // - EnforcingContributionStore.put() runs inside a mutex, so writes are
-    //   serialized. The enforce() call reads happen before mutex acquisition,
-    //   but the JS event loop is single-threaded, so the enforce() → put()
-    //   sequence runs without interruption unless there is an await between
-    //   them that yields to another contributor — which only happens if two
-    //   contributeOperation() calls are racing via Promise.all() or similar.
-    // - In practice, CLI callers are sequential and agent callers use claim
-    //   leases to coordinate, so concurrent gate checks are rare.
-    //
-    // Proper fix (deferred): Either (a) move enforcement into
-    // EnforcingContributionStore as a pre-write hook that runs inside the
-    // mutex, or (b) add a preWriteHook callback to EnforcingContributionStore
-    // that runs after rate-limit checks but before the inner store.put().
+    // --- Policy enforcement (TOCTOU-safe: runs inside store mutex) ---
     let policyResult: PolicyEnforcementResult | undefined;
     if (deps.contract !== undefined && deps.contributionStore !== undefined) {
       const enforcer = new PolicyEnforcer(deps.contract, deps.contributionStore, deps.outcomeStore);
-      // #4: System-owned enforcement — always strict.
-      // Structural violations (artifacts, relations, role-kind) reject in all modes.
-      // Evaluation-specific checks (scores, gates) only run in evaluation mode.
-      policyResult = await enforcer.enforce(contribution, true);
 
-      // In strict mode, PolicyViolationError is thrown by enforce() and
-      // caught below by fromGroveError(). We only reach here if passed.
+      // Wire preWriteHook for atomic enforce+put (fixes TOCTOU window).
+      // The hook runs inside EnforcingContributionStore's writeMutex.
+      const store = deps.contributionStore as {
+        preWriteHook?: ((c: Contribution) => Promise<void>) | undefined;
+      };
+      if ("preWriteHook" in store) {
+        store.preWriteHook = async (c: Contribution) => {
+          policyResult = await enforcer.enforce(c, true);
+        };
+      } else {
+        // Fallback: enforce outside mutex (legacy path)
+        policyResult = await enforcer.enforce(contribution, true);
+      }
     }
 
     await deps.contributionStore.put(contribution);
@@ -302,8 +289,10 @@ export async function contributeOperation(
         const hookEntry = deps.contract.hooks.after_contribute;
         // Fire and forget — hook failures don't block the contribution
         // (accept-then-flag semantics).
-        deps.hookRunner.run(hookEntry, deps.hookCwd).catch(() => {
-          // Intentionally swallowed — hook failure is non-fatal
+        deps.hookRunner.run(hookEntry, deps.hookCwd).catch((hookErr) => {
+          process.stderr.write(
+            `[grove] after_contribute hook failed: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}\n`,
+          );
         });
       }
     }

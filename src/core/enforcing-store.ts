@@ -138,6 +138,9 @@ export class EnforcingContributionStore implements ContributionStore {
   private readonly clock: () => Date;
   private readonly writeMutex: AsyncMutex;
 
+  /** Optional pre-write hook for policy enforcement inside the mutex (TOCTOU-safe). */
+  preWriteHook?: ((contribution: Contribution) => Promise<void>) | undefined;
+
   constructor(
     inner: ContributionStore,
     contract: GroveContract,
@@ -162,6 +165,8 @@ export class EnforcingContributionStore implements ContributionStore {
       }
 
       await this.enforceContributionLimits(contribution, 0, []);
+      // Run policy enforcement inside mutex (TOCTOU-safe)
+      if (this.preWriteHook) await this.preWriteHook(contribution);
       return await this.inner.put(contribution);
     });
   };

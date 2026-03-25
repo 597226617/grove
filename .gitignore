@@ -7,3 +7,8 @@ coverage/
 !.env.example
 .DS_Store
 .grove/
+
+# Nexus runtime artifacts (secrets, state, TLS keys)
+nexus-data/
+nexus-stack.yml
+nexus.yaml

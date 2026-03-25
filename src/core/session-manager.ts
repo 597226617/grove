@@ -65,15 +65,22 @@ export class SessionManager {
     return session;
   }
 
+  /** Valid state transitions. */
+  private static readonly VALID_TRANSITIONS: Record<string, readonly string[]> = {
+    pending: ["running", "cancelled"],
+    running: ["completed", "cancelled"],
+    completed: [],
+    cancelled: [],
+  };
+
   /** Mark a session as running. */
   async startSession(id: string): Promise<void> {
-    await this.store.update(id, { status: "running" });
+    await this.transitionState(id, "running");
   }
 
   /** Mark a session as completed. */
   async completeSession(id: string, reason?: string): Promise<void> {
-    await this.store.update(id, {
-      status: "completed",
+    await this.transitionState(id, "completed", {
       completedAt: new Date().toISOString(),
       ...(reason !== undefined ? { stopReason: reason } : {}),
     });
@@ -81,10 +88,30 @@ export class SessionManager {
 
   /** Cancel a session. */
   async cancelSession(id: string, reason?: string): Promise<void> {
-    await this.store.update(id, {
-      status: "cancelled",
+    await this.transitionState(id, "cancelled", {
       completedAt: new Date().toISOString(),
       stopReason: reason ?? "User cancelled",
+    });
+  }
+
+  /** Validate and perform a state transition. */
+  private async transitionState(
+    id: string,
+    newStatus: string,
+    extraFields?: Record<string, unknown>,
+  ): Promise<void> {
+    const session = await this.store.get(id);
+    if (session) {
+      const allowed = SessionManager.VALID_TRANSITIONS[session.status] ?? [];
+      if (!allowed.includes(newStatus)) {
+        throw new Error(
+          `Invalid session state transition: ${session.status} → ${newStatus} (allowed: ${allowed.join(", ") || "none"})`,
+        );
+      }
+    }
+    await this.store.update(id, {
+      status: newStatus as "pending" | "running" | "completed" | "cancelled",
+      ...extraFields,
     });
   }
 

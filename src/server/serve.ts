@@ -81,8 +81,17 @@ let sessionService: SessionService | undefined;
 let wsHandler: ReturnType<typeof createWsHandler> | undefined;
 
 if (runtime.contract?.topology !== undefined) {
-  // Create an agent runtime — default to tmux for now
-  const agentRuntime = new TmuxRuntime();
+  // Create an agent runtime — prefer acpx, fall back to tmux
+  let agentRuntime: import("../core/agent-runtime.js").AgentRuntime;
+  {
+    const { AcpxRuntime } = await import("../core/acpx-runtime.js");
+    const acpx = new AcpxRuntime();
+    if (await acpx.isAvailable()) {
+      agentRuntime = acpx;
+    } else {
+      agentRuntime = new TmuxRuntime();
+    }
+  }
 
   const eventBus = new LocalEventBus();
 

@@ -15,7 +15,17 @@ export class LocalEventBus implements EventBus {
   }
 
   publish(event: GroveEvent): void {
-    this.emitter.emit(`role:${event.targetRole}`, event);
+    // Wrap each listener in try/catch so one crashed subscriber doesn't break others
+    const channel = `role:${event.targetRole}`;
+    for (const listener of this.emitter.listeners(channel)) {
+      try {
+        (listener as EventHandler)(event);
+      } catch (err) {
+        process.stderr.write(
+          `[LocalEventBus] subscriber crashed on ${channel}: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+    }
   }
 
   subscribe(role: string, handler: EventHandler): void {

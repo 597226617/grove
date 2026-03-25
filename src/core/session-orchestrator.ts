@@ -6,8 +6,8 @@
  */
 
 import type { AgentConfig, AgentRuntime, AgentSession } from "./agent-runtime.js";
-import type { EventBus, GroveEvent } from "./event-bus.js";
 import type { GroveContract } from "./contract.js";
+import type { EventBus, GroveEvent } from "./event-bus.js";
 import type { AgentRole } from "./topology.js";
 import { TopologyRouter } from "./topology-router.js";
 
@@ -51,14 +51,14 @@ export class SessionOrchestrator {
   private readonly sessionId: string;
   private readonly agents: AgentSessionInfo[] = [];
   private readonly router: TopologyRouter;
+  private eventHandlers?: Map<string, import("./event-bus.js").EventHandler>;
   private stopped = false;
   private stopReason: string | undefined;
 
   constructor(config: SessionConfig) {
     this.config = config;
     this.sessionId =
-      config.sessionId ??
-      `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      config.sessionId ?? `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const topology = config.contract.topology;
     if (topology === undefined) {
@@ -72,16 +72,36 @@ export class SessionOrchestrator {
   async start(): Promise<SessionStatus> {
     const topology = this.config.contract.topology!;
 
-    // Spawn all agents in parallel
+    // Spawn all agents in parallel with timeout
+    const SPAWN_TIMEOUT_MS = 30_000;
     const spawnResults = await Promise.allSettled(
-      topology.roles.map((role) => this.spawnAgent(role)),
+      topology.roles.map((role) =>
+        Promise.race([
+          this.spawnAgent(role),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(`Spawn timeout for role '${role.name}' after ${SPAWN_TIMEOUT_MS}ms`),
+                ),
+              SPAWN_TIMEOUT_MS,
+            ),
+          ),
+        ]),
+      ),
     );
 
     for (const result of spawnResults) {
       if (result.status === "fulfilled") {
         this.agents.push(result.value);
+      } else {
+        process.stderr.write(`[SessionOrchestrator] spawn failed: ${result.reason}\n`);
       }
-      // Errors are logged but don't block other agents
+    }
+
+    // Require at least one agent
+    if (this.agents.length === 0) {
+      throw new Error("No agents spawned — all roles failed");
     }
 
     // Send goals to all agents
@@ -133,14 +153,34 @@ export class SessionOrchestrator {
   }
 
   private async spawnAgent(role: AgentRole): Promise<AgentSessionInfo> {
-    const roleGoal =
-      role.prompt ?? role.description ?? `Fulfill role: ${role.name}`;
+    const roleGoal = role.prompt ?? role.description ?? `Fulfill role: ${role.name}`;
     const fullGoal = `Session goal: ${this.config.goal}\n\nYour role (${role.name}): ${roleGoal}`;
+
+    // Use per-agent workspace directory (git worktree), fall back to project root
+    const { join } = await import("node:path");
+    const { existsSync, mkdirSync } = await import("node:fs");
+    const wsBase =
+      this.config.workspaceBaseDir ?? join(this.config.projectRoot, ".grove", "workspaces");
+    const wsDir = join(wsBase, `${role.name}-${this.sessionId.slice(0, 8)}`);
+    let agentCwd = this.config.projectRoot;
+    try {
+      if (!existsSync(wsBase)) mkdirSync(wsBase, { recursive: true });
+      const { execSync } = await import("node:child_process");
+      const branch = `grove/session/${role.name}-${this.sessionId.slice(0, 8)}`;
+      execSync(`git worktree add "${wsDir}" -b "${branch}" origin/main`, {
+        cwd: this.config.projectRoot,
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+      agentCwd = wsDir;
+    } catch {
+      // Fall back to project root if worktree creation fails
+    }
 
     const agentConfig: AgentConfig = {
       role: role.name,
       command: role.command ?? "claude",
-      cwd: this.config.projectRoot,
+      cwd: agentCwd,
       goal: fullGoal,
       env: {
         GROVE_SESSION_ID: this.sessionId,
@@ -157,17 +197,12 @@ export class SessionOrchestrator {
     };
   }
 
-  private async handleEvent(
-    agent: AgentSessionInfo,
-    event: GroveEvent,
-  ): Promise<void> {
+  private async handleEvent(agent: AgentSessionInfo, event: GroveEvent): Promise<void> {
     if (event.type === "stop") {
       // Auto-close session on stop event
       if (!this.stopped) {
         const reason =
-          typeof event.payload.reason === "string"
-            ? event.payload.reason
-            : "Stop condition met";
+          typeof event.payload.reason === "string" ? event.payload.reason : "Stop condition met";
         void this.stop(reason);
       }
       return;
@@ -229,10 +264,15 @@ export class SessionOrchestrator {
       this.agents.push(newSession);
     }
 
-    // Re-subscribe to events
-    this.config.eventBus.subscribe(role, (event) => {
+    // Unsubscribe old handler before re-subscribing (prevents leak)
+    const oldHandler = this.eventHandlers?.get(role);
+    if (oldHandler) this.config.eventBus.unsubscribe(role, oldHandler);
+    const newHandler = (event: import("./event-bus.js").GroveEvent) => {
       void this.handleEvent(newSession, event);
-    });
+    };
+    if (!this.eventHandlers) this.eventHandlers = new Map();
+    this.eventHandlers.set(role, newHandler);
+    this.config.eventBus.subscribe(role, newHandler);
 
     return newSession;
   }
