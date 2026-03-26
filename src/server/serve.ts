@@ -25,12 +25,61 @@ import { createWsHandler } from "./ws-handler.js";
 const GROVE_DIR = process.env.GROVE_DIR ?? join(process.cwd(), ".grove");
 const PORT = parsePort(process.env.PORT, 4515);
 const HOST = process.env.HOST; // optional — defaults to localhost via Bun
+const NEXUS_URL = process.env.GROVE_NEXUS_URL;
+const NEXUS_API_KEY = process.env.NEXUS_API_KEY;
 
-const runtime = createLocalRuntime({
-  groveDir: GROVE_DIR,
-  workspace: false, // server doesn't need workspace manager
-  parseContract: true, // parse topology from GROVE.md
-});
+// Use Nexus stores when GROVE_NEXUS_URL is set, local SQLite otherwise.
+// This ensures the server writes to Nexus (the single source of truth for
+// multi-agent coordination and SSE/IPC push notifications).
+const runtime = NEXUS_URL
+  ? await createNexusRuntime(GROVE_DIR, NEXUS_URL, NEXUS_API_KEY)
+  : createLocalRuntime({ groveDir: GROVE_DIR, workspace: false, parseContract: true });
+
+async function createNexusRuntime(groveDir: string, nexusUrl: string, apiKey?: string) {
+  const { NexusHttpClient } = await import("../nexus/nexus-http-client.js");
+  const { NexusContributionStore } = await import("../nexus/nexus-contribution-store.js");
+  const { NexusClaimStore } = await import("../nexus/nexus-claim-store.js");
+  const { NexusCas } = await import("../nexus/nexus-cas.js");
+  const { NexusBountyStore } = await import("../nexus/nexus-bounty-store.js");
+  const { NexusOutcomeStore } = await import("../nexus/nexus-outcome-store.js");
+  const { NexusSessionStore } = await import("../nexus/nexus-session-store.js");
+  const { DefaultFrontierCalculator } = await import("../core/frontier.js");
+  const { parseGroveContract } = await import("../core/contract.js");
+  const { existsSync, readFileSync } = await import("node:fs");
+
+  const client = new NexusHttpClient({ url: nexusUrl, apiKey });
+  const zoneId = process.env.GROVE_ZONE_ID ?? "default";
+  const contributionStore = new NexusContributionStore({ client, zoneId });
+  const claimStore = new NexusClaimStore({ client, zoneId });
+  const cas = new NexusCas({ client, zoneId });
+  const bountyStore = new NexusBountyStore({ client, zoneId });
+  const outcomeStore = new NexusOutcomeStore({ client, zoneId });
+  // NexusSessionStore is available but has a different interface from GoalSessionStore
+  // Sessions are managed locally for now
+  const frontier = new DefaultFrontierCalculator(contributionStore);
+
+  // Parse contract from local GROVE.md
+  let contract;
+  const groveRoot = join(groveDir, "..");
+  const groveMdPath = join(groveRoot, "GROVE.md");
+  if (existsSync(groveMdPath)) {
+    try {
+      contract = parseGroveContract(readFileSync(groveMdPath, "utf-8"));
+    } catch { /* contract is optional */ }
+  }
+
+  return {
+    contributionStore,
+    claimStore,
+    cas,
+    bountyStore,
+    outcomeStore,
+    frontier,
+    contract,
+    groveRoot,
+    close() { /* Nexus client has no close */ },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Optional gossip federation
