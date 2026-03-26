@@ -1,7 +1,7 @@
 ---
 contract_version: 3
 
-name: drifting-cooking-lerdorf
+name: snazzy-humming-thacker
 
 description: Code review loop with coder and reviewer roles
 
@@ -40,15 +40,6 @@ mode: exploration
 #     max_contributions: 100
 #     max_wall_clock_seconds: 3600
 
-agent_constraints:
-  required_artifacts:
-    work: ["diff.patch"]
-  required_relations:
-    review: ["reviews"]
-
-evaluation:
-  required_context: ["pr_number", "branch"]
-
 concurrency:
   max_active_claims: 4
   max_claims_per_agent: 1
@@ -62,17 +53,17 @@ agent_topology:
   roles:
     - name: coder
       description: "Writes and iterates on code"
-      prompt: "You are the coder. Create src/hello.ts that exports a greet(name: string) function returning a greeting string. Steps: 1) Write the file 2) git checkout -b feat/hello 3) git add, commit, push 4) gh pr create 5) grove_contribute kind=work with agent: {role: 'coder'} and context: {pr_number: N, branch: 'feat/hello'}. Then WAIT. Do NOT call grove_done. You will receive reviewer feedback via push notification. If reviewer requests changes, fix, push, grove_contribute again. Only call grove_done AFTER reviewer explicitly approves."
+      prompt: "You are a software engineer. Read the codebase, understand the goal, and write or fix code to accomplish it. After making changes, submit your work as a contribution using grove tools. Check your inbox for reviewer feedback and iterate until the code is solid. Focus on correctness, edge cases, and clean implementation."
       max_instances: 1
-      command: "claude"
+      platform: claude-code
       edges:
         - target: reviewer
           edge_type: delegates
     - name: reviewer
       description: "Reviews code and provides feedback"
-      prompt: "You are the reviewer. Wait for a message — do not act until you receive one. When you receive a notification about coder's work with a pr_number, run gh pr diff <number> to read the code. Review it. If issues: grove_contribute kind=review with agent: {role: 'reviewer'} describing problems, then WAIT for coder to fix. If code is good: gh pr review <number> --approve (or --comment if same user), grove_contribute kind=review with agent: {role: 'reviewer'} saying approved, then grove_done. Only call grove_done after you approve."
+      prompt: "You are a code reviewer. Watch for new contributions from the coder. Review each one for bugs, security issues, edge cases, and code quality. Submit your review with specific, actionable feedback. If changes are needed, send a message to the coder explaining what to fix. Approve when the code meets quality standards."
       max_instances: 1
-      command: "claude"
+      platform: claude-code
       edges:
         - target: coder
           edge_type: feedback
@@ -103,6 +94,6 @@ agent_topology:
 #   after_contribute: "echo 'Contribution submitted'"
 ---
 
-# drifting-cooking-lerdorf
+# snazzy-humming-thacker
 
 Code review loop with coder and reviewer roles

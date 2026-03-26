@@ -7,6 +7,7 @@
 
 import { useKeyboard } from "@opentui/react";
 import React, { useCallback, useState } from "react";
+import { EmptyState } from "../components/empty-state.js";
 import type { SessionRecord } from "../provider.js";
 import { theme } from "../theme.js";
 import type { TuiPresetEntry } from "../tui-app.js";
@@ -15,6 +16,10 @@ import type { TuiPresetEntry } from "../tui-app.js";
 export interface PresetSelectProps {
   readonly presets: readonly TuiPresetEntry[];
   readonly sessions?: readonly SessionRecord[] | undefined;
+  /** Whether presets are still loading. */
+  readonly loading?: boolean | undefined;
+  /** Parse or load error message. */
+  readonly error?: string | undefined;
   readonly onSelect: (presetName: string) => void;
   readonly onQuit: () => void;
 }
@@ -24,6 +29,8 @@ export const PresetSelect: React.NamedExoticComponent<PresetSelectProps> = React
   function PresetSelect({
     presets,
     sessions,
+    loading,
+    error,
     onSelect,
     onQuit,
   }: PresetSelectProps): React.ReactNode {
@@ -76,14 +83,50 @@ export const PresetSelect: React.NamedExoticComponent<PresetSelectProps> = React
           <text color={theme.focus} bold>
             Grove
           </text>
-          <text color={theme.muted}>Select a preset to get started</text>
-          <text color={theme.muted}>{""}</text>
         </box>
 
+        {/* Active session resume */}
+        {sessions && sessions.some((s) => s.status === "active") ? (
+          <box flexDirection="column" marginX={2} paddingX={1}>
+            {sessions
+              .filter((s) => s.status === "active")
+              .slice(0, 1)
+              .map((s) => (
+                <text key={s.sessionId} color={theme.warning}>
+                  {"\u26a0"} Active session found: Resume {s.sessionId.slice(0, 8)}{" "}
+                  {s.contributionCount}c
+                </text>
+              ))}
+          </box>
+        ) : null}
+
+        {/* Loading state */}
+        {loading ? (
+          <box marginX={2} marginTop={1} paddingX={1}>
+            <EmptyState title="Scanning..." />
+          </box>
+        ) : null}
+
+        {/* Error state */}
+        {error ? (
+          <box marginX={2} marginTop={1} paddingX={1}>
+            <text color={theme.error}>{error}</text>
+          </box>
+        ) : null}
+
+        {/* Empty state */}
+        {!loading && !error && presets.length === 0 ? (
+          <box marginX={2} marginTop={1} paddingX={1}>
+            <EmptyState title="No presets found." hint="Run `grove init` to create one." />
+          </box>
+        ) : null}
+
         {/* Preset list */}
+        {presets.length > 0 ? (
         <box
           flexDirection="column"
           marginX={2}
+          marginTop={1}
           borderStyle="single"
           borderColor={theme.border}
           paddingX={1}
@@ -105,6 +148,7 @@ export const PresetSelect: React.NamedExoticComponent<PresetSelectProps> = React
             );
           })}
         </box>
+        ) : null}
 
         {/* Detail overlay */}
         {showDetail && presets[cursor] ? (

@@ -11,14 +11,16 @@
 
 import { useKeyboard } from "@opentui/react";
 import React, { useCallback, useEffect, useState } from "react";
-import type { EventBus } from "../../core/event-bus.js";
+import type { EventBus, GroveEvent } from "../../core/event-bus.js";
 import type { Contribution } from "../../core/models.js";
 import type { AgentTopology } from "../../core/topology.js";
+import { EmptyState } from "../components/empty-state.js";
+import { ProgressBar } from "../components/progress-bar.js";
 import { useEventDrivenData } from "../hooks/use-event-driven-data.js";
 import { usePolledData } from "../hooks/use-polled-data.js";
 import type { DashboardData, TuiDataProvider } from "../provider.js";
 import { isVfsProvider } from "../provider.js";
-import { BRAILLE_SPINNER, PLATFORM_COLORS, theme } from "../theme.js";
+import { BRAILLE_SPINNER, KIND_ICONS, PLATFORM_COLORS, theme } from "../theme.js";
 import { VfsBrowserView } from "../views/vfs-browser.js";
 
 /** A pending permission prompt from an agent. */
@@ -26,6 +28,13 @@ interface PermissionPrompt {
   readonly sessionName: string;
   readonly agentRole: string;
   readonly command: string;
+}
+
+/** Target metric info for progress bar display. */
+export interface TargetMetricInfo {
+  readonly metric: string;
+  readonly value: number;
+  readonly direction: "minimize" | "maximize";
 }
 
 /** Props for the RunningView screen. */
@@ -37,9 +46,20 @@ export interface RunningViewProps {
   readonly sessionId?: string | undefined;
   readonly tmux?: import("../agents/tmux-manager.js").TmuxManager | undefined;
   readonly eventBus?: EventBus | undefined;
+  /** Target metric for progress bar (from contract stop conditions). */
+  readonly targetMetric?: TargetMetricInfo | undefined;
   readonly onToggleAdvanced: () => void;
   readonly onComplete: (reason: string) => void;
   readonly onQuit: () => void;
+}
+
+/** IPC message entry for the message log. */
+interface IpcMessage {
+  readonly timestamp: string;
+  readonly sourceRole: string;
+  readonly targetRole: string;
+  readonly type: string;
+  readonly summary: string;
 }
 
 /** Format a timestamp for display. */
@@ -63,6 +83,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     goal,
     tmux,
     eventBus,
+    targetMetric,
     onToggleAdvanced,
     onComplete: _onComplete,
     onQuit,
@@ -76,6 +97,10 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const [agentOutputs, setAgentOutputs] = useState<Map<string, string[]>>(new Map());
     const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
     const AGENT_OUTPUT_LINES = 8;
+    // IPC message log
+    const [ipcMessages, setIpcMessages] = useState<IpcMessage[]>([]);
+    // Crashed agents
+    const [crashedAgents, setCrashedAgents] = useState<Set<string>>(new Set());
 
     /** Strip ANSI escape codes from terminal output. */
     // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional ANSI escape stripping
@@ -94,6 +119,73 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       }, 80);
       return () => clearInterval(timer);
     }, []);
+
+    // Subscribe to EventBus for IPC message log + crash detection
+    useEffect(() => {
+      if (!eventBus || !topology) return;
+      const handlers: Array<{ role: string; handler: (e: GroveEvent) => void }> = [];
+      for (const role of topology.roles) {
+        const handler = (event: GroveEvent) => {
+          const msg: IpcMessage = {
+            timestamp: event.timestamp,
+            sourceRole: event.sourceRole,
+            targetRole: event.targetRole,
+            type: event.type,
+            summary:
+              typeof event.payload.summary === "string"
+                ? event.payload.summary
+                : event.type,
+          };
+          setIpcMessages((prev) => [...prev.slice(-49), msg]);
+        };
+        handlers.push({ role: role.name, handler });
+        eventBus.subscribe(role.name, handler);
+      }
+      return () => {
+        for (const { role, handler } of handlers) {
+          eventBus.unsubscribe(role, handler);
+        }
+      };
+    }, [eventBus, topology]);
+
+    // Detect crashed agents by checking for disappeared tmux sessions.
+    // Only active when tmux is the agent runtime (not AcpxRuntime which doesn't use tmux).
+    // When AcpxRuntime is used, agent status comes from the runtime's session status.
+    const hasTmuxAgents = tmux && !eventBus; // EventBus presence indicates Nexus/AcpxRuntime mode
+    useEffect(() => {
+      if (!hasTmuxAgents || !topology) return;
+      const timer = setInterval(async () => {
+        try {
+          const sessions = await tmux.listSessions();
+          const groveSessions = new Set(
+            sessions.filter((s) => s.startsWith("grove-")),
+          );
+          for (const role of topology.roles) {
+            const hasSession = [...groveSessions].some((s) =>
+              s.includes(`grove-${role.name}`),
+            );
+            if (!hasSession) {
+              setCrashedAgents((prev) => {
+                if (prev.has(role.name)) return prev;
+                const next = new Set(prev);
+                next.add(role.name);
+                return next;
+              });
+            } else {
+              setCrashedAgents((prev) => {
+                if (!prev.has(role.name)) return prev;
+                const next = new Set(prev);
+                next.delete(role.name);
+                return next;
+              });
+            }
+          }
+        } catch {
+          // Non-fatal
+        }
+      }, 5000);
+      return () => clearInterval(timer);
+    }, [hasTmuxAgents, topology]);
 
     // Poll agent tmux panes for live output
     useEffect(() => {
@@ -185,7 +277,21 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const dashboard = eventBus ? dashboardEvent.data : dashboardPoll.data;
     const contributions = eventBus ? contributionsEvent.data : contributionsPoll.data;
 
-    const feed = contributions ?? [];
+    // Build feed with synthetic [SYS] entries for crashed agents
+    const baseFeed = contributions ?? [];
+    const sysCrashEntries: Contribution[] = [...crashedAgents].map((role) => ({
+      cid: `sys:crash:${role}`,
+      manifestVersion: 1,
+      kind: "plan" as const,
+      mode: "exploration" as const,
+      summary: `[SYS] Agent ${role} crashed \u2014 reconnecting\u2026`,
+      artifacts: {},
+      relations: [],
+      tags: ["system"],
+      agent: { agentId: "system", role: "system" },
+      createdAt: new Date().toISOString(),
+    }));
+    const feed = [...sysCrashEntries, ...baseFeed];
 
     useKeyboard(
       useCallback(
@@ -265,6 +371,14 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             }
             return;
           }
+          // r: respond to ask_user question (scroll to it)
+          if (key.name === "r") {
+            const askIdx = feed.findIndex((c) => c.kind === "ask_user");
+            if (askIdx >= 0) {
+              setCursor(askIdx);
+            }
+            return;
+          }
           // j/k: scroll feed
           if (key.name === "j" || key.name === "down") {
             setCursor((c) => Math.min(c + 1, Math.max(0, feed.length - 1)));
@@ -278,7 +392,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
         [
           showVfs,
           confirmQuit,
-          feed.length,
+          feed,
           onToggleAdvanced,
           onQuit,
           pendingPermissions,
@@ -298,9 +412,14 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       const output = agentOutputs.get(role.name);
       const lastLine = output && output.length > 0 ? (output[output.length - 1] ?? "") : "";
 
+      const isCrashed = crashedAgents.has(role.name);
+
       let icon: string;
       let color: string;
-      if (activeClaim) {
+      if (isCrashed) {
+        icon = theme.agentError;
+        color = theme.warning;
+      } else if (activeClaim) {
         icon = BRAILLE_SPINNER[spinnerFrame] ?? theme.agentRunning;
         color = theme.running;
       } else {
@@ -316,7 +435,9 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
               {role.name}
             </text>
             <text color={theme.dimmed}> [{idx + 1}] </text>
-            {!expanded && lastLine ? (
+            {isCrashed ? (
+              <text color={theme.warning}>{"\u2717"} crashed {"\u2014"} reconnecting{"\u2026"}</text>
+            ) : !expanded && lastLine ? (
               <text color={theme.muted}>{lastLine.slice(0, 80)}</text>
             ) : null}
           </box>
@@ -376,11 +497,13 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             <text color={theme.focus} bold>
               File Browser
             </text>
-            <text color={theme.muted}>{""}</text>
-            <text color={theme.text}>VFS requires Nexus backend.</text>
-            <text color={theme.muted}>Browse .grove/ directory locally for session files.</text>
-            <text color={theme.muted}>{""}</text>
-            <text color={theme.dimmed}>Esc:close</text>
+            <EmptyState
+              title="VFS requires Nexus backend."
+              hint="Browse .grove/ directory locally for session files."
+            />
+            <box marginTop={1}>
+              <text color={theme.dimmed}>Esc:close</text>
+            </box>
           </box>
         </box>
       );
@@ -388,6 +511,16 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
 
     const contribCount = dashboard?.metadata.contributionCount ?? 0;
     const claimCount = dashboard?.activeClaims.length ?? 0;
+    const frontier = dashboard?.frontierSummary;
+
+    // Detect pending ask_user contributions
+    const pendingAskUser = feed.find((c) => c.kind === "ask_user");
+
+    // Get current best score for progress bar
+    const currentBestScore =
+      targetMetric && frontier?.topByMetric
+        ? frontier.topByMetric.find((m) => m.metric === targetMetric.metric)?.value
+        : undefined;
 
     return (
       <box flexDirection="column" width="100%" height="100%">
@@ -399,7 +532,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
           {agentSections.length > 0 ? (
             agentSections
           ) : (
-            <text color={theme.dimmed}>No roles defined</text>
+            <EmptyState title="No roles defined" />
           )}
         </box>
 
@@ -407,6 +540,39 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
         {goal ? (
           <box paddingX={2}>
             <text color={theme.muted}>Goal: {goal}</text>
+          </box>
+        ) : null}
+
+        {/* Frontier — best contributions by metric */}
+        {frontier && frontier.topByMetric.length > 0 ? (
+          <box
+            flexDirection="column"
+            marginX={2}
+            marginTop={1}
+            paddingX={1}
+          >
+            <text color={theme.focus} bold>Frontier</text>
+            {frontier.topByMetric.map((entry) => (
+              <box key={entry.metric} flexDirection="row">
+                <text color={theme.info}>{entry.metric}: </text>
+                <text color={theme.text}>{entry.value.toFixed(4)}</text>
+                <text color={theme.dimmed}> {entry.summary.slice(0, 50)}</text>
+              </box>
+            ))}
+          </box>
+        ) : null}
+
+        {/* ask_user alert */}
+        {pendingAskUser ? (
+          <box
+            flexDirection="row"
+            marginX={2}
+            marginTop={1}
+            paddingX={1}
+          >
+            <text color={theme.warning}>
+              {KIND_ICONS.ask_user ?? "\u2753"} Question pending {"\u2014"} r:respond
+            </text>
           </box>
         ) : null}
 
@@ -424,7 +590,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
             Contribution Feed
           </text>
           {feed.length === 0 ? (
-            <text color={theme.dimmed}>Waiting for contributions...</text>
+            <EmptyState title="Waiting for contributions..." hint="Agents are working on your goal" />
           ) : (
             feed.slice(Math.max(0, cursor - 20), cursor + 30).map((c, i) => {
               const actualIndex = Math.max(0, cursor - 20) + i;
@@ -439,6 +605,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
                       : c.kind === "adoption"
                         ? theme.adoption
                         : theme.text;
+              const kindIcon = KIND_ICONS[c.kind] ?? "\u25a0";
               return (
                 <box
                   key={c.cid}
@@ -446,6 +613,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
                   backgroundColor={selected ? theme.selectedBg : undefined}
                 >
                   <text color={theme.dimmed}>{formatTime(c.createdAt)} </text>
+                  <text color={kindColor}>{kindIcon} </text>
                   <text color={kindColor}>{c.kind.padEnd(12)}</text>
                   <text color={selected ? theme.text : theme.muted}>{c.summary.slice(0, 60)}</text>
                 </box>
@@ -477,11 +645,43 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
           </box>
         ) : null}
 
+        {/* IPC message log */}
+        {ipcMessages.length > 0 ? (
+          <box
+            flexDirection="column"
+            marginX={2}
+            marginTop={1}
+            paddingX={1}
+          >
+            <text color={theme.dimmed} bold>IPC Messages</text>
+            {ipcMessages.slice(-5).map((msg, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: IPC messages are ephemeral
+              <box key={i} flexDirection="row">
+                <text color={theme.dimmed}>{formatTime(msg.timestamp)} </text>
+                <text color={theme.info}>{msg.sourceRole}</text>
+                <text color={theme.dimmed}> {"\u2192"} </text>
+                <text color={theme.focus}>{msg.targetRole}</text>
+                <text color={theme.muted}> {msg.summary.slice(0, 40)}</text>
+              </box>
+            ))}
+          </box>
+        ) : null}
+
         {/* Quit confirmation */}
         {confirmQuit ? (
           <box paddingX={2}>
             <text color={theme.warning}>Press q again to quit, Esc to cancel</text>
           </box>
+        ) : null}
+
+        {/* Progress bar — when target metric defined */}
+        {targetMetric && currentBestScore !== undefined ? (
+          <ProgressBar
+            label={targetMetric.metric}
+            value={currentBestScore}
+            target={targetMetric.value}
+            direction={targetMetric.direction}
+          />
         ) : null}
 
         {/* Status bar */}
@@ -493,7 +693,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
           </text>
           <text color={theme.dimmed}>
             {" "}
-            1-2:expand/collapse agents Tab:advanced Ctrl+F:browser j/k:scroll q:quit
+            Tab:advanced Ctrl+F:browser j/k:scroll{pendingAskUser ? " r:respond" : ""} q:quit
           </text>
         </box>
       </box>

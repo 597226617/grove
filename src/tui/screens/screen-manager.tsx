@@ -11,9 +11,11 @@
  */
 
 import { useKeyboard, useRenderer } from "@opentui/react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import type { AppProps } from "../app.js";
 import { App } from "../app.js";
+import { useDoneDetection } from "../hooks/use-done-detection.js";
+import { usePermissionDetection } from "../hooks/use-permission-detection.js";
 import type { SessionRecord } from "../provider.js";
 import { isGoalProvider, isSessionProvider } from "../provider.js";
 import { FileSessionStore } from "../session-store.js";
@@ -26,6 +28,8 @@ import { CompleteView } from "./complete-view.js";
 import { GoalInput } from "./goal-input.js";
 import { PresetSelect } from "./preset-select.js";
 import { RunningView } from "./running-view.js";
+import type { AgentSpawnState } from "./spawn-progress.js";
+import { SpawnProgress } from "./spawn-progress.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +40,7 @@ export type Screen =
   | "preset-select"
   | "agent-detect"
   | "goal-input"
+  | "spawning"
   | "running"
   | "complete"
   | "advanced";
@@ -48,6 +53,15 @@ export interface ScreenState {
   roleMapping?: Map<string, string>;
   goal?: string;
   sessionId?: string;
+  /** Per-agent spawn progress for the spawning screen. */
+  spawnStates?: AgentSpawnState[];
+  /** Snapshot data captured on transition to complete screen. */
+  completeSnapshot?: {
+    readonly reason: string;
+    readonly contributionCount: number;
+    readonly metricResult?: import("./complete-view.js").MetricResult | undefined;
+    readonly cost?: string | undefined;
+  };
 }
 
 /** Props for the ScreenManager component. */
@@ -77,12 +91,12 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
     const renderer = useRenderer();
     const { provider, topology, groveDir } = appProps;
 
-    // Initialize state: resumed groves start on running, new groves on preset-select
+    // Initialize state: resumed groves start on running, new groves go through agent-detect first
     const [state, setState] = useState<ScreenState>(() => ({
       screen: startOnRunning
         ? ("running" as const)
         : topology
-          ? ("goal-input" as const) // Has topology → skip preset, go to goal
+          ? ("agent-detect" as const) // Has topology → detect CLIs + configure before goal
           : presets && presets.length > 0
             ? ("preset-select" as const)
             : ("running" as const),
@@ -137,117 +151,34 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
     const sessionStartRef = useRef<number>(Date.now());
 
     // ---------------------------------------------------------------------------
-    // Done detection — watch for grove_done contributions from all roles
+    // Done detection — extracted to custom hook (supports event-driven + polling)
     // ---------------------------------------------------------------------------
-    useEffect(() => {
-      if (state.screen !== "running" && state.screen !== "advanced") return;
-      if (!topology) return;
-
-      const roleNames = new Set(topology.roles.map((r) => r.name));
-      const timer = setInterval(async () => {
+    const snapshotAndComplete = useCallback(
+      async (reason: string) => {
+        let contributionCount = 0;
         try {
-          const contributions = await provider.getContributions({ limit: 50 });
-          if (!contributions) return;
-
-          // Find done signals: contributions with [DONE] prefix or context.done
-          const doneRoles = new Set<string>();
-          for (const c of contributions) {
-            const isDone =
-              c.summary.startsWith("[DONE]") ||
-              (c.context && (c.context as Record<string, unknown>).done === true);
-            if (isDone) {
-              const role = c.agent.role;
-              if (role) doneRoles.add(role);
-            }
-          }
-
-          // Check if all topology roles have signaled done
-          const allDone = [...roleNames].every((r) => doneRoles.has(r));
-          if (allDone && roleNames.size > 0) {
-            setState((s) => ({ ...s, screen: "complete" }));
-          }
+          const contributions = await provider.getContributions({ limit: 1000 });
+          contributionCount = contributions?.length ?? 0;
         } catch {
-          // Non-fatal
+          // Best-effort
         }
-      }, 5000);
-      return () => clearInterval(timer);
-    }, [state.screen, topology, provider]);
-
-    // ---------------------------------------------------------------------------
-    // Global permission prompt detection — works across ALL screens
-    // ---------------------------------------------------------------------------
-    const [pendingPermissions, setPendingPermissions] = useState<
-      Array<{ sessionName: string; agentRole: string; command: string }>
-    >([]);
-
-    const tmux = appProps.tmux;
-    useEffect(() => {
-      if (!tmux) return;
-      const timer = setInterval(async () => {
-        try {
-          const sessions = await tmux.listSessions();
-          const prompts: Array<{ sessionName: string; agentRole: string; command: string }> = [];
-          for (const sess of sessions) {
-            if (!sess.startsWith("grove-")) continue;
-            const pane = await tmux.capturePanes(sess);
-            if (pane.includes("Do you want to proceed")) {
-              const lines = pane.split("\n");
-              let cmd = "";
-              for (const line of lines) {
-                const t = line.trim();
-                if (
-                  t &&
-                  !t.startsWith("Permission") &&
-                  !t.startsWith("Do you") &&
-                  !t.startsWith("❯") &&
-                  !t.startsWith("Esc") &&
-                  !t.startsWith("1.") &&
-                  !t.startsWith("2.")
-                ) {
-                  cmd = t;
-                }
-              }
-              const role = sess.replace("grove-", "").replace(/-[a-z0-9]+$/i, "");
-              prompts.push({ sessionName: sess, agentRole: role, command: cmd.slice(0, 80) });
-            }
-          }
-          setPendingPermissions(prompts);
-        } catch {
-          // Non-fatal
-        }
-      }, 2000);
-      return () => clearInterval(timer);
-    }, [tmux]);
-
-    // Global y/n keybinding for permission approval — works on any screen
-    useKeyboard(
-      useCallback(
-        (key) => {
-          if (pendingPermissions.length === 0) return;
-          if (key.name === "y") {
-            const prompt = pendingPermissions[0];
-            if (prompt) {
-              const proc = Bun.spawn(
-                ["tmux", "-L", "grove", "send-keys", "-t", prompt.sessionName, "Enter"],
-                { stdout: "pipe", stderr: "pipe" },
-              );
-              void proc.exited;
-            }
-          }
-          if (key.name === "n") {
-            const prompt = pendingPermissions[0];
-            if (prompt) {
-              const proc = Bun.spawn(
-                ["tmux", "-L", "grove", "send-keys", "-t", prompt.sessionName, "Escape"],
-                { stdout: "pipe", stderr: "pipe" },
-              );
-              void proc.exited;
-            }
-          }
-        },
-        [pendingPermissions],
-      ),
+        setState((s) => ({
+          ...s,
+          screen: "complete",
+          completeSnapshot: { reason, contributionCount },
+        }));
+      },
+      [provider],
     );
+    const handleDone = useCallback(() => {
+      void snapshotAndComplete("All roles signaled done");
+    }, [snapshotAndComplete]);
+    useDoneDetection(provider, topology, state.screen, appProps.eventBus, handleDone);
+
+    // ---------------------------------------------------------------------------
+    // Permission prompt detection — extracted to custom hook
+    // ---------------------------------------------------------------------------
+    const pendingPermissions = usePermissionDetection(appProps.tmux);
 
     const handleQuit = useCallback(() => {
       spawnManagerRef.current?.destroy();
@@ -275,7 +206,7 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
         rolePromptsRef.current = rolePrompts;
         setState((s) => ({
           ...s,
-          screen: "goal-input",
+          screen: "goal-input" as const,
           detectedAgents: detected,
           roleMapping,
         }));
@@ -292,7 +223,6 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
     const handleGoalSubmit = useCallback(
       (goal: string) => {
         sessionStartRef.current = Date.now();
-        setState((s) => ({ ...s, screen: "running", goal }));
 
         // Set goal on provider if supported
         if (isGoalProvider(provider)) {
@@ -313,29 +243,68 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
             });
         }
 
-        // Auto-spawn all roles from topology with user-edited prompts
-        if (topology) {
+        // Transition to spawning screen with per-agent tracking
+        if (topology && topology.roles.length > 0) {
+          const initialStates: AgentSpawnState[] = topology.roles.map((role) => ({
+            role: role.name,
+            command: state.roleMapping?.get(role.name) ?? role.command ?? "codex",
+            status: "waiting" as const,
+          }));
+          setState((s) => ({ ...s, screen: "spawning", goal, spawnStates: initialStates }));
+
           spawnManagerRef.current?.setSessionGoal(goal);
 
+          // Spawn each role and track progress
           for (const role of topology.roles) {
-            const command = role.command ?? "claude";
+            // Use roleMapping from Screen 2 (user-selected CLI), fall back to GROVE.md command
+            const command = state.roleMapping?.get(role.name) ?? role.command ?? "codex";
             const context: Record<string, unknown> = {};
-            // Use user-edited prompt from Screen 2, fall back to GROVE.md
             const editedPrompt = rolePromptsRef.current.get(role.name);
             context.rolePrompt = editedPrompt ?? role.prompt ?? "";
             if (role.description) context.roleDescription = role.description;
             if (topology) context.topology = topology;
 
+            // Mark as spawning
+            setState((s) => ({
+              ...s,
+              spawnStates: (s.spawnStates ?? []).map((a) =>
+                a.role === role.name ? { ...a, status: "spawning" as const } : a,
+              ),
+            }));
+
             void spawnManagerRef.current
               ?.spawn(role.name, command, undefined, 0, context)
-              .catch(() => {
-                // Spawn failures are shown in RunningView via provider polling
+              .then(() => {
+                setState((s) => ({
+                  ...s,
+                  spawnStates: (s.spawnStates ?? []).map((a) =>
+                    a.role === role.name ? { ...a, status: "started" as const } : a,
+                  ),
+                }));
+              })
+              .catch((err) => {
+                setState((s) => ({
+                  ...s,
+                  spawnStates: (s.spawnStates ?? []).map((a) =>
+                    a.role === role.name
+                      ? { ...a, status: "failed" as const, error: String(err) }
+                      : a,
+                  ),
+                }));
               });
           }
+        } else {
+          // No topology — go straight to running
+          setState((s) => ({ ...s, screen: "running", goal }));
         }
       },
       [provider, topology],
     );
+
+    // Screen 3.5 -> Screen 4: all spawns resolved
+    const handleSpawnComplete = useCallback(() => {
+      setState((s) => ({ ...s, screen: "running" }));
+    }, []);
 
     // Screen 3 -> Screen 2: back
     const handleGoalBack = useCallback(() => {
@@ -348,9 +317,12 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
     }, []);
 
     // Screen 4 -> Screen 5: session complete
-    const handleComplete = useCallback((_reason: string) => {
-      setState((s) => ({ ...s, screen: "complete" }));
-    }, []);
+    const handleComplete = useCallback(
+      (reason: string) => {
+        void snapshotAndComplete(reason);
+      },
+      [snapshotAndComplete],
+    );
 
     // Screen 5 -> Screen 1: new session
     const handleNewSession = useCallback(() => {
@@ -430,8 +402,20 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
         return (
           <GoalInput
             presetName={state.selectedPreset ?? "default"}
+            topology={topology}
+            roleMapping={state.roleMapping}
             onSubmit={handleGoalSubmit}
             onBack={handleGoalBack}
+          />
+        );
+
+      case "spawning":
+        return (
+          <SpawnProgress
+            agents={state.spawnStates ?? []}
+            goal={state.goal ?? ""}
+            presetName={state.selectedPreset}
+            onAllResolved={handleSpawnComplete}
           />
         );
 
@@ -454,10 +438,12 @@ export const ScreenManager: React.NamedExoticComponent<ScreenManagerProps> = Rea
       case "complete":
         return (
           <CompleteView
-            reason="Session ended"
-            contributionCount={0}
+            reason={state.completeSnapshot?.reason ?? "Session ended"}
+            contributionCount={state.completeSnapshot?.contributionCount ?? 0}
             duration={getDuration()}
             presetName={state.selectedPreset}
+            metricResult={state.completeSnapshot?.metricResult}
+            cost={state.completeSnapshot?.cost}
             onNewSession={handleNewSession}
             onQuit={handleQuit}
           />

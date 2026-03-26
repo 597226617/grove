@@ -73,23 +73,24 @@ export class SessionOrchestrator {
     const topology = this.config.contract.topology;
     if (!topology) throw new Error("Contract must define a topology");
 
-    // Spawn all agents in parallel with timeout
+    // Spawn all agents in parallel with timeout via AbortController
     const SPAWN_TIMEOUT_MS = 30_000;
     const spawnResults = await Promise.allSettled(
-      topology.roles.map((role) =>
-        Promise.race([
-          this.spawnAgent(role),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(`Spawn timeout for role '${role.name}' after ${SPAWN_TIMEOUT_MS}ms`),
-                ),
-              SPAWN_TIMEOUT_MS,
-            ),
-          ),
-        ]),
-      ),
+      topology.roles.map(async (role) => {
+        const ac = new AbortController();
+        const timeoutId = setTimeout(() => ac.abort(), SPAWN_TIMEOUT_MS);
+        try {
+          const result = await this.spawnAgent(role, ac.signal);
+          clearTimeout(timeoutId);
+          return result;
+        } catch (err) {
+          clearTimeout(timeoutId);
+          if (ac.signal.aborted) {
+            throw new Error(`Spawn timeout for role '${role.name}' after ${SPAWN_TIMEOUT_MS}ms`);
+          }
+          throw err;
+        }
+      }),
     );
 
     for (const result of spawnResults) {
@@ -156,7 +157,7 @@ export class SessionOrchestrator {
     };
   }
 
-  private async spawnAgent(role: AgentRole): Promise<AgentSessionInfo> {
+  private async spawnAgent(role: AgentRole, signal?: AbortSignal): Promise<AgentSessionInfo> {
     const roleGoal = role.prompt ?? role.description ?? `Fulfill role: ${role.name}`;
     const fullGoal = `Session goal: ${this.config.goal}\n\nYour role (${role.name}): ${roleGoal}`;
 
@@ -177,6 +178,8 @@ export class SessionOrchestrator {
         stdio: "pipe",
       });
       agentCwd = wsDir;
+
+      if (signal?.aborted) throw new Error(`Spawn aborted for role '${role.name}'`);
 
       // Bootstrap workspace with .mcp.json + CLAUDE.md
       const { bootstrapWorkspace } = await import("./workspace-bootstrap.js");
@@ -205,6 +208,8 @@ export class SessionOrchestrator {
         GROVE_ROLE: role.name,
       },
     };
+
+    if (signal?.aborted) throw new Error(`Spawn aborted for role '${role.name}'`);
 
     const session = await this.config.runtime.spawn(role.name, agentConfig);
 

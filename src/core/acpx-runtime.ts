@@ -60,18 +60,34 @@ export class AcpxRuntime implements AgentRuntime {
     const id = sessionName;
     const mergedEnv = config.env ? { ...process.env, ...config.env } : { ...process.env };
 
-    // Create a new acpx session
-    const cmd = `acpx ${shellEscape(this.agent)} sessions new --name ${shellEscape(sessionName)}`;
+    // Kill any existing codex-acp process so it restarts with fresh config
+    // (codex loads ~/.codex/config.toml at startup — stale processes miss MCP config updates)
+    if (this.nextId <= 1) {
+      try {
+        execSync("pkill -f codex-acp 2>/dev/null || true", { stdio: "pipe", timeout: 3000 });
+        // Brief pause for process cleanup
+        execSync("sleep 1", { stdio: "pipe" });
+      } catch { /* ignore */ }
+    }
+
+    // Create a new acpx session with --approve-all (layer 1: acpx client-side auto-approve)
+    const createCmd = `acpx --approve-all ${shellEscape(this.agent)} sessions new --name ${shellEscape(sessionName)}`;
     try {
-      execSync(cmd, { encoding: "utf-8", stdio: "pipe", cwd: config.cwd, env: mergedEnv });
+      execSync(createCmd, { encoding: "utf-8", stdio: "pipe", cwd: config.cwd, env: mergedEnv });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(
-        `[AcpxRuntime] spawn failed: ${msg}\n  cmd: ${cmd}\n  cwd: ${config.cwd}\n`,
-      );
       throw new Error(`acpx session creation failed for role "${role}": ${msg}`);
     }
-    process.stderr.write(`[AcpxRuntime] created session ${sessionName} in ${config.cwd}\n`);
+
+    // Set full-access mode (layer 2: codex internal approval policy = never prompt)
+    try {
+      execSync(
+        `acpx --approve-all ${shellEscape(this.agent)} set-mode full-access -s ${shellEscape(sessionName)}`,
+        { encoding: "utf-8", stdio: "pipe", cwd: config.cwd, env: mergedEnv, timeout: 10_000 },
+      );
+    } catch {
+      // Non-fatal — some agents may not support set-mode (claude, gemini)
+    }
 
     const session: AgentSession = { id, role, status: "running" };
     const entry: AcpxSessionEntry = {
@@ -104,11 +120,9 @@ export class AcpxRuntime implements AgentRuntime {
   private sendAsync(entry: AcpxSessionEntry, message: string): void {
     entry.session = { ...entry.session, status: "running" };
 
-    process.stderr.write(
-      `[AcpxRuntime] sendAsync to ${entry.sessionName}: ${message.slice(0, 80)}...\n`,
-    );
+    // Sending prompt to acpx session
 
-    const child = nodeSpawn("acpx", [entry.agent, "-s", entry.sessionName, message], {
+    const child = nodeSpawn("acpx", ["--approve-all", entry.agent, "-s", entry.sessionName, message], {
       cwd: entry.cwd,
       env: entry.env as NodeJS.ProcessEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -125,7 +139,7 @@ export class AcpxRuntime implements AgentRuntime {
     child.on("close", (code) => {
       entry.activeProc = null;
       if (code === 0) {
-        process.stderr.write(`[AcpxRuntime] ${entry.sessionName} completed successfully\n`);
+        // Session completed
         entry.session = { ...entry.session, status: "idle" };
         for (const cb of entry.idleCallbacks) {
           try {
@@ -135,16 +149,14 @@ export class AcpxRuntime implements AgentRuntime {
           }
         }
       } else {
-        process.stderr.write(
-          `[AcpxRuntime] ${entry.sessionName} exited with code ${code}\n${stderr}\n`,
-        );
+        // Agent exited with error — mark as crashed
         entry.session = { ...entry.session, status: "crashed" };
       }
     });
 
     child.on("error", (err) => {
       entry.activeProc = null;
-      process.stderr.write(`[AcpxRuntime] ${entry.sessionName} spawn error: ${err.message}\n`);
+      // Spawn error — mark as crashed
       entry.session = { ...entry.session, status: "crashed" };
     });
   }

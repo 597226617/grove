@@ -9,7 +9,7 @@
 
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type { AgentConfig, AgentRuntime, AgentSession } from "../core/agent-runtime.js";
@@ -141,7 +141,7 @@ export class SpawnManager {
         if (!existsSync(baseDir)) {
           await mkdir(baseDir, { recursive: true });
         }
-        execSync(`git worktree add "${workspacePath}" -b "${branch}" origin/main`, {
+        execSync(`git worktree add "${workspacePath}" -b "${branch}" HEAD`, {
           cwd: projectRoot,
           encoding: "utf-8",
           stdio: "pipe",
@@ -486,16 +486,68 @@ export class SpawnManager {
       mcpEnv.NEXUS_API_KEY = process.env.NEXUS_API_KEY;
     }
 
+    // Find the grove MCP server: check dist/ first (installed), then src/ (dev)
+    const { dirname } = await import("node:path");
+    const groveRoot = dirname(dirname(dirname(new URL(import.meta.url).pathname)));
+    let mcpServePath = join(groveRoot, "dist", "mcp", "serve.js");
+    if (!existsSync(mcpServePath)) {
+      mcpServePath = join(groveRoot, "src", "mcp", "serve.ts");
+    }
+    // Fallback to project root if neither exists
+    if (!existsSync(mcpServePath)) {
+      mcpServePath = join(projectRoot, "src", "mcp", "serve.ts");
+    }
+
     const mcpConfig = {
       mcpServers: {
         grove: {
           command: "bun",
-          args: ["run", join(projectRoot, "src", "mcp", "serve.ts")],
+          args: ["run", mcpServePath],
           env: mcpEnv,
         },
       },
     };
     await writeFile(join(workspacePath, ".mcp.json"), JSON.stringify(mcpConfig, null, 2), "utf-8");
+
+    // Also update ~/.codex/config.toml for Codex agents (codex uses global TOML, not .mcp.json)
+    try {
+      const codexHome = join(process.env.CODEX_HOME ?? join(process.env.HOME ?? "", ".codex"));
+      const codexConfig = join(codexHome, "config.toml");
+      if (existsSync(codexConfig)) {
+        let toml = await readFile(codexConfig, "utf-8");
+        // Replace existing [mcp_servers.grove] section or append
+        const groveSection = `[mcp_servers.grove]\ncommand = "bun"\nargs = ["run", "${mcpServePath}"]\n\n[mcp_servers.grove.env]\nGROVE_DIR = "${groveDir}"${mcpEnv.GROVE_NEXUS_URL ? `\nGROVE_NEXUS_URL = "${mcpEnv.GROVE_NEXUS_URL}"` : ""}${mcpEnv.NEXUS_API_KEY ? `\nNEXUS_API_KEY = "${mcpEnv.NEXUS_API_KEY}"` : ""}`;
+
+        if (toml.includes("[mcp_servers.grove]")) {
+          // Replace from [mcp_servers.grove] to next section or EOF
+          toml = toml.replace(
+            /\[mcp_servers\.grove\][\s\S]*?(?=\n\[(?!mcp_servers\.grove)|$)/,
+            groveSection + "\n",
+          );
+        } else {
+          toml += `\n${groveSection}\n`;
+        }
+        await writeFile(codexConfig, toml, "utf-8");
+      }
+    } catch {
+      // Non-fatal — codex config update is best-effort
+    }
+
+    // Also trust the workspace in codex config
+    try {
+      const codexHome = join(process.env.CODEX_HOME ?? join(process.env.HOME ?? "", ".codex"));
+      const codexConfig = join(codexHome, "config.toml");
+      if (existsSync(codexConfig)) {
+        let toml = await readFile(codexConfig, "utf-8");
+        const trustKey = `[projects."${workspacePath}"]`;
+        if (!toml.includes(trustKey)) {
+          toml += `\n${trustKey}\ntrust_level = "trusted"\n`;
+          await writeFile(codexConfig, toml, "utf-8");
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
   }
 
   /**
@@ -530,19 +582,22 @@ You are the **${roleId}** agent. Always pass \`agent: { role: "${roleId}" }\` in
 
 You will receive push notifications from the system when other agents produce work relevant to you. These arrive as messages in your session — you do NOT need to poll or check for them. Just work on the session goal, and when a notification arrives, act on it.
 
-## MCP Tools (use sparingly)
+## MCP Tools — YOU MUST USE THESE
 
-- \`grove_contribute\` — record your work (always include agent: { role: "${roleId}" })
-- \`grove_done\` — signal session complete (only after approval from other agents)
+- \`grove_contribute\` — **REQUIRED** after editing files. This is how other agents see your work.
+  Example: \`grove_contribute({ kind: "work", summary: "Built landing page", agent: { role: "${roleId}" } })\`
+- \`grove_done\` — Signal complete: \`grove_done({ agent: { role: "${roleId}" } })\`
 
-Do NOT call grove_log, grove_search, grove_frontier, grove_checkout, grove_goal, or grove_read_inbox. You receive everything you need via push notifications.
+**CRITICAL: Always call grove_contribute after making changes. Without it, nobody sees your work. Feedback from other agents arrives automatically via push notifications — no need to poll.**
 
 ## Workflow
 
-Follow the Instructions section above exactly. You are in a git worktree with full source code. You can edit files, commit, push, create PRs, and use gh CLI.
+Follow the Instructions above. After editing files, always call \`grove_contribute\`. When feedback arrives (automatic), iterate and contribute again.
 `;
 
     await writeFile(join(workspacePath, "CLAUDE.md"), instructions, "utf-8");
+    // Also write CODEX.md for codex agents (codex reads CODEX.md, not CLAUDE.md)
+    await writeFile(join(workspacePath, "CODEX.md"), instructions, "utf-8");
   }
 
   private async writeAgentContext(

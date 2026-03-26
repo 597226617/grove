@@ -11,8 +11,12 @@
  */
 
 import { useKeyboard } from "@opentui/react";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentTopology } from "../../core/topology.js";
+import { BreadcrumbBar } from "../components/breadcrumb-bar.js";
+import { EmptyState } from "../components/empty-state.js";
+import { renderGraph } from "../layout/edge-render.js";
+import { layoutGraph } from "../layout/graph-layout.js";
 import { PLATFORM_COLORS, theme } from "../theme.js";
 
 /** Known CLI tools and their platform identifiers. */
@@ -33,15 +37,9 @@ export interface AgentDetectProps {
   readonly onBack: () => void;
 }
 
-/** Check if a CLI tool is installed via `which`. */
-async function detectCli(name: string): Promise<boolean> {
-  try {
-    const { execSync } = await import("node:child_process");
-    execSync(`which ${name}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
+/** Check if a CLI tool is installed. */
+function detectCli(name: string): boolean {
+  return Bun.which(name) !== null;
 }
 
 /** Screen 2: agent detection + role prompt configuration. */
@@ -68,25 +66,66 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
 
     // Auto-detect CLIs on mount
     useEffect(() => {
-      void (async () => {
-        const results = new Map<string, boolean>();
-        for (const agent of AGENT_CLIS) {
-          results.set(agent.cli, await detectCli(agent.cli));
-        }
-        setDetected(results);
-        setScanning(false);
-      })();
+      const results = new Map<string, boolean>();
+      for (const agent of AGENT_CLIS) {
+        results.set(agent.cli, detectCli(agent.cli));
+      }
+      setDetected(results);
+      setScanning(false);
     }, []);
 
-    // Build role-to-CLI mapping
-    const roleMapping = new Map<string, string>();
-    if (topology) {
-      for (const role of topology.roles) {
-        const platform = role.platform ?? "claude-code";
-        const cli = AGENT_CLIS.find((a) => a.platform === platform);
-        if (cli) roleMapping.set(role.name, cli.cli);
+    // Editable role-to-CLI mapping — initialized from topology platform, user can cycle
+    const [roleMapping, setRoleMapping] = useState<Map<string, string>>(() => {
+      const map = new Map<string, string>();
+      if (topology) {
+        for (const role of topology.roles) {
+          const platform = role.platform ?? "claude-code";
+          const cli = AGENT_CLIS.find((a) => a.platform === platform);
+          if (cli) map.set(role.name, cli.cli);
+        }
       }
-    }
+      return map;
+    });
+
+    // Available CLIs (detected and installed)
+    const availableClis = AGENT_CLIS.filter((a) => detected.get(a.cli) === true).map((a) => a.cli);
+
+    // Compute topology DAG visualization
+    const dagLines = useMemo(() => {
+      if (!topology || topology.roles.length < 2) return [];
+      const hasEdges = topology.roles.some((r) => r.edges && r.edges.length > 0);
+      if (!hasEdges) return [];
+      const layout = layoutGraph(topology.roles, topology.structure ?? "graph");
+      const buffer = renderGraph(layout);
+      return buffer.lines;
+    }, [topology]);
+
+    // Count mapped roles (only count roles whose selected CLI is actually installed)
+    const mappedCount = roles.filter((r) => {
+      const cli = roleMapping.get(r.name);
+      return cli && detected.get(cli);
+    }).length;
+    const totalCount = roles.length;
+
+    // Auto-default all roles to first available CLI if their current CLI isn't installed
+    useEffect(() => {
+      if (scanning || availableClis.length === 0) return;
+      setRoleMapping((prev) => {
+        let changed = false;
+        const next = new Map(prev);
+        for (const role of roles) {
+          const current = next.get(role.name);
+          if (!current || !detected.get(current)) {
+            const fallback = availableClis[0];
+            if (fallback) {
+              next.set(role.name, fallback);
+              changed = true;
+            }
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, [scanning, availableClis, roles, detected]);
 
     useKeyboard(
       useCallback(
@@ -113,6 +152,10 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
               setEditBuffer((b) => b.slice(0, -1));
               return;
             }
+            if (key.name === "space") {
+              setEditBuffer((b) => b + " ");
+              return;
+            }
             if (key.name && key.name.length === 1 && !key.ctrl) {
               setEditBuffer((b) => b + key.name);
               return;
@@ -129,11 +172,26 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
             setCursor((c) => Math.max(c - 1, 0));
             return;
           }
-          if (
-            key.name === "e" ||
-            (key.name === "return" && roles.length > 0 && cursor < roles.length)
-          ) {
-            // Edit the selected role's prompt
+          // c: cycle CLI for the selected role
+          if (key.name === "c" && availableClis.length > 0) {
+            const roleName = roles[cursor]?.name;
+            if (roleName) {
+              const currentCli = roleMapping.get(roleName) ?? availableClis[0] ?? "claude";
+              const currentIdx = availableClis.indexOf(currentCli);
+              const nextIdx = (currentIdx + 1) % availableClis.length;
+              const nextCli = availableClis[nextIdx];
+              if (nextCli) {
+                setRoleMapping((prev) => {
+                  const next = new Map(prev);
+                  next.set(roleName, nextCli);
+                  return next;
+                });
+              }
+            }
+            return;
+          }
+          // e: edit the selected role's prompt
+          if (key.name === "e") {
             const roleName = roles[cursor]?.name;
             if (roleName) {
               setEditBuffer(rolePrompts.get(roleName) ?? "");
@@ -141,8 +199,12 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
             }
             return;
           }
-          if (key.name === "return" && !scanning) {
-            onContinue(detected, roleMapping, rolePrompts);
+          // Any of these keys: continue to goal input
+          if (key.name === "return" || key.name === "tab" || key.name === "right" ||
+              key.name === "enter" || key.name === "space") {
+            if (!scanning) {
+              onContinue(detected, roleMapping, rolePrompts);
+            }
             return;
           }
           if (key.name === "escape") {
@@ -161,6 +223,7 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
           editBuffer,
           cursor,
           roles,
+          availableClis,
         ],
       ),
     );
@@ -173,12 +236,11 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
         borderStyle="round"
         borderColor={theme.focus}
       >
+        <BreadcrumbBar screen="agent-detect" width={100} />
+
         <box flexDirection="column" paddingX={2} paddingTop={1}>
           <text color={theme.focus} bold>
-            Agent Setup
-          </text>
-          <text color={theme.muted}>
-            {scanning ? "Scanning for installed agent CLIs..." : "Configure role prompts below"}
+            {scanning ? "Scanning..." : "Detection complete"}
           </text>
         </box>
 
@@ -200,7 +262,50 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
               </box>
             );
           })}
+          {!scanning && ![...detected.values()].some(Boolean) ? (
+            <EmptyState
+              title="No agent CLIs found."
+              hint="Install claude, codex, or gemini CLI to continue."
+            />
+          ) : null}
         </box>
+
+        {/* Topology DAG */}
+        {dagLines.length > 0 ? (
+          <box flexDirection="column" marginX={2} marginTop={1} paddingX={1}>
+            <text color={theme.text} bold>Topology</text>
+            {dagLines.map((line, i) => (
+              <text key={i} color={theme.muted}>{line}</text>
+            ))}
+          </box>
+        ) : null}
+
+        {/* Role Mapping summary */}
+        {roles.length > 0 ? (
+          <box flexDirection="column" marginX={2} marginTop={1} paddingX={1}>
+            <text color={theme.text} bold>Role Mapping</text>
+            {roles.map((role) => {
+              const cli = roleMapping.get(role.name) ?? "?";
+              const cliFound = detected.get(cli) ?? false;
+              const icon = cliFound ? theme.agentRunning : theme.agentIdle;
+              const color = cliFound ? theme.success : theme.dimmed;
+              return (
+                <box key={role.name} flexDirection="row">
+                  <text color={color}> {icon} </text>
+                  <text color={theme.text}>{role.name.padEnd(12)}</text>
+                  <text color={theme.dimmed}>{"\u2192"} </text>
+                  <text color={PLATFORM_COLORS[role.platform ?? "claude-code"] ?? theme.text}>{cli}</text>
+                  <text color={color}> {icon}</text>
+                </box>
+              );
+            })}
+            {mappedCount < totalCount ? (
+              <text color={theme.warning}>
+                {"\u26a0"} {mappedCount}/{totalCount} roles mapped
+              </text>
+            ) : null}
+          </box>
+        ) : null}
 
         {/* Role prompts — editable */}
         {roles.length > 0 ? (
@@ -249,11 +354,13 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
                       </text>
                     </box>
                   ) : (
-                    <box marginLeft={4}>
-                      <text color={theme.dimmed}>
+                    <box marginLeft={4} flexDirection="column">
+                      <text color={selected ? theme.muted : theme.dimmed} wrap="wrap">
                         {prompt
-                          ? prompt.slice(0, 80) + (prompt.length > 80 ? "..." : "")
-                          : "(no prompt)"}
+                          ? selected
+                            ? prompt
+                            : prompt.slice(0, 70) + (prompt.length > 70 ? "..." : "")
+                          : "(no prompt — press e to add one)"}
                       </text>
                     </box>
                   )}
@@ -270,7 +377,7 @@ export const AgentDetect: React.NamedExoticComponent<AgentDetectProps> = React.m
               ? "Type prompt, Enter:save, Esc:cancel"
               : scanning
                 ? "Scanning..."
-                : "e:edit prompt  j/k:navigate  Enter:continue  Esc:back"}
+                : "c:change CLI  e:edit prompt  j/k:navigate  Enter/Tab:continue  Esc:back"}
           </text>
         </box>
       </box>

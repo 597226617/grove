@@ -7,6 +7,8 @@
  * discussOperation    — Sugar: kind=discussion with responds_to relation
  */
 
+import { fireAndForget } from "../../shared/fire-and-forget.js";
+import { pickDefined } from "../../shared/pick-defined.js";
 import { createContribution } from "../manifest.js";
 import {
   ContributionKind as CK,
@@ -266,17 +268,21 @@ export async function contributeOperation(
 
     // --- Post-write: route events via topology (outside mutex scope) ---
     if (deps.topologyRouter !== undefined && contribution.agent.role !== undefined) {
-      deps.topologyRouter.route(contribution.agent.role, {
-        cid: contribution.cid,
-        kind: contribution.kind,
-        summary: contribution.summary,
-        agentId: contribution.agent.agentId,
-      });
+      fireAndForget("topology routing", () =>
+        deps.topologyRouter!.route(contribution.agent.role!, {
+          cid: contribution.cid,
+          kind: contribution.kind,
+          summary: contribution.summary,
+          agentId: contribution.agent.agentId,
+        }),
+      );
     }
 
     // If stop condition met, broadcast stop to all agents
     if (policyResult?.stopResult?.stopped && deps.topologyRouter !== undefined) {
-      deps.topologyRouter.broadcastStop(policyResult.stopResult.reason ?? "Stop condition met");
+      fireAndForget("broadcast stop", () =>
+        deps.topologyRouter!.broadcastStop(policyResult!.stopResult!.reason ?? "Stop condition met"),
+      );
     }
 
     // --- Post-write: execute after_contribute hook (outside mutex scope) ---
@@ -287,13 +293,9 @@ export async function contributeOperation(
     ) {
       if (deps.contract.hooks?.after_contribute !== undefined) {
         const hookEntry = deps.contract.hooks.after_contribute;
-        // Fire and forget — hook failures don't block the contribution
-        // (accept-then-flag semantics).
-        deps.hookRunner.run(hookEntry, deps.hookCwd).catch((hookErr) => {
-          process.stderr.write(
-            `[grove] after_contribute hook failed: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}\n`,
-          );
-        });
+        fireAndForget("after_contribute hook", () =>
+          deps.hookRunner!.run(hookEntry, deps.hookCwd!),
+        );
       }
     }
 
@@ -333,12 +335,10 @@ export async function reviewOperation(
       kind: CK.Review,
       mode: CM.Evaluation,
       summary: input.summary,
-      ...(input.description !== undefined ? { description: input.description } : {}),
       relations,
-      ...(input.scores !== undefined ? { scores: input.scores } : {}),
       tags: input.tags,
-      ...(input.context !== undefined ? { context: input.context } : {}),
       agent: input.agent,
+      ...pickDefined(input, ["description", "scores", "context"]),
     },
     deps,
   );
@@ -377,13 +377,11 @@ export async function reproduceOperation(
       kind: CK.Reproduction,
       mode: CM.Evaluation,
       summary: input.summary,
-      ...(input.description !== undefined ? { description: input.description } : {}),
       artifacts: input.artifacts,
       relations,
-      ...(input.scores !== undefined ? { scores: input.scores } : {}),
       tags: input.tags,
-      ...(input.context !== undefined ? { context: input.context } : {}),
       agent: input.agent,
+      ...pickDefined(input, ["description", "scores", "context"]),
     },
     deps,
   );
@@ -421,11 +419,10 @@ export async function discussOperation(
       kind: CK.Discussion,
       mode: CM.Exploration,
       summary: input.summary,
-      ...(input.description !== undefined ? { description: input.description } : {}),
       relations,
       tags: input.tags,
-      ...(input.context !== undefined ? { context: input.context } : {}),
       agent: input.agent,
+      ...pickDefined(input, ["description", "context"]),
     },
     deps,
   );

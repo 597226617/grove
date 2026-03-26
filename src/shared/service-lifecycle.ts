@@ -73,11 +73,12 @@ export async function startServices(options: ServiceStartOptions): Promise<Runni
   if (config.nexusManaged || (config.mode === "nexus" && !config.nexusUrl)) {
     try {
       const { ensureNexusRunning } = await import("../cli/nexus-lifecycle.js");
+      // Never pass force to Nexus — "new grove" means reinit the grove,
+      // not recreate the entire Nexus Docker stack. Always reuse existing.
       const nexusInfo = await ensureNexusRunning(projectRoot, config, {
         build: options.build ?? false,
         nexusSource: options.nexusSource,
         onProgress: options.onProgress,
-        force: options.force,
       });
       nexusManaged = true;
       process.env.GROVE_NEXUS_URL = nexusInfo.url;
