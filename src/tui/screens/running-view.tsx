@@ -148,10 +148,11 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
       };
     }, [eventBus, topology]);
 
-    // Detect crashed agents by checking for disappeared tmux sessions.
-    // Only active when tmux is the agent runtime (not AcpxRuntime which doesn't use tmux).
-    // When AcpxRuntime is used, agent status comes from the runtime's session status.
-    const hasTmuxAgents = tmux && !eventBus; // EventBus presence indicates Nexus/AcpxRuntime mode
+    // Crash detection via tmux is disabled — it produces false positives when
+    // agents use AcpxRuntime (no tmux sessions) or when resuming without spawning.
+    // Agent status is shown from the topology; crashes are only meaningful when
+    // agents are actively spawned and running.
+    const hasTmuxAgents = false;
     useEffect(() => {
       if (!hasTmuxAgents || !topology) return;
       const timer = setInterval(async () => {
@@ -277,21 +278,7 @@ export const RunningView: React.NamedExoticComponent<RunningViewProps> = React.m
     const dashboard = eventBus ? dashboardEvent.data : dashboardPoll.data;
     const contributions = eventBus ? contributionsEvent.data : contributionsPoll.data;
 
-    // Build feed with synthetic [SYS] entries for crashed agents
-    const baseFeed = contributions ?? [];
-    const sysCrashEntries: Contribution[] = [...crashedAgents].map((role) => ({
-      cid: `sys:crash:${role}`,
-      manifestVersion: 1,
-      kind: "plan" as const,
-      mode: "exploration" as const,
-      summary: `[SYS] Agent ${role} crashed \u2014 reconnecting\u2026`,
-      artifacts: {},
-      relations: [],
-      tags: ["system"],
-      agent: { agentId: "system", role: "system" },
-      createdAt: new Date().toISOString(),
-    }));
-    const feed = [...sysCrashEntries, ...baseFeed];
+    const feed = contributions ?? [];
 
     useKeyboard(
       useCallback(
