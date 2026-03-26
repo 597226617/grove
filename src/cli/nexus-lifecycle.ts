@@ -586,7 +586,9 @@ export async function ensureNexusRunning(
     if (discoveredUrl) {
       report(`Discovered Nexus at ${discoveredUrl}, waiting for healthy...`);
       await waitForNexusHealth(discoveredUrl);
-      const apiKey = readNexusApiKey(projectRoot);
+      // Read API key from global grove home first (where the shared stack's
+      // nexus.yaml lives), then fall back to project-local.
+      const apiKey = readNexusApiKey(getGroveHome()) ?? readNexusApiKey(projectRoot);
       report("Nexus is ready");
       return { url: discoveredUrl, apiKey };
     }

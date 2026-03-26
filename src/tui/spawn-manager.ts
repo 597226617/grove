@@ -510,23 +510,23 @@ export class SpawnManager {
     await writeFile(join(workspacePath, ".mcp.json"), JSON.stringify(mcpConfig, null, 2), "utf-8");
 
     // Update codex MCP config via CLI (codex uses ~/.codex/config.toml, not .mcp.json).
-    // Uses `codex mcp add` which is the safe, supported way to manage MCP servers.
-    // This overwrites the "grove" server entry but is idempotent — the latest
-    // grove session's MCP config is always correct for the active workspace.
+    // NOTE: Codex MCP servers are global — there is no per-project MCP config in codex.
+    // This means the last grove session to spawn wins the global "grove" MCP entry.
+    // Concurrent grove sessions on the same machine will share one MCP config.
+    // This is a codex limitation (https://github.com/openai/codex/issues/XXX).
     try {
       const envArgs: string[] = [];
       envArgs.push("--env", `GROVE_DIR=${groveDir}`);
       if (mcpEnv.GROVE_NEXUS_URL) envArgs.push("--env", `GROVE_NEXUS_URL=${mcpEnv.GROVE_NEXUS_URL}`);
       if (mcpEnv.NEXUS_API_KEY) envArgs.push("--env", `NEXUS_API_KEY=${mcpEnv.NEXUS_API_KEY}`);
 
-      // Remove existing grove server first (codex mcp add fails if it exists)
       execSync("codex mcp remove grove 2>/dev/null || true", { stdio: "pipe", timeout: 5000 });
       execSync(
         `codex mcp add grove ${envArgs.join(" ")} -- bun run ${mcpServePath}`,
         { stdio: "pipe", timeout: 10000 },
       );
     } catch {
-      // Non-fatal — codex may not be installed, or CLI may not support mcp subcommand
+      // Non-fatal — codex may not be installed
     }
   }
 
