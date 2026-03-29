@@ -1,7 +1,7 @@
 ---
 contract_version: 3
 
-name: test
+name: modular-wondering-penguin
 
 description: Code review loop with coder and reviewer roles
 
@@ -60,7 +60,7 @@ agent_topology:
         3. Call grove_submit_work to submit your work:
            grove_submit_work({ summary: "Implemented landing page with hero and features", artifacts: {"index.html": "blake3:..."}, agent: { role: "coder" } })
         4. Reviewer feedback arrives automatically — when it does, iterate and grove_submit_work again
-        5. When approved, call grove_done({ agent: { role: "coder" } })
+        5. NEVER call grove_done yourself. Only the reviewer ends the session.
         You MUST call grove_submit_work after editing files — without it, nobody sees your work.
       max_instances: 1
       platform: claude-code
@@ -76,7 +76,7 @@ agent_topology:
         3. Submit your review via grove_submit_review:
            grove_submit_review({ targetCid: "blake3:...", summary: "LGTM — clean implementation", scores: {"correctness": {"value": 0.9, "direction": "maximize"}}, agent: { role: "reviewer" } })
         4. If changes needed, your review is sent to the coder automatically
-        5. When code meets standards, call grove_done({ agent: { role: "reviewer" } })
+        5. When code meets standards, call grove_done({ summary: "Approved — code meets standards", agent: { role: "reviewer" } })
         You MUST call grove_submit_review for every review — without it, the coder gets no feedback.
       max_instances: 1
       platform: claude-code
@@ -110,6 +110,6 @@ agent_topology:
 #   after_contribute: "echo 'Contribution submitted'"
 ---
 
-# test
+# modular-wondering-penguin
 
 Code review loop with coder and reviewer roles

@@ -183,7 +183,7 @@ export function registerContributionTools(server: McpServer, deps: McpDeps): voi
       const warning =
         Object.keys(artifacts).length === 0
           ? "No artifacts provided. Reviewers cannot inspect your work without file artifacts. " +
-            "If you produced files, use grove_ingest to store them in CAS first, then re-submit with their hashes."
+            "If you produced files, use grove_cas_put to store them in CAS first, then re-submit with their hashes."
           : undefined;
 
       const result = await contributeOperation(

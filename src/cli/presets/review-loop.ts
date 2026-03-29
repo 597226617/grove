@@ -25,9 +25,9 @@ export const reviewLoopPreset: PresetConfig = {
           "1. Read the codebase and understand the goal\n" +
           "2. Edit files to implement the solution\n" +
           "3. Call grove_submit_work to submit your work:\n" +
-          '   grove_submit_work({ summary: "Implemented landing page with hero and features", artifacts: {"index.html": "blake3:..."}, agent: { role: "coder" } })\n' +
+          '   grove_submit_work({ summary: "Implemented landing page", artifacts: {"index.html": "blake3:..."}, agent: { role: "coder" } })\n' +
           "4. Reviewer feedback arrives automatically — when it does, iterate and grove_submit_work again\n" +
-          '5. When approved, call grove_done({ agent: { role: "coder" } })\n' +
+          "5. NEVER call grove_done yourself. Only the reviewer ends the session.\n" +
           "You MUST call grove_submit_work after editing files — without it, nobody sees your work.",
       },
       {
@@ -43,7 +43,7 @@ export const reviewLoopPreset: PresetConfig = {
           "3. Submit your review via grove_submit_review:\n" +
           '   grove_submit_review({ targetCid: "blake3:...", summary: "LGTM — clean implementation", scores: {"correctness": {"value": 0.9, "direction": "maximize"}}, agent: { role: "reviewer" } })\n' +
           "4. If changes needed, your review is sent to the coder automatically\n" +
-          '5. When code meets standards, call grove_done({ agent: { role: "reviewer" } })\n' +
+          '5. When code meets standards, call grove_done({ summary: "Approved — code meets standards", agent: { role: "reviewer" } })\n' +
           "You MUST call grove_submit_review for every review — without it, the coder gets no feedback.",
       },
     ],

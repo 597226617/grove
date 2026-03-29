@@ -51,14 +51,14 @@ export const scoreSchema: z.ZodTypeAny = z.object({
  * Artifacts schema — map of file path to CAS content hash.
  *
  * Used by grove_submit_work to attach file artifacts to contributions.
- * Artifacts must be pre-stored in CAS (via grove_ingest); pass their
+ * Artifacts must be pre-stored in CAS (via grove_cas_put); pass their
  * blake3 content hashes here.
  */
 export const artifactsSchema = z
   .record(z.string(), z.string())
   .describe(
     "File artifacts as a map of path to CAS content hash (blake3:<hex64>). " +
-      "Artifacts must already exist in CAS — use grove_ingest to store them first. " +
+      "Artifacts must already exist in CAS — use grove_cas_put to store them first. " +
       'Example: {"src/main.ts": "blake3:a1b2c3..."}. ' +
       "Without artifacts, reviewers cannot inspect your files.",
   );

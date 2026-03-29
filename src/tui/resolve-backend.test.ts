@@ -57,9 +57,15 @@ describe("resolveBackend", () => {
   });
 
   test("no config -> local mode, source default", async () => {
-    const result = await resolveBackend({});
-    expect(result.mode).toBe("local");
-    expect(result.source).toBe("default");
+    // Use a temp dir with no .grove to avoid picking up CWD's grove.json
+    const emptyDir = mkdtempSync(join(tmpdir(), "grove-resolve-empty-"));
+    try {
+      const result = await resolveBackend({ groveOverride: join(emptyDir, ".grove") });
+      expect(result.mode).toBe("local");
+      expect(result.source).toBe("flag");
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 
   test("--grove override -> local mode, source flag", async () => {
@@ -98,8 +104,13 @@ describe("resolveBackend", () => {
 
   test("empty GROVE_NEXUS_URL is treated as unset", async () => {
     process.env.GROVE_NEXUS_URL = "";
-    const result = await resolveBackend({});
-    expect(result.mode).toBe("local");
+    const emptyDir = mkdtempSync(join(tmpdir(), "grove-resolve-empty-"));
+    try {
+      const result = await resolveBackend({ groveOverride: join(emptyDir, ".grove") });
+      expect(result.mode).toBe("local");
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 
   test("--nexus flag preserves groveOverride for topology loading", async () => {
@@ -223,8 +234,8 @@ describe("resolveBackend", () => {
   });
 
   test("missing .grove dir -> falls through to local", async () => {
-    // No GROVE_NEXUS_URL, no flags, resolveGroveDir will throw
-    const result = await resolveBackend({});
+    // Use nonexistent path to ensure no grove.json is found
+    const result = await resolveBackend({ groveOverride: "/tmp/nonexistent-grove-dir/.grove" });
     expect(result.mode).toBe("local");
   });
 });
