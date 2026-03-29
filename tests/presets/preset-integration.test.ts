@@ -738,24 +738,24 @@ zone: default
 // ============================================================================
 
 describe("TUI backend resolution", () => {
-  test("explicit --url flag resolves to remote mode", () => {
-    const backend = resolveBackend({ url: "http://remote:4515" });
+  test("explicit --url flag resolves to remote mode", async () => {
+    const backend = await resolveBackend({ url: "http://remote:4515" });
     expect(backend.mode).toBe("remote");
     expect(backend).toEqual({ mode: "remote", url: "http://remote:4515", source: "flag" });
   });
 
-  test("explicit --nexus flag resolves to nexus mode", () => {
-    const backend = resolveBackend({ nexus: "http://nexus:2026" });
+  test("explicit --nexus flag resolves to nexus mode", async () => {
+    const backend = await resolveBackend({ nexus: "http://nexus:2026" });
     expect(backend.mode).toBe("nexus");
     expect((backend as Extract<ResolvedBackend, { mode: "nexus" }>).url).toBe("http://nexus:2026");
     expect((backend as Extract<ResolvedBackend, { mode: "nexus" }>).source).toBe("flag");
   });
 
-  test("GROVE_NEXUS_URL env resolves to nexus mode", () => {
+  test("GROVE_NEXUS_URL env resolves to nexus mode", async () => {
     const original = process.env.GROVE_NEXUS_URL;
     try {
       process.env.GROVE_NEXUS_URL = "http://env-nexus:2026";
-      const backend = resolveBackend({});
+      const backend = await resolveBackend({});
       expect(backend.mode).toBe("nexus");
       expect((backend as Extract<ResolvedBackend, { mode: "nexus" }>).url).toBe(
         "http://env-nexus:2026",
@@ -770,12 +770,12 @@ describe("TUI backend resolution", () => {
     }
   });
 
-  test("no flags and no env falls back to local", () => {
+  test("no flags and no env falls back to local", async () => {
     const original = process.env.GROVE_NEXUS_URL;
     try {
       delete process.env.GROVE_NEXUS_URL;
       // Use a path that won't have grove.json
-      const backend = resolveBackend({ groveOverride: "/nonexistent/.grove" });
+      const backend = await resolveBackend({ groveOverride: "/nonexistent/.grove" });
       expect(backend.mode).toBe("local");
     } finally {
       if (original !== undefined) {
@@ -797,7 +797,7 @@ describe("TUI backend resolution", () => {
     const original = process.env.GROVE_NEXUS_URL;
     try {
       delete process.env.GROVE_NEXUS_URL;
-      const backend = resolveBackend({ groveOverride: join(dir, ".grove") });
+      const backend = await resolveBackend({ groveOverride: join(dir, ".grove") });
       // Should resolve to nexus mode using nexus.yaml port
       expect(backend.mode).toBe("nexus");
       expect((backend as Extract<ResolvedBackend, { mode: "nexus" }>).url).toBe(
