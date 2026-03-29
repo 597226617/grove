@@ -282,7 +282,7 @@ describe("grove_submit_review", () => {
     expect(result.isError).toBe(true);
     expect(result.text).toContain("VALIDATION_ERROR");
     expect(result.text).toContain("score");
-    expect(result.text).toContain("correctness");  // Contains example
+    expect(result.text).toContain("correctness"); // Contains example
   });
 
   test("rejects review with undefined scores", async () => {

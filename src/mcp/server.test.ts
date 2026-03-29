@@ -131,11 +131,7 @@ describe("createMcpServer preset scoping", () => {
     const server = await createMcpServer(deps, { bounties: false });
     const names = getRegisteredToolNames(server);
 
-    const bountyTools = [
-      "grove_bounty_create",
-      "grove_bounty_list",
-      "grove_bounty_settle",
-    ];
+    const bountyTools = ["grove_bounty_create", "grove_bounty_list", "grove_bounty_settle"];
     for (const t of bountyTools) {
       expect(names).not.toContain(t);
     }
