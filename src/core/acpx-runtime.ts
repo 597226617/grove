@@ -143,10 +143,13 @@ export class AcpxRuntime implements AgentRuntime {
     // Wrap message with system-reminder that enforces MCP tool usage
     // (Relay pattern: agents "forget" tools without per-message reinforcement)
     const wrappedMessage = `<system-reminder>
-After completing work: call grove_submit_work with summary and artifacts (file path to CAS hash map).
-After reviewing work: call grove_submit_review with targetCid, summary, and scores (at least one required).
-Example: grove_submit_work({ summary: "what you did", artifacts: {"file.ts": "blake3:..."}, agent: { role: "${entry.session.role}" } })
-Example: grove_submit_review({ targetCid: "blake3:...", summary: "review feedback", scores: {"correctness": {"value": 0.9, "direction": "maximize"}}, agent: { role: "${entry.session.role}" } })
+SUBMITTING WORK (2 steps — do NOT skip step 1):
+1. grove_cas_put({ content: "<file content>" }) → returns { hash: "blake3:..." }
+2. grove_submit_work({ summary: "what you did", artifacts: {"file.ts": "blake3:..."}, agent: { role: "${entry.session.role}" } })
+
+SUBMITTING REVIEWS:
+grove_submit_review({ targetCid: "blake3:...", summary: "feedback", scores: {"correctness": {"value": 0.9, "direction": "maximize"}}, agent: { role: "${entry.session.role}" } })
+
 Without calling these tools, other agents cannot see your work.
 
 CRITICAL RULE ABOUT grove_done:

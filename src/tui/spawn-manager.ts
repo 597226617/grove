@@ -704,13 +704,45 @@ You will receive push notifications from the system when other agents produce wo
 
 Each tool has specific required fields. Do NOT skip them.
 
-- \`grove_submit_work\` — **REQUIRED** after editing files or creating code. Requires \`summary\` and \`artifacts\` (file path → CAS hash map). Use \`grove_ingest\` first to store files, then pass hashes.
-  Example: \`grove_submit_work({ summary: "Built landing page", artifacts: {"index.html": "blake3:abc..."}, agent: { role: "${roleId}" } })\`
-- \`grove_submit_review\` — **REQUIRED** when reviewing another agent's work. Requires \`targetCid\`, \`summary\`, and \`scores\` (at least one).
-  Example: \`grove_submit_review({ targetCid: "blake3:...", summary: "Code is correct", scores: {"correctness": {"value": 0.9, "direction": "maximize"}}, agent: { role: "${roleId}" } })\`
-- \`grove_discuss\` — For questions, clarifications, and discussion. NOT for code reviews.
-- \`grove_adopt\` — To build on another agent's contribution. Requires \`targetCid\`.
-- \`grove_done\` — Signal the entire session is complete. See STRICT RULES below.
+### Submitting work (coder)
+
+**Step 1: Store files in CAS** — call \`grove_cas_put\` with raw file content:
+\`\`\`
+grove_cas_put({ content: "Hello World", agent: { role: "${roleId}" } })
+→ returns { hash: "blake3:a1b2c3..." }
+\`\`\`
+
+**Step 2: Submit work with hashes** — call \`grove_submit_work\`:
+\`\`\`
+grove_submit_work({
+  summary: "Created hello.txt",
+  artifacts: { "hello.txt": "blake3:a1b2c3..." },
+  agent: { role: "${roleId}" }
+})
+\`\`\`
+
+Do NOT skip step 1. If you pass a hash that doesn't exist in CAS, the tool returns VALIDATION_ERROR.
+
+### Submitting reviews (reviewer)
+
+First find work to review with \`grove_frontier\` or \`grove_log\`, then:
+\`\`\`
+grove_submit_review({
+  targetCid: "blake3:...",
+  summary: "Code is correct, minor style issue",
+  scores: { "correctness": { "value": 0.9, "direction": "maximize" } },
+  agent: { role: "${roleId}" }
+})
+\`\`\`
+
+You MUST include at least one score. Without scores the frontier cannot rank work.
+
+### Other tools
+- \`grove_discuss\` — Questions and clarifications. NOT for code reviews.
+- \`grove_adopt\` — Build on another agent's contribution. Requires \`targetCid\`.
+- \`grove_frontier\` — See ranked contributions.
+- \`grove_log\` — See all contributions chronologically.
+- \`grove_done\` — Signal session complete. See STRICT RULES below.
 
 **CRITICAL: Always call grove_submit_work after making code changes. Without it, nobody sees your work.**
 **CRITICAL: Always call grove_submit_review when reviewing. Include scores so the frontier can rank work.**
