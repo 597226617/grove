@@ -32,7 +32,7 @@ const SHARED_OPERATIONS_MCP: ReadonlyArray<{
   { operation: "listClaimsOperation", mcpTool: "grove_list_claims" },
   { operation: "createBountyOperation", mcpTool: "grove_bounty_create" },
   { operation: "listBountiesOperation", mcpTool: "grove_bounty_list" },
-  { operation: "claimBountyOperation", mcpTool: "grove_bounty_claim" },
+  { operation: "claimBountyOperation", mcpTool: "grove_claim" },
   { operation: "threadsOperation", mcpTool: "grove_threads" },
   { operation: "setOutcomeOperation", mcpTool: "grove_set_outcome" },
   { operation: "getOutcomeOperation", mcpTool: "grove_get_outcome" },

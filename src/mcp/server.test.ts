@@ -60,7 +60,6 @@ describe("createMcpServer preset scoping", () => {
   const allTools = [
     "ask_user",
     "grove_adopt",
-    "grove_bounty_claim",
     "grove_bounty_create",
     "grove_bounty_list",
     "grove_bounty_settle",
@@ -135,7 +134,6 @@ describe("createMcpServer preset scoping", () => {
     const bountyTools = [
       "grove_bounty_create",
       "grove_bounty_list",
-      "grove_bounty_claim",
       "grove_bounty_settle",
     ];
     for (const t of bountyTools) {

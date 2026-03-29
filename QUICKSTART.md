@@ -247,7 +247,7 @@ Registered Grove tools include:
 - `grove_frontier`, `grove_search`, `grove_log`, `grove_tree`, `grove_thread`
 - `grove_checkout`
 - `grove_check_stop`
-- `grove_bounty_create`, `grove_bounty_list`, `grove_bounty_claim`, `grove_bounty_settle`
+- `grove_bounty_create`, `grove_bounty_list`, `grove_bounty_settle` (claim bounties via `grove_claim`)
 - `grove_set_outcome`, `grove_get_outcome`, `grove_list_outcomes`
 - `ask_user`
 
