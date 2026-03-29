@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { GroveEvent } from "../event-bus.js";
+import type { HookEntry, HookResult, HookRunner } from "../hooks.js";
 import { LocalEventBus } from "../local-event-bus.js";
 import type { Contribution } from "../models.js";
 import type { ContributionStore } from "../store.js";
@@ -354,5 +355,153 @@ describe("contributeOperation: event routing", () => {
     expect(contribEvents[0]!.targetRole).toBe("reviewer");
 
     bus.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hook execution in contribute pipeline
+// ---------------------------------------------------------------------------
+
+describe("contributeOperation: hook execution", () => {
+  test("after_contribute hook fires after successful contribution", async () => {
+    const store = makeStore();
+    const hookCalls: Array<{ entry: HookEntry; cwd: string }> = [];
+
+    const hookRunner: HookRunner = {
+      run: async (entry: HookEntry, cwd: string): Promise<HookResult> => {
+        hookCalls.push({ entry, cwd });
+        return {
+          success: true,
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          command: "test",
+          durationMs: 0,
+        };
+      },
+    };
+
+    const deps: OperationDeps = {
+      contributionStore: store,
+      hookRunner,
+      hookCwd: "/tmp/test-cwd",
+      contract: {
+        contractVersion: 2,
+        name: "hook-test",
+        hooks: { after_contribute: "echo done" },
+      },
+    };
+
+    const result = await contributeOperation(
+      {
+        kind: "work",
+        summary: "Triggers hook",
+        agent: { agentId: "agent-1", role: "coder" },
+      },
+      deps,
+    );
+
+    expect(result.ok).toBe(true);
+
+    // Hook is fire-and-forget — wait a tick for it to execute
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(hookCalls).toHaveLength(1);
+    expect(hookCalls[0]!.entry).toBe("echo done");
+    expect(hookCalls[0]!.cwd).toBe("/tmp/test-cwd");
+  });
+
+  test("hook failure does not block the contribution", async () => {
+    const store = makeStore();
+
+    const hookRunner: HookRunner = {
+      run: async (): Promise<HookResult> => {
+        throw new Error("hook crashed");
+      },
+    };
+
+    const deps: OperationDeps = {
+      contributionStore: store,
+      hookRunner,
+      hookCwd: "/tmp/test-cwd",
+      contract: {
+        contractVersion: 2,
+        name: "hook-fail-test",
+        hooks: { after_contribute: "failing-command" },
+      },
+    };
+
+    // Capture stderr to verify error is logged
+    const stderrCapture: string[] = [];
+    const origWrite = process.stderr.write;
+    process.stderr.write = ((msg: string) => {
+      stderrCapture.push(msg);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const result = await contributeOperation(
+        {
+          kind: "work",
+          summary: "Works despite hook failure",
+          agent: { agentId: "agent-1" },
+        },
+        deps,
+      );
+
+      expect(result.ok).toBe(true);
+
+      // Wait for the fire-and-forget hook to settle
+      await new Promise((r) => setTimeout(r, 20));
+
+      // Error should be logged to stderr (via fireAndForget)
+      expect(stderrCapture.some((s) => s.includes("hook") && s.includes("crashed"))).toBe(true);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  test("no hook execution when hookRunner or hookCwd is missing", async () => {
+    const store = makeStore();
+    const hookCalls: HookEntry[] = [];
+
+    const hookRunner: HookRunner = {
+      run: async (entry: HookEntry): Promise<HookResult> => {
+        hookCalls.push(entry);
+        return {
+          success: true,
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          command: "test",
+          durationMs: 0,
+        };
+      },
+    };
+
+    // Provide hookRunner but not hookCwd
+    const deps: OperationDeps = {
+      contributionStore: store,
+      hookRunner,
+      // hookCwd intentionally omitted
+      contract: {
+        contractVersion: 2,
+        name: "no-cwd-test",
+        hooks: { after_contribute: "echo should-not-run" },
+      },
+    };
+
+    const result = await contributeOperation(
+      {
+        kind: "work",
+        summary: "No hook without cwd",
+        agent: { agentId: "agent-1" },
+      },
+      deps,
+    );
+
+    expect(result.ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(hookCalls).toHaveLength(0);
   });
 });

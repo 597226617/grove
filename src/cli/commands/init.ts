@@ -226,31 +226,44 @@ export async function executeInit(
     groveJsonPath,
   );
 
-  // 6b. Initialize Nexus if grove-managed
+  // 6b. Initialize Nexus if grove-managed — but skip if one is already running
   if (nexusManaged) {
     try {
       const {
         checkNexusCli,
         nexusInit: runNexusInit,
         inferNexusPreset,
+        discoverRunningNexus,
       } = await import("../nexus-lifecycle.js");
-      const hasNexus = await checkNexusCli();
-      if (hasNexus) {
-        const nexusPreset = inferNexusPreset({
-          name: options.name,
-          mode: resolvedMode,
-          preset: options.preset,
-        });
-        await runNexusInit(options.cwd, {
-          preset: nexusPreset,
-          channel: options.nexusChannel,
-        });
-        const channel = options.nexusChannel ?? "edge";
-        console.log(`Initialized Nexus backend (preset: ${nexusPreset}, channel: ${channel}).`);
+
+      // Reuse existing Nexus if any stack is running (avoid creating duplicate stacks).
+      // API key is read from .state.json (authoritative) via readNexusApiKey.
+      const existingUrl = await discoverRunningNexus();
+      if (existingUrl) {
+        process.env.GROVE_NEXUS_URL = existingUrl;
+        const { readNexusApiKey } = await import("../nexus-lifecycle.js");
+        const key = readNexusApiKey(options.cwd);
+        if (key) process.env.NEXUS_API_KEY = key;
+        console.log(`Reusing existing Nexus at ${existingUrl}`);
       } else {
-        console.log(
-          "Nexus CLI not found. 'grove up' will install and initialize it automatically.",
-        );
+        const hasNexus = await checkNexusCli();
+        if (hasNexus) {
+          const nexusPreset = inferNexusPreset({
+            name: options.name,
+            mode: resolvedMode,
+            preset: options.preset,
+          });
+          await runNexusInit(options.cwd, {
+            preset: nexusPreset,
+            channel: options.nexusChannel,
+          });
+          const channel = options.nexusChannel ?? "edge";
+          console.log(`Initialized Nexus backend (preset: ${nexusPreset}, channel: ${channel}).`);
+        } else {
+          console.log(
+            "Nexus CLI not found. 'grove up' will install and initialize it automatically.",
+          );
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

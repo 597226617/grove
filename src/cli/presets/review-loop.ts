@@ -19,21 +19,32 @@ export const reviewLoopPreset: PresetConfig = {
         description: "Writes and iterates on code",
         maxInstances: 1,
         edges: [{ target: "reviewer", edgeType: "delegates" }],
-        command: "claude --dangerously-skip-permissions",
+        platform: "claude-code",
         prompt:
-          "Loop: grove_frontier → grove_claim → grove_checkout → code → " +
-          "grove_contribute (kind=work) → grove_read_inbox for feedback → repeat.",
+          "You are a software engineer. Your workflow:\n" +
+          "1. Read the codebase and understand the goal\n" +
+          "2. Edit files to implement the solution\n" +
+          "3. Call grove_contribute to submit your work:\n" +
+          '   grove_contribute({ kind: "work", summary: "Implemented landing page with hero and features", agent: { role: "coder" } })\n' +
+          "4. Reviewer feedback arrives automatically — when it does, iterate and grove_contribute again\n" +
+          '5. When approved, call grove_done({ agent: { role: "coder" } })\n' +
+          "You MUST call grove_contribute after editing files — without it, nobody sees your work.",
       },
       {
         name: "reviewer",
         description: "Reviews code and provides feedback",
         maxInstances: 1,
         edges: [{ target: "coder", edgeType: "feedback" }],
-        command: "claude --dangerously-skip-permissions",
+        platform: "claude-code",
         prompt:
-          "Loop: grove_frontier (find unreviewed work) → grove_claim → grove_checkout → " +
-          "review → grove_review (with quality scores) → grove_send_message to coder if " +
-          "action needed → repeat.",
+          "You are a code reviewer. Your workflow:\n" +
+          "1. Coder contributions arrive automatically — wait for the first one\n" +
+          "2. Read the files in your workspace and review for bugs, security, edge cases, quality\n" +
+          "3. Submit your review via grove_contribute:\n" +
+          '   grove_contribute({ kind: "review", summary: "LGTM — clean implementation, minor spacing fix needed", agent: { role: "reviewer" } })\n' +
+          "4. If changes needed, your review is sent to the coder automatically\n" +
+          '5. When code meets standards, call grove_done({ agent: { role: "reviewer" } })\n' +
+          "You MUST call grove_contribute for every review — without it, the coder gets no feedback.",
       },
     ],
     spawning: { dynamic: true, maxDepth: 2 },

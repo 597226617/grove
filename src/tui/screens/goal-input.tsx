@@ -1,28 +1,37 @@
 /**
  * Screen 3: Goal input — text input for session goal.
  *
- * "What should agents do?" On Enter -> auto-spawn agents and
- * transition to Screen 4. Esc goes back.
+ * Shows what will happen on Enter (spawn preview) and requires
+ * explicit confirmation before spawning agents.
  */
 
 import { useKeyboard } from "@opentui/react";
 import React, { useCallback, useState } from "react";
-import { theme } from "../theme.js";
+import type { AgentTopology } from "../../core/topology.js";
+import { BreadcrumbBar } from "../components/breadcrumb-bar.js";
+import { PLATFORM_COLORS, theme } from "../theme.js";
 
 /** Props for the GoalInput screen. */
 export interface GoalInputProps {
   readonly presetName: string;
+  /** Topology for spawn preview. */
+  readonly topology?: AgentTopology | undefined;
+  /** Role-to-CLI mapping from agent detect. */
+  readonly roleMapping?: ReadonlyMap<string, string> | undefined;
   readonly onSubmit: (goal: string) => void;
   readonly onBack: () => void;
 }
 
-/** Screen 3: goal text input with Enter to submit. */
+/** Screen 3: goal text input with spawn preview and confirmation. */
 export const GoalInput: React.NamedExoticComponent<GoalInputProps> = React.memo(function GoalInput({
   presetName,
+  topology,
+  roleMapping,
   onSubmit,
   onBack,
 }: GoalInputProps): React.ReactNode {
   const [buffer, setBuffer] = useState("");
+  const [confirming, setConfirming] = useState(false);
 
   useKeyboard(
     useCallback(
@@ -31,23 +40,41 @@ export const GoalInput: React.NamedExoticComponent<GoalInputProps> = React.memo(
         const isCtrl = key.ctrl;
 
         if (input === "escape") {
+          if (confirming) {
+            setConfirming(false);
+            return;
+          }
           onBack();
           return;
         }
         if (input === "return") {
           const goal = buffer.trim();
-          if (goal.length > 0) {
-            onSubmit(goal);
+          if (goal.length === 0) return;
+
+          if (!confirming) {
+            // First Enter: show confirmation
+            setConfirming(true);
+            return;
           }
+          // Second Enter: confirm and submit
+          onSubmit(goal);
           return;
         }
+
+        // Don't allow editing during confirmation
+        if (confirming) return;
+
         if (input === "backspace") {
           setBuffer((b) => b.slice(0, -1));
           return;
         }
-        // Ctrl+U clears the buffer
         if (isCtrl && input === "u") {
           setBuffer("");
+          return;
+        }
+        // Space key comes through as key.name === "space"
+        if (input === "space") {
+          setBuffer((b) => `${b} `);
           return;
         }
         if (input && input.length === 1 && !isCtrl) {
@@ -55,9 +82,12 @@ export const GoalInput: React.NamedExoticComponent<GoalInputProps> = React.memo(
           return;
         }
       },
-      [buffer, onSubmit, onBack],
+      [buffer, confirming, onSubmit, onBack],
     ),
   );
+
+  const roles = topology?.roles ?? [];
+  const agentCount = roles.length;
 
   return (
     <box
@@ -67,39 +97,78 @@ export const GoalInput: React.NamedExoticComponent<GoalInputProps> = React.memo(
       borderStyle="round"
       borderColor={theme.focus}
     >
+      <BreadcrumbBar screen="goal-input" presetName={presetName} width={100} />
+
       <box flexDirection="column" paddingX={2} paddingTop={1}>
-        <text color={theme.focus} bold>
-          Session Goal
-        </text>
-        <text color={theme.muted}>Preset: {presetName}</text>
-        <text color={theme.muted}>{""}</text>
         <text color={theme.text}>What should agents do?</text>
-        <text color={theme.muted}>{""}</text>
       </box>
 
       {/* Input field */}
       <box
         flexDirection="column"
         marginX={2}
+        marginTop={1}
         borderStyle="single"
-        borderColor={theme.focus}
+        borderColor={confirming ? theme.warning : theme.focus}
         paddingX={1}
-        paddingY={1}
       >
         <box flexDirection="row">
           <text color={theme.focus} bold>
             {"> "}
           </text>
           <text color={theme.text}>{buffer}</text>
-          <text color={theme.focus}>_</text>
+          {!confirming ? <text color={theme.focus}>_</text> : null}
         </box>
       </box>
 
+      {/* Spawn preview — what will happen on Enter */}
+      {agentCount > 0 ? (
+        <box flexDirection="column" marginX={2} marginTop={1} paddingX={1}>
+          <text color={theme.muted}>
+            {agentCount} agent{agentCount !== 1 ? "s" : ""} will spawn:
+          </text>
+          {roles.map((role) => {
+            const cli = roleMapping?.get(role.name) ?? role.command ?? "claude";
+            const platformColor = PLATFORM_COLORS[role.platform ?? "claude-code"] ?? theme.text;
+            return (
+              <box key={role.name} flexDirection="row">
+                <text color={theme.dimmed}> </text>
+                <text color={theme.text}>{role.name}</text>
+                <text color={theme.dimmed}> (</text>
+                <text color={platformColor}>{cli}</text>
+                <text color={theme.dimmed}>)</text>
+              </box>
+            );
+          })}
+        </box>
+      ) : null}
+
+      {/* Confirmation bar */}
+      {confirming ? (
+        <box
+          flexDirection="column"
+          marginX={2}
+          marginTop={1}
+          borderStyle="single"
+          borderColor={theme.warning}
+          paddingX={1}
+        >
+          <text color={theme.warning} bold>
+            Confirm spawn?
+          </text>
+          <text color={theme.muted}>
+            Press Enter to start {agentCount} agent{agentCount !== 1 ? "s" : ""}, Esc to cancel
+          </text>
+        </box>
+      ) : null}
+
       {/* Hints */}
-      <box flexDirection="column" paddingX={2} marginTop={1}>
-        <text color={theme.muted}>Agents will be auto-spawned when you press Enter.</text>
-        <text color={theme.muted}>{""}</text>
-        <text color={theme.dimmed}>Enter:start agents Esc:back Ctrl+U:clear</text>
+      <box paddingX={2} marginTop={1}>
+        <text color={theme.dimmed}>
+          {confirming
+            ? "Enter:confirm spawn  Esc:cancel"
+            : "Enter:preview spawn  Esc:back  Ctrl+U:clear"}
+        </text>
       </box>
     </box>
   );

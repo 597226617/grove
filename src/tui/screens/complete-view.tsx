@@ -9,12 +9,24 @@ import { useKeyboard } from "@opentui/react";
 import React, { useCallback } from "react";
 import { theme } from "../theme.js";
 
+/** Target metric result for display. */
+export interface MetricResult {
+  readonly metric: string;
+  readonly value: number;
+  readonly target: number;
+  readonly reached: boolean;
+}
+
 /** Props for the CompleteView screen. */
 export interface CompleteViewProps {
   readonly reason: string;
   readonly contributionCount: number;
   readonly duration?: string | undefined;
   readonly presetName?: string | undefined;
+  /** Target metric result, if contract defined one. */
+  readonly metricResult?: MetricResult | undefined;
+  /** Session cost estimate. */
+  readonly cost?: string | undefined;
   readonly onNewSession: () => void;
   readonly onQuit: () => void;
 }
@@ -26,6 +38,8 @@ export const CompleteView: React.NamedExoticComponent<CompleteViewProps> = React
     contributionCount,
     duration,
     presetName,
+    metricResult,
+    cost,
     onNewSession,
     onQuit,
   }: CompleteViewProps): React.ReactNode {
@@ -57,13 +71,27 @@ export const CompleteView: React.NamedExoticComponent<CompleteViewProps> = React
           <text color={theme.success} bold>
             Session Complete
           </text>
-          <text color={theme.muted}>{""}</text>
+          <box marginTop={1} />
         </box>
+
+        {/* Metric result — when target metric was defined */}
+        {metricResult ? (
+          <box flexDirection="column" marginX={2} paddingX={1}>
+            <text color={metricResult.reached ? theme.success : theme.warning}>
+              {metricResult.reached ? "target metric reached" : "target metric not reached"}
+            </text>
+            <text color={theme.text}>
+              {metricResult.metric}: {metricResult.value.toFixed(4)} ({"\u2264"}
+              {metricResult.target})
+            </text>
+          </box>
+        ) : null}
 
         {/* Reason */}
         <box
           flexDirection="column"
           marginX={2}
+          marginTop={1}
           borderStyle="single"
           borderColor={theme.border}
           paddingX={1}
@@ -94,6 +122,12 @@ export const CompleteView: React.NamedExoticComponent<CompleteViewProps> = React
             <box flexDirection="row">
               <text color={theme.info}>{"  Duration:      "}</text>
               <text color={theme.text}>{duration}</text>
+            </box>
+          ) : null}
+          {cost ? (
+            <box flexDirection="row">
+              <text color={theme.info}>{"  Cost:          "}</text>
+              <text color={theme.text}>{cost}</text>
             </box>
           ) : null}
           {presetName ? (

@@ -25,11 +25,15 @@ import { createWsHandler } from "./ws-handler.js";
 const GROVE_DIR = process.env.GROVE_DIR ?? join(process.cwd(), ".grove");
 const PORT = parsePort(process.env.PORT, 4515);
 const HOST = process.env.HOST; // optional — defaults to localhost via Bun
+// Nexus env vars — available for IPC routing but NOT for data stores.
+// Data stores use local SQLite to avoid Nexus VFS rate limits.
 
+// Local runtime for contract parsing, workspace, frontier, goal sessions.
+// Contribution stores are overridden with Nexus when available.
 const runtime = createLocalRuntime({
   groveDir: GROVE_DIR,
-  workspace: false, // server doesn't need workspace manager
-  parseContract: true, // parse topology from GROVE.md
+  workspace: false,
+  parseContract: true,
 });
 
 // ---------------------------------------------------------------------------
@@ -59,14 +63,29 @@ if (seedPeers.length > 0) {
 // Start server
 // ---------------------------------------------------------------------------
 
+// Use Nexus stores when URL is available (single source of truth).
+// Fall back to local SQLite when Nexus is not configured.
+const serverContributionStore: import("../core/store.js").ContributionStore =
+  runtime.contributionStore;
+const serverClaimStore: import("../core/store.js").ClaimStore = runtime.claimStore;
+const serverOutcomeStore: import("../core/outcome.js").OutcomeStore | undefined =
+  runtime.outcomeStore;
+const serverBountyStore: import("../core/bounty-store.js").BountyStore = runtime.bountyStore;
+const serverCas: import("../core/cas.js").ContentStore = runtime.cas;
+const serverFrontier: import("../core/frontier.js").FrontierCalculator = runtime.frontier;
+
+// Server uses local SQLite for reads (same DB as MCP agents write to).
+// Nexus VFS hits rate limits with N reads per list() call.
+// Nexus is used for IPC only (via NexusWsBridge SSE), not for data storage.
+
 const deps: ServerDeps = {
-  contributionStore: runtime.contributionStore,
-  claimStore: runtime.claimStore,
-  outcomeStore: runtime.outcomeStore,
-  bountyStore: runtime.bountyStore,
+  contributionStore: serverContributionStore,
+  claimStore: serverClaimStore,
+  outcomeStore: serverOutcomeStore,
+  bountyStore: serverBountyStore,
   goalSessionStore: runtime.goalSessionStore,
-  cas: runtime.cas,
-  frontier: runtime.frontier,
+  cas: serverCas,
+  frontier: serverFrontier,
   gossip: gossipService,
   topology: runtime.contract?.topology,
 };

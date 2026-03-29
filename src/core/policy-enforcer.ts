@@ -89,6 +89,16 @@ export class PolicyEnforcer {
   private readonly contributionStore: ContributionStore;
   private readonly outcomeStore: OutcomeStore | undefined;
 
+  /**
+   * Lazily-populated cache of best scores per metric.
+   * Populated on first findBestScore() call via table scan, then updated
+   * incrementally when new contributions with scores are processed.
+   * Avoids O(n) scans on every gate/outcome/stop check within a single enforce() call.
+   */
+  private bestScoreCache:
+    | Map<string, { value: number; cid: string; createdAt: string }>
+    | undefined;
+
   constructor(
     contract: GroveContract,
     contributionStore: ContributionStore,
@@ -795,32 +805,65 @@ export class PolicyEnforcer {
   // ---------------------------------------------------------------------------
 
   /** Find the best score for a metric across all evaluation-mode contributions. */
+  /**
+   * Find the best score for a metric across all evaluation-mode contributions.
+   *
+   * Uses a lazily-populated in-memory cache: first call performs an O(n) table
+   * scan and populates the cache for ALL metrics; subsequent calls are O(1).
+   */
   private async findBestScore(
     metricName: string,
-    metricDef: MetricDefinition,
+    _metricDef: MetricDefinition,
   ): Promise<{ value: number; cid: string; createdAt: string } | undefined> {
-    // Load evaluation-mode contributions with scores for this metric.
-    // This uses list() which is a table scan, but scoped to evaluation mode.
-    // Future optimization: add a dedicated bestScore query to the store.
-    const contributions = await this.contributionStore.list({
-      mode: ContributionMode.Evaluation,
-    });
-
-    let best: { value: number; cid: string; createdAt: string } | undefined;
-    const isMinimize = metricDef.direction === "minimize";
-
-    for (const c of contributions) {
-      const score = c.scores?.[metricName];
-      if (score === undefined) continue;
-
-      if (
-        best === undefined ||
-        (isMinimize ? score.value < best.value : score.value > best.value)
-      ) {
-        best = { value: score.value, cid: c.cid, createdAt: c.createdAt };
+    // Populate cache on first access (cold start)
+    if (this.bestScoreCache === undefined) {
+      this.bestScoreCache = new Map();
+      const contributions = await this.contributionStore.list({
+        mode: ContributionMode.Evaluation,
+      });
+      for (const c of contributions) {
+        this.updateCacheFromContribution(c);
       }
     }
 
-    return best;
+    // If the caller-specified direction doesn't match what was cached,
+    // the cache is still correct — it was populated using contract metric definitions.
+    // But fall back for metrics not in the contract.
+    const cached = this.bestScoreCache.get(metricName);
+    if (cached !== undefined) return cached;
+
+    // Metric not found in cache — no evaluation-mode contributions have this score
+    return undefined;
+  }
+
+  /**
+   * Update the best-score cache with scores from a single contribution.
+   * Called during cache warm-up and when processing new contributions.
+   */
+  private updateCacheFromContribution(c: Contribution): void {
+    if (!c.scores) return;
+    for (const [name, score] of Object.entries(c.scores)) {
+      const metricDef = this.contract.metrics?.[name];
+      if (!metricDef) continue;
+      const existing = this.bestScoreCache?.get(name);
+      const isMinimize = metricDef.direction === "minimize";
+      if (
+        existing === undefined ||
+        (isMinimize ? score.value < existing.value : score.value > existing.value)
+      ) {
+        this.bestScoreCache?.set(name, { value: score.value, cid: c.cid, createdAt: c.createdAt });
+      }
+    }
+  }
+
+  /**
+   * Update the cache after a new contribution is enforced.
+   * Called from enforce() so subsequent gate/outcome/stop checks
+   * within the same call reflect the new contribution's scores.
+   */
+  updateCacheForContribution(contribution: Contribution): void {
+    if (this.bestScoreCache !== undefined && contribution.mode === ContributionMode.Evaluation) {
+      this.updateCacheFromContribution(contribution);
+    }
   }
 }

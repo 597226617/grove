@@ -752,6 +752,201 @@ describe("PolicyEnforcer: stop conditions", () => {
 });
 
 // ---------------------------------------------------------------------------
+// max_rounds_without_improvement stop condition
+// ---------------------------------------------------------------------------
+
+describe("PolicyEnforcer: max_rounds_without_improvement", () => {
+  test("stagnation triggers stop when no metric improved in last N contributions", async () => {
+    const contract = makeContract({
+      mode: "evaluation",
+      metrics: { val_bpb: { direction: "minimize" } },
+      stopConditions: { maxRoundsWithoutImprovement: 3 },
+    });
+
+    // Best score was the first contribution, then 3 subsequent ones didn't improve
+    const t0 = "2025-01-01T00:00:00Z";
+    const t1 = "2025-01-01T00:01:00Z";
+    const t2 = "2025-01-01T00:02:00Z";
+    const t3 = "2025-01-01T00:03:00Z";
+    const store = makeStore([
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(0.9) }, createdAt: t0 }),
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(0.95) }, createdAt: t1 }),
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(0.92) }, createdAt: t2 }),
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(0.94) }, createdAt: t3 }),
+    ]);
+
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "work",
+      mode: "evaluation",
+      scores: { val_bpb: score(0.93) },
+      createdAt: "2025-01-01T00:04:00Z",
+    });
+
+    const result = await enforcer.enforce(contribution, false);
+    expect(result.stopResult?.stopped).toBe(true);
+    expect(result.stopResult?.reason).toContain("No metric improved");
+  });
+
+  test("improvement resets the counter — no stop when best score is recent", async () => {
+    const contract = makeContract({
+      mode: "evaluation",
+      metrics: { val_bpb: { direction: "minimize" } },
+      stopConditions: { maxRoundsWithoutImprovement: 3 },
+    });
+
+    // Best score is the most recent contribution
+    const t0 = "2025-01-01T00:00:00Z";
+    const t1 = "2025-01-01T00:01:00Z";
+    const t2 = "2025-01-01T00:02:00Z";
+    const store = makeStore([
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(1.0) }, createdAt: t0 }),
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(0.95) }, createdAt: t1 }),
+      makeContribution({ mode: "evaluation", scores: { val_bpb: score(0.85) }, createdAt: t2 }),
+    ]);
+
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "work",
+      mode: "evaluation",
+      scores: { val_bpb: score(0.92) },
+      createdAt: "2025-01-01T00:03:00Z",
+    });
+
+    const result = await enforcer.enforce(contribution, false);
+    expect(result.stopResult?.stopped).toBe(false);
+  });
+
+  test("respects direction — maximize metric uses correct best", async () => {
+    const contract = makeContract({
+      mode: "evaluation",
+      metrics: { accuracy: { direction: "maximize" } },
+      stopConditions: { maxRoundsWithoutImprovement: 2 },
+    });
+
+    // Best maximize score (0.95) was the first contribution, then 2 non-improvements
+    const t0 = "2025-01-01T00:00:00Z";
+    const t1 = "2025-01-01T00:01:00Z";
+    const t2 = "2025-01-01T00:02:00Z";
+    const store = makeStore([
+      makeContribution({
+        mode: "evaluation",
+        scores: { accuracy: score(0.95, "maximize") },
+        createdAt: t0,
+      }),
+      makeContribution({
+        mode: "evaluation",
+        scores: { accuracy: score(0.8, "maximize") },
+        createdAt: t1,
+      }),
+      makeContribution({
+        mode: "evaluation",
+        scores: { accuracy: score(0.85, "maximize") },
+        createdAt: t2,
+      }),
+    ]);
+
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "work",
+      mode: "evaluation",
+      scores: { accuracy: score(0.82, "maximize") },
+      createdAt: "2025-01-01T00:03:00Z",
+    });
+
+    const result = await enforcer.enforce(contribution, false);
+    expect(result.stopResult?.stopped).toBe(true);
+  });
+
+  test("single contribution — not enough rounds to trigger stop", async () => {
+    const contract = makeContract({
+      mode: "evaluation",
+      metrics: { val_bpb: { direction: "minimize" } },
+      stopConditions: { maxRoundsWithoutImprovement: 3 },
+    });
+
+    const store = makeStore([
+      makeContribution({
+        mode: "evaluation",
+        scores: { val_bpb: score(1.0) },
+        createdAt: "2025-01-01T00:00:00Z",
+      }),
+    ]);
+
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "work",
+      mode: "evaluation",
+      scores: { val_bpb: score(0.95) },
+      createdAt: "2025-01-01T00:01:00Z",
+    });
+
+    const result = await enforcer.enforce(contribution, false);
+    expect(result.stopResult?.stopped).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Strict mode: violations throw for all types (not just role-kind)
+// ---------------------------------------------------------------------------
+
+describe("PolicyEnforcer: strict mode throws for all violation types", () => {
+  test("missing score → throws PolicyViolationError in strict mode", async () => {
+    const contract = makeContract({
+      mode: "evaluation",
+      metrics: { val_bpb: { direction: "minimize" } },
+      gates: [{ type: "metric_improves", metric: "val_bpb" }],
+    });
+
+    const store = makeStore();
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "work",
+      mode: "evaluation",
+      scores: {}, // Missing val_bpb
+    });
+
+    await expect(enforcer.enforce(contribution, true)).rejects.toThrow(PolicyViolationError);
+  });
+
+  test("missing required relation → throws PolicyViolationError in strict mode", async () => {
+    const contract = makeContract({
+      agentConstraints: {
+        requiredRelations: { review: ["reviews"] },
+      },
+    });
+
+    const store = makeStore();
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "review",
+      mode: "evaluation",
+      relations: [], // Missing required reviews relation
+    });
+
+    await expect(enforcer.enforce(contribution, true)).rejects.toThrow(PolicyViolationError);
+  });
+
+  test("missing required artifact → throws PolicyViolationError in strict mode", async () => {
+    const contract = makeContract({
+      agentConstraints: {
+        requiredArtifacts: { work: ["diff.patch"] },
+      },
+    });
+
+    const store = makeStore();
+    const enforcer = new PolicyEnforcer(contract, store);
+    const contribution = makeContribution({
+      kind: "work",
+      mode: "evaluation",
+      artifacts: {}, // Missing required diff.patch artifact
+    });
+
+    await expect(enforcer.enforce(contribution, true)).rejects.toThrow(PolicyViolationError);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Empty store edge cases
 // ---------------------------------------------------------------------------
 

@@ -29,7 +29,7 @@ export const theme = {
   // Text
   text: "#ffffff",
   muted: "#888888",
-  dimmed: "#666666",
+  dimmed: "#777777",
   disabled: "#555555",
 
   // Surfaces
@@ -68,6 +68,21 @@ export const PLATFORM_COLORS: Readonly<Record<string, string>> = {
   codex: "#0088ff",
   gemini: "#00cc88",
   custom: "#888888",
+};
+
+/**
+ * Contribution kind icons for color-independent identification.
+ * Uses box-drawing / geometric characters for accessibility.
+ */
+export const KIND_ICONS: Readonly<Record<string, string>> = {
+  work: "\u2592", // ▒
+  review: "\u25b7", // ▷
+  discussion: "\u25c7", // ◇
+  ask_user: "\u2753", // ❓
+  response: "\u25b6", // ▶
+  plan: "\u25a1", // □
+  reproduction: "\u25d0", // ◐
+  adoption: "\u25b2", // ▲
 };
 
 /** Braille spinner frames for animated agent status (item 8). */
