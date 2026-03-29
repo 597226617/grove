@@ -143,13 +143,15 @@ export class AcpxRuntime implements AgentRuntime {
     // Wrap message with system-reminder that enforces MCP tool usage
     // (Relay pattern: agents "forget" tools without per-message reinforcement)
     const wrappedMessage = `<system-reminder>
-You MUST call grove_contribute after completing work or a review.
-Example: grove_contribute({ kind: "work", summary: "what you did", agent: { role: "${entry.session.role}" } })
-Without calling grove_contribute, other agents cannot see your work.
+After completing work: call grove_submit_work with summary and artifacts (file path to CAS hash map).
+After reviewing work: call grove_submit_review with targetCid, summary, and scores (at least one required).
+Example: grove_submit_work({ summary: "what you did", artifacts: {"file.ts": "blake3:..."}, agent: { role: "${entry.session.role}" } })
+Example: grove_submit_review({ targetCid: "blake3:...", summary: "review feedback", scores: {"correctness": {"value": 0.9, "direction": "maximize"}}, agent: { role: "${entry.session.role}" } })
+Without calling these tools, other agents cannot see your work.
 
 CRITICAL RULE ABOUT grove_done:
 - Do NOT call grove_done after contributing. grove_done ends the ENTIRE session.
-- After calling grove_contribute, STOP and WAIT for a message from the system.
+- After calling grove_submit_work or grove_submit_review, STOP and WAIT for a message from the system.
 - If you are a coder: NEVER call grove_done. Only the reviewer ends the session.
 - If you are a reviewer: Call grove_done AFTER you approve the coder's work (no more issues to fix).
 Violating this rule will terminate the session prematurely and lose work.

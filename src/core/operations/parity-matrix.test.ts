@@ -16,8 +16,9 @@ const SHARED_OPERATIONS_MCP: ReadonlyArray<{
   operation: string;
   mcpTool: string;
 }> = [
-  { operation: "contributeOperation", mcpTool: "grove_contribute" },
-  { operation: "reviewOperation", mcpTool: "grove_review" },
+  { operation: "contributeOperation", mcpTool: "grove_submit_work" },
+  { operation: "reviewOperation", mcpTool: "grove_submit_review" },
+  { operation: "adoptOperation", mcpTool: "grove_adopt" },
   { operation: "reproduceOperation", mcpTool: "grove_reproduce" },
   { operation: "discussOperation", mcpTool: "grove_discuss" },
   { operation: "claimOperation", mcpTool: "grove_claim" },
@@ -68,6 +69,7 @@ describe("parity matrix: operations layer exports", () => {
     const ops = await import("./index.js");
 
     const expectedExports = [
+      "adoptOperation",
       "contributeOperation",
       "reviewOperation",
       "reproduceOperation",

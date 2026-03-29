@@ -357,7 +357,7 @@ bun run src/mcp/serve-http.ts
 
 | Tool family | Tools |
 | --- | --- |
-| Contributions | `grove_contribute`, `grove_review`, `grove_reproduce`, `grove_discuss` |
+| Contributions | `grove_submit_work`, `grove_submit_review`, `grove_reproduce`, `grove_discuss` |
 | Claims | `grove_claim`, `grove_release` |
 | Queries | `grove_frontier`, `grove_search`, `grove_log`, `grove_tree`, `grove_thread` |
 | Workspace | `grove_checkout` |
