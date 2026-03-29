@@ -170,9 +170,25 @@ function readNexusUrlFromConfig(
 
       return none;
     } catch {
-      // Fall back to untyped parse for legacy grove.json files
-      const parsed = JSON.parse(raw) as { nexusUrl?: string };
+      // Fall back to untyped parse (e.g., when zod isn't available in test/CI)
+      const parsed = JSON.parse(raw) as {
+        nexusUrl?: string;
+        nexusManaged?: boolean;
+        mode?: string;
+      };
       if (parsed.nexusUrl) return { url: parsed.nexusUrl, fromExplicit: true };
+
+      // Managed Nexus fallback: discover from nexus.yaml
+      if (parsed.nexusManaged && parsed.mode === "nexus") {
+        try {
+          const { readNexusUrl } =
+            require("../cli/nexus-lifecycle.js") as typeof import("../cli/nexus-lifecycle.js");
+          const yamlUrl = readNexusUrl(join(groveDir, ".."));
+          if (yamlUrl) return { url: yamlUrl, fromExplicit: false };
+        } catch {
+          // nexus-lifecycle not available
+        }
+      }
       return none;
     }
   } catch {
