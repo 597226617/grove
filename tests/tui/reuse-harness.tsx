@@ -8,8 +8,6 @@
  * Used by session-reuse-e2e.test.ts via tmux capture-pane.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: test harness — mock provider shape doesn't need strict types
-// biome-ignore lint/correctness/noUnusedImports: React is needed for JSX transform
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
